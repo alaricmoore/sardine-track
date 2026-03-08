@@ -49,6 +49,49 @@ def today():
 
 
 # ============================================================
+# Users
+# ============================================================
+
+def get_user_by_id(user_id: int) -> Optional[dict]:
+    """Fetch a user by primary key. Returns dict or None."""
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT * FROM users WHERE id = ?", (user_id,)
+        ).fetchone()
+        return dict(row) if row else None
+
+
+def get_user_by_username(username: str) -> Optional[dict]:
+    """Fetch a user by username. Returns dict or None."""
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT * FROM users WHERE username = ?", (username,)
+        ).fetchone()
+        return dict(row) if row else None
+
+
+def create_user(username: str, display_name: str, password_hash: str,
+                is_admin: bool = False) -> int:
+    """Create a new user. Returns the new user's id."""
+    with get_db() as conn:
+        cursor = conn.execute(
+            """INSERT INTO users (username, display_name, password_hash, is_admin)
+               VALUES (?, ?, ?, ?)""",
+            (username, display_name, password_hash, int(is_admin))
+        )
+        return cursor.lastrowid
+
+
+def get_all_users() -> list:
+    """Return all users as a list of dicts."""
+    with get_db() as conn:
+        rows = conn.execute(
+            "SELECT id, username, display_name, is_admin, created_at FROM users"
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+# ============================================================
 # daily_observations
 # ============================================================
 

@@ -139,6 +139,21 @@ def create_database():
     c.execute("PRAGMA journal_mode=WAL")
 
     # --------------------------------------------------------
+    # users
+    # Authentication and identity for multi-user support
+    # --------------------------------------------------------
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            username      TEXT NOT NULL UNIQUE,
+            display_name  TEXT NOT NULL,
+            password_hash TEXT NOT NULL,
+            is_admin      INTEGER DEFAULT 0,
+            created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+        )
+    """)
+
+    # --------------------------------------------------------
     # daily_observations
     # Core symptom and biometric data, one row per day
     # --------------------------------------------------------
@@ -413,6 +428,7 @@ def verify_setup():
     conn.close()
 
     expected = [
+        "users",
         "daily_observations",
         "uv_data",
         "lab_results",

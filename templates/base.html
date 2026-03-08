@@ -219,7 +219,7 @@
         }
 
         .header-inner {
-            max-width: 900px;
+            max-width: 1200px;
             margin: 0 auto;
             display: flex;
             align-items: center;
@@ -242,9 +242,10 @@
         /* Mobile nav */
         .nav-links {
             display: flex;
-            gap: var(--space-md);
+            gap: var(--space-sm);
             list-style: none;
             flex-wrap: wrap;
+            align-items: center;
         }
 
         .nav-links a {
@@ -790,10 +791,10 @@
                         search
                     </a></li>
                     {% endif %}
-                    <li style="margin-left: auto; display: flex; align-items: center; gap: 0.25rem;">
-                        <button id="theme-toggle" 
-                                style="background: var(--bg-elevated); 
-                                       border: 1px solid var(--border-subtle); 
+                    <li style="margin-left: auto; display: flex; align-items: center; gap: 0.5rem;">
+                        <button id="theme-toggle"
+                                style="background: var(--bg-elevated);
+                                       border: 1px solid var(--border-subtle);
                                        border-radius: 20px;
                                        padding: 0.25rem;
                                        cursor: pointer;
@@ -801,26 +802,35 @@
                                        gap: 0.25rem;
                                        transition: all 0.2s;"
                                 aria-label="Toggle light/dark theme">
-                            <span class="theme-option" id="theme-dark" 
-                                  style="padding: 0.25rem 0.5rem; 
-                                         border-radius: 16px; 
+                            <span class="theme-option" id="theme-dark"
+                                  style="padding: 0.25rem 0.5rem;
+                                         border-radius: 16px;
                                          font-size: 0.9rem;
                                          transition: all 0.2s;
                                          cursor: pointer;">
                                 ☽
                             </span>
-                            <span class="theme-option" id="theme-light" 
-                                  style="padding: 0.25rem 0.5rem; 
-                                         border-radius: 16px; 
+                            <span class="theme-option" id="theme-light"
+                                  style="padding: 0.25rem 0.5rem;
+                                         border-radius: 16px;
                                          font-size: 0.9rem;
                                          transition: all 0.2s;
                                          cursor: pointer;">
                                 ✯
                             </span>
                         </button>
+                        {% if current_user.is_authenticated %}
+                        <span style="color:var(--text-muted); font-size:0.8rem;">
+                            {{ current_user.display_name }}
+                        </span>
+                        <a href="{{ url_for('logout') }}"
+                           style="color:var(--text-muted); font-size:0.8rem; text-decoration:none; opacity:0.7;">
+                            logout
+                        </a>
+                        {% endif %}
                     </li>
                 </ul>
-            </li>
+            </nav>
         </div>
     </header>
 

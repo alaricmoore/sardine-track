@@ -19,6 +19,9 @@ from datetime import date, datetime, timedelta
 
 from flask import Flask, jsonify, render_template, request, redirect, url_for, Response, session
 
+import bcrypt
+from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
+
 import db
 import uv_fetcher
 import zipfile
@@ -411,14 +414,55 @@ app.secret_key = _secret
 from flask_wtf.csrf import CSRFProtect
 csrf = CSRFProtect(app)
 
+# ============================================================
+# Flask-Login setup
+# ============================================================
+
+login_manager = LoginManager(app)
+login_manager.login_view = 'login'
+login_manager.login_message = None  # suppress default flash message
+
+
+class User(UserMixin):
+    """Wraps a user dict from the database for Flask-Login."""
+    def __init__(self, user_dict):
+        self._data = user_dict
+
+    def get_id(self):
+        return str(self._data['id'])
+
+    @property
+    def id(self):
+        return self._data['id']
+
+    @property
+    def username(self):
+        return self._data['username']
+
+    @property
+    def display_name(self):
+        return self._data['display_name']
+
+    @property
+    def is_admin(self):
+        return bool(self._data.get('is_admin'))
+
+
+@login_manager.user_loader
+def load_user(user_id):
+    """Load user by ID for Flask-Login session management."""
+    user_dict = db.get_user_by_id(int(user_id))
+    if user_dict:
+        return User(user_dict)
+    return None
+
 
 @app.before_request
-def require_passcode():
-    if not CONFIG.get('passcode'):
+def require_login():
+    """Redirect unauthenticated users to login page."""
+    if request.endpoint in ('login', 'static'):
         return
-    if request.endpoint in ('login', 'logout', 'static'):
-        return
-    if not session.get('authenticated'):
+    if not current_user.is_authenticated:
         return redirect(url_for('login'))
 
 
@@ -625,6 +669,7 @@ def inject_globals():
         "app_version": CONFIG.get("app_version", "2.0.0"),
         "track_cycle": CONFIG.get("track_cycle", False),
         "config": CONFIG,
+        "current_user": current_user,
     }
 
 
@@ -641,22 +686,28 @@ def index():
 @app.route("/login", methods=["GET", "POST"])
 @csrf.exempt
 def login():
-    """Optional passcode login. Only active when 'passcode' is set in config.json."""
-    if not CONFIG.get('passcode'):
+    """Username + password login."""
+    if current_user.is_authenticated:
         return redirect(url_for('index'))
     error = None
     if request.method == "POST":
-        if request.form.get("passcode") == CONFIG.get("passcode"):
-            session['authenticated'] = True
-            session.permanent = False
-            return redirect(url_for("index"))
-        error = "Incorrect passcode."
+        username = request.form.get("username", "").strip().lower()
+        password = request.form.get("password", "")
+        user_dict = db.get_user_by_username(username)
+        if user_dict and bcrypt.checkpw(password.encode('utf-8'),
+                                         user_dict['password_hash'].encode('utf-8')):
+            user = User(user_dict)
+            remember = bool(request.form.get("remember"))
+            login_user(user, remember=remember)
+            next_page = request.args.get('next')
+            return redirect(next_page or url_for("index"))
+        error = "Invalid username or password."
     return render_template("login.html", error=error)
 
 
 @app.route("/logout")
 def logout():
-    session.clear()
+    logout_user()
     return redirect(url_for("login"))
 
 

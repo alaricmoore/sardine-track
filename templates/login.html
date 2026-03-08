@@ -10,7 +10,7 @@
                 bio<span style="color:var(--color-accent);">tracking</span>
             </div>
             <p style="color:var(--text-muted); font-size:0.875rem; margin:0;">
-                enter your passcode to continue
+                sign in to continue
             </p>
         </div>
 
@@ -22,13 +22,26 @@
 
         <form method="POST" action="{{ url_for('login') }}">
             <div class="form-group">
-                <label for="passcode">passcode</label>
-                <input type="password" id="passcode" name="passcode"
-                       autofocus autocomplete="current-password"
-                       style="letter-spacing:0.2em;">
+                <label for="username">username</label>
+                <input type="text" id="username" name="username"
+                       autofocus autocomplete="username"
+                       required>
+            </div>
+            <div class="form-group">
+                <label for="password">password</label>
+                <input type="password" id="password" name="password"
+                       autocomplete="current-password"
+                       required>
+            </div>
+            <div class="form-group" style="display:flex; align-items:center; gap:var(--space-sm);">
+                <input type="checkbox" id="remember" name="remember" value="1"
+                       style="width:auto; margin:0;">
+                <label for="remember" style="margin:0; font-size:0.875rem; color:var(--text-secondary);">
+                    remember me
+                </label>
             </div>
             <button type="submit" class="btn btn-primary btn-full">
-                unlock
+                sign in
             </button>
         </form>
     </div>
