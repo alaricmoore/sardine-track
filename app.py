@@ -3714,7 +3714,7 @@ if __name__ == "__main__":
     print(f"Phone:  connect to same wifi, visit http://<your-mac-ip>:5000\n")
 
     app.run(
-        host="0.0.0.0",   # accessible from phone on same network
+        host="127.0.0.1",  
         port=5000,
         debug=CONFIG.get('debug', False),
     )
