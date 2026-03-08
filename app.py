@@ -581,6 +581,7 @@ def inject_globals():
     """Inject values available in every template."""
     return {
         "patient_name": CONFIG.get("patient_name", ""),
+        "patient_dob": CONFIG.get("patient_dob", ""),
         "today": date.today().isoformat(),
         "app_version": CONFIG.get("app_version", "2.0.0"),
         "track_cycle": CONFIG.get("track_cycle", False),
@@ -1679,6 +1680,15 @@ import csv
 from io import StringIO
 from flask import Response
 
+
+def _write_patient_header(writer):
+    """Write patient name/DOB metadata rows at the top of a CSV export."""
+    name = CONFIG.get("patient_name", "")
+    dob = CONFIG.get("patient_dob", "")
+    writer.writerow(["Patient:", name, "DOB:", dob])
+    writer.writerow(["Export date:", date.today().isoformat()])
+    writer.writerow([])
+
 @app.route("/export/labs")
 def export_labs():
     """Export lab results as CSV within date range."""
@@ -1701,7 +1711,8 @@ def export_labs():
     # Create CSV
     output = StringIO()
     writer = csv.writer(output)
-    
+    _write_patient_header(writer)
+
     # Write header
     writer.writerow([
         'Date',
@@ -1758,7 +1769,8 @@ def export_clinicians():
     # Create CSV
     output = StringIO()
     writer = csv.writer(output)
-    
+    _write_patient_header(writer)
+
     # Write header
     writer.writerow([
         'Name',
@@ -1834,7 +1846,8 @@ def export_medications():
     # Create CSV
     output = StringIO()
     writer = csv.writer(output)
-    
+    _write_patient_header(writer)
+
     # Write header
     writer.writerow([
         'Drug Name',
@@ -1916,7 +1929,8 @@ def export_events():
     # Create CSV
     output = StringIO()
     writer = csv.writer(output)
-    
+    _write_patient_header(writer)
+
     # Write header
     writer.writerow([
         'Date',
@@ -3627,6 +3641,7 @@ def clinical_report():
         tracking_start=tracking_start,
         tracking_end=tracking_end,
         patient_name=CONFIG.get("patient_name", ""),
+        patient_dob=CONFIG.get("patient_dob", ""),
         primary_intervention_name=intervention_name,
         primary_intervention_date=intervention_date,
         observations=observations,

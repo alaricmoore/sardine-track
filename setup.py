@@ -29,36 +29,59 @@ def prompt(message, default=None):
     return result
 
 
+def load_existing_config() -> dict:
+    """Load existing config.json if it exists, so re-runs preserve current values."""
+    if os.path.exists(CONFIG_FILE):
+        try:
+            with open(CONFIG_FILE) as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {}
+
+
 def create_config():
     """Walk the user through creating their local config file."""
     print("\n--- biotracking first-time setup ---")
-    print("This config file is gitignored and stays on your machine only.\n")
+    print("This config file is gitignored and stays on your machine only.")
+    print("Re-running setup will not erase existing values unless you change them.\n")
 
+    existing = load_existing_config()
     config = {}
 
-    config["patient_name"] = prompt("Your name or identifier (used in exports only)")
+    config["patient_name"] = prompt("Your name or identifier (used in exports and reports)",
+                                    default=existing.get("patient_name"))
+    config["patient_dob"] = prompt("Date of birth (YYYY-MM-DD, used in clinic exports)",
+                                   default=existing.get("patient_dob"))
 
     print("\nLocation is used only to pull UV index data from a weather API.")
     print("It is stored locally in config.json and never sent with any health data.\n")
-    config["location_lat"] = float(prompt("Latitude (e.g. 35.4676 for Oklahoma City)"))
-    config["location_lon"] = float(prompt("Longitude (e.g. -97.5164 for Oklahoma City)"))
-    config["timezone"] = prompt("Timezone", default="America/Chicago")
+    config["location_lat"] = float(prompt("Latitude (e.g. 35.4676 for Oklahoma City)",
+                                          default=existing.get("location_lat")))
+    config["location_lon"] = float(prompt("Longitude (e.g. -97.5164 for Oklahoma City)",
+                                          default=existing.get("location_lon")))
+    config["timezone"] = prompt("Timezone", default=existing.get("timezone", "America/Chicago"))
 
     print("\nBaseline values help calculate meaningful deltas over time.")
     config["temp_baseline_f"] = float(
-        prompt("Your baseline wrist temperature in °F (e.g. 97.4)")
+        prompt("Your baseline wrist temperature in °F (e.g. 97.4)",
+               default=existing.get("temp_baseline_f"))
     )
 
     print("\nPrimary intervention tracking (optional):")
     print("If you're on a disease-modifying medication (e.g., hydroxychloroquine,")
     print("methotrexate, rituximab), you can track its start date to measure")
     print("pre/post effects on HRV and symptoms. You can skip this and add it later.")
-    
-    track_intervention = prompt("Track a primary intervention? (y/n)", default="n").lower()
-    
+
+    existing_intervention = existing.get("primary_intervention") or {}
+    track_intervention = prompt("Track a primary intervention? (y/n)",
+                                default="y" if existing_intervention else "n").lower()
+
     if track_intervention == "y":
-        intervention_name = prompt("Medication name (e.g., hydroxychloroquine)")
-        intervention_date = prompt("Start date (YYYY-MM-DD)")
+        intervention_name = prompt("Medication name (e.g., hydroxychloroquine)",
+                                   default=existing_intervention.get("name"))
+        intervention_date = prompt("Start date (YYYY-MM-DD)",
+                                   default=existing_intervention.get("start_date"))
         config["primary_intervention"] = {
             "name": intervention_name,
             "start_date": intervention_date
@@ -69,12 +92,34 @@ def create_config():
     print("\nOptional: menstrual cycle tracking")
     print("Adds a cycle card to daily entries and a month-grid calendar at /cycle.")
     print("Includes BBT-based ovulation detection and flare/intervention correlation.")
-    track_cycle = prompt("Track menstrual cycle? (y/n)", default="n").lower()
+    track_cycle = prompt("Track menstrual cycle? (y/n)",
+                         default="y" if existing.get("track_cycle") else "n").lower()
     config["track_cycle"] = track_cycle == "y"
 
+    print("\nOptional: push notifications via ntfy.sh")
+    print("Used for medication dose reminders and flare risk alerts.")
+    print("Create a free topic at https://ntfy.sh — subscribe to it in the ntfy app.\n")
+    ntfy_topic = prompt("ntfy topic name (leave blank to skip)",
+                        default=existing.get("ntfy_topic", ""))
+    config["ntfy_topic"] = ntfy_topic if ntfy_topic else existing.get("ntfy_topic", "")
+    if config["ntfy_topic"]:
+        config["ntfy_server"] = prompt("ntfy server URL",
+                                       default=existing.get("ntfy_server", "https://ntfy.sh"))
+
+    print("\nOptional: Visual Crossing API key")
+    print("Used to backfill historical UV data beyond Open-Meteo's 16-day limit.")
+    print("Free tier available at https://www.visualcrossing.com/weather-api\n")
+    vc_key = prompt("Visual Crossing API key (leave blank to skip)",
+                    default=existing.get("visual_crossing_api_key", ""))
+    config["visual_crossing_api_key"] = vc_key if vc_key else existing.get("visual_crossing_api_key", "")
+
     config["app_version"] = "2.0.0"
-    config["debug"] = False
-    config["secret_key"] = secrets.token_hex(32)
+    config["debug"] = existing.get("debug", False)
+    # Preserve existing secret_key — regenerating it invalidates active sessions
+    config["secret_key"] = existing.get("secret_key") or secrets.token_hex(32)
+    # Preserve passcode if set
+    if existing.get("passcode"):
+        config["passcode"] = existing["passcode"]
 
     with open(CONFIG_FILE, "w") as f:
         json.dump(config, f, indent=2)

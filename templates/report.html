@@ -36,6 +36,7 @@
         {{ patient_name or 'Patient' }} — Health Tracking Report
     </h1>
     <div style="font-size:0.85rem; color:#444; line-height:1.8;">
+        {% if patient_dob %}DOB: {{ patient_dob }} &nbsp;|&nbsp; {% endif %}
         Period: {{ start_date }} to {{ end_date }}
         ({{ observations|length }} observation days) &nbsp;|&nbsp;
         Generated: {{ today }}
@@ -91,6 +92,9 @@
         <div style="margin-bottom:var(--space-xs);">
             <strong style="color:var(--text-primary);">Patient:</strong>
             {{ patient_name or 'not specified' }}
+            {% if patient_dob %}
+            <span style="color:var(--text-muted);">&nbsp;· DOB: {{ patient_dob }}</span>
+            {% endif %}
         </div>
         <div style="margin-bottom:var(--space-xs);">
             <strong style="color:var(--text-primary);">Report period:</strong>
