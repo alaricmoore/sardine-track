@@ -1,0 +1,20 @@
+{
+  "patient_name": "Your Name",
+  "patient_dob": "1990-01-01",
+  "location_lat": 35.4676,
+  "location_lon": -97.5164,
+  "timezone": "America/Chicago",
+  "temp_baseline_f": 97.4,
+  "primary_intervention": {
+    "name": "medication_name",
+    "start_date": "2025-01-01"
+  },
+  "track_cycle": false,
+  "ntfy_topic": "your-unique-topic-name",
+  "ntfy_server": "https://ntfy.sh",
+  "visual_crossing_api_key": "YOUR_API_KEY_HERE",
+  "app_version": "2.0.0",
+  "debug": false,
+  "secret_key": "generate-a-random-hex-string-here",
+  "passcode": "0000"
+}

@@ -1,0 +1,10 @@
+{
+  "cognitive": 1,
+  "dermatological": 0.75,
+  "migraine": 0.5,
+  "mucosal": 0.25,
+  "musculature": 2.5,
+  "neurological": 1.5,
+  "pulmonary": 1,
+  "rheumatic": 0.5
+}

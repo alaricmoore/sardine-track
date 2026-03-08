@@ -1,96 +1,36 @@
-# ============================================================
-# PRIVACY-CRITICAL: These files must NEVER be committed
-# ============================================================
+# Database files
+*.db
+*.db.bak
+*.db-journal
 
-# Patient config - contains location coordinates and baseline values
+# Config with secrets (API keys, secret_key, passcode)
 config.json
 
-# The database itself - contains all health data
-*.db
-*.sqlite
-*.sqlite3
-*.csv
-
-# Apple Health exports - sensitive health data
-Export.xml
-apple_health_export/
-*.zip
-*.numbers
-
-
-# ============================================================
-# Python
-# ============================================================
-
-# Virtual environment
-.venv/
-venv/
-env/
-
-# Compiled Python
-__pycache__/
-*.py[cod]
-*.pyo
-*.pyd
-.Python
-
-# Distribution / packaging
-build/
-dist/
-*.egg-info/
-.eggs/
-
-# pytest
-.pytest_cache/
-.coverage
-htmlcov/
-
-# mypy
-.mypy_cache/
-
-# ============================================================
-# Environment and secrets
-# ============================================================
-
-.env
-.env.local
-.env.*.local
-
-# ============================================================
-# OS files
-# ============================================================
-
-# macOS
-.DS_Store
-.AppleDouble
-.LSOverride
-Icon?
-._*
-.Spotlight-V100
-.Trashes
-
-
-# ============================================================
-# Editors
-# ============================================================
-
-# VSCode - keep launch.json and extensions out
-.vscode/settings.json
-.vscode/launch.json
-
-# ============================================================
-# Exports and generated outputs
-# ============================================================
-
-# Doctor-facing PDF exports should not be committed
-exports/
-*.pdf
-
-# Custom model weights (personal tuning)
-config/custom_weights.json
-
-# Flare alert state (daily send tracking)
+# Ephemeral alert state
 config/flare_alert_state.json
+config/uv_alert_state.json
 
-# This keeps your personal model tuning out of version control
-# while allowing the config/ directory structure to be tracked
+# Personal health data
+*.csv
+flare_data_lab_results/
+apple_health_export.csv
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+*.egg
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Images (user-uploaded)
+images/
