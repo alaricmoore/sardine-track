@@ -1,0 +1,161 @@
+{% extends "base.html" %}
+
+{% block title %}settings — biotracking{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>settings</h1>
+    <p class="page-subtitle">{{ current_user.display_name }} ({{ current_user.username }})</p>
+</div>
+
+{% if saved %}
+<div class="card" style="border-color: var(--color-success); margin-bottom: var(--space-lg);">
+    <p style="color: var(--color-success); margin: 0; font-size: 0.9rem;">
+        Settings saved.
+    </p>
+</div>
+{% endif %}
+
+<form method="POST" action="{{ url_for('settings') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+    <!-- Identity -->
+    <div class="card">
+        <div class="card-title">identity</div>
+        <div class="form-group">
+            <label for="patient_name">name (used in reports and exports)</label>
+            <input type="text" id="patient_name" name="patient_name"
+                   value="{{ prefs.patient_name or '' }}">
+        </div>
+        <div class="form-group">
+            <label for="patient_dob">date of birth</label>
+            <input type="date" id="patient_dob" name="patient_dob"
+                   value="{{ prefs.patient_dob or '' }}">
+        </div>
+    </div>
+
+    <!-- Location -->
+    <div class="card">
+        <div class="card-title">location</div>
+        <p style="color: var(--text-muted); font-size: 0.8rem; margin-top: 0; margin-bottom: var(--space-md);">
+            Used only to pull UV index data from a weather API.
+            Never sent with any health data.
+        </p>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-md);">
+            <div class="form-group">
+                <label for="location_lat">latitude</label>
+                <input type="number" id="location_lat" name="location_lat"
+                       step="0.0001" value="{{ prefs.location_lat or '' }}"
+                       placeholder="e.g. 35.4676">
+            </div>
+            <div class="form-group">
+                <label for="location_lon">longitude</label>
+                <input type="number" id="location_lon" name="location_lon"
+                       step="0.0001" value="{{ prefs.location_lon or '' }}"
+                       placeholder="e.g. -97.5164">
+            </div>
+        </div>
+        <div class="form-group">
+            <label for="timezone">timezone</label>
+            <input type="text" id="timezone" name="timezone"
+                   value="{{ prefs.timezone or 'America/Chicago' }}"
+                   placeholder="America/Chicago">
+        </div>
+    </div>
+
+    <!-- Baselines -->
+    <div class="card">
+        <div class="card-title">baselines</div>
+        <div class="form-group">
+            <label for="temp_baseline_f">wrist temperature baseline (F)</label>
+            <input type="number" id="temp_baseline_f" name="temp_baseline_f"
+                   step="0.1" value="{{ prefs.temp_baseline_f or 97.4 }}">
+        </div>
+    </div>
+
+    <!-- Features -->
+    <div class="card">
+        <div class="card-title">features</div>
+        <div class="form-group" style="display: flex; align-items: center; gap: var(--space-sm);">
+            <input type="checkbox" id="track_cycle" name="track_cycle" value="1"
+                   {{ 'checked' if prefs.track_cycle else '' }}
+                   style="width: auto; margin: 0;">
+            <label for="track_cycle" style="margin: 0;">
+                track menstrual cycle
+            </label>
+        </div>
+        <p style="color: var(--text-muted); font-size: 0.8rem; margin-top: 0;">
+            Adds cycle card to daily entries, month-grid calendar at /cycle,
+            BBT-based ovulation detection, and flare/cycle correlation.
+        </p>
+    </div>
+
+    <!-- Primary intervention -->
+    <div class="card">
+        <div class="card-title">primary intervention</div>
+        <p style="color: var(--text-muted); font-size: 0.8rem; margin-top: 0; margin-bottom: var(--space-md);">
+            Disease-modifying medication to track pre/post effects on HRV and symptoms.
+        </p>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-md);">
+            <div class="form-group">
+                <label for="primary_intervention_name">medication name</label>
+                <input type="text" id="primary_intervention_name" name="primary_intervention_name"
+                       value="{{ prefs.primary_intervention_name or '' }}"
+                       placeholder="e.g. hydroxychloroquine">
+            </div>
+            <div class="form-group">
+                <label for="primary_intervention_date">start date</label>
+                <input type="date" id="primary_intervention_date" name="primary_intervention_date"
+                       value="{{ prefs.primary_intervention_date or '' }}">
+            </div>
+        </div>
+    </div>
+
+    <!-- Notifications -->
+    <div class="card">
+        <div class="card-title">notifications</div>
+        <p style="color: var(--text-muted); font-size: 0.8rem; margin-top: 0; margin-bottom: var(--space-md);">
+            Push notifications via <a href="https://ntfy.sh" target="_blank"
+            style="color: var(--color-accent);">ntfy.sh</a> for medication reminders
+            and flare risk alerts. Create a free topic and subscribe in the ntfy app.
+        </p>
+        <div class="form-group">
+            <label for="ntfy_topic">ntfy topic</label>
+            <input type="text" id="ntfy_topic" name="ntfy_topic"
+                   value="{{ prefs.ntfy_topic or '' }}"
+                   placeholder="your-unique-topic-name">
+        </div>
+        <div class="form-group">
+            <label for="ntfy_server">ntfy server</label>
+            <input type="text" id="ntfy_server" name="ntfy_server"
+                   value="{{ prefs.ntfy_server or 'https://ntfy.sh' }}"
+                   placeholder="https://ntfy.sh">
+        </div>
+    </div>
+
+    <!-- Password change -->
+    <div class="card">
+        <div class="card-title">change password</div>
+        <p style="color: var(--text-muted); font-size: 0.8rem; margin-top: 0; margin-bottom: var(--space-md);">
+            Leave blank to keep your current password.
+        </p>
+        <div class="form-group">
+            <label for="new_password">new password</label>
+            <input type="password" id="new_password" name="new_password"
+                   autocomplete="new-password">
+        </div>
+        <div class="form-group">
+            <label for="confirm_password">confirm new password</label>
+            <input type="password" id="confirm_password" name="confirm_password"
+                   autocomplete="new-password">
+        </div>
+        {% if pw_error %}
+        <p style="color: var(--color-danger); font-size: 0.9rem;">{{ pw_error }}</p>
+        {% endif %}
+    </div>
+
+    <button type="submit" class="btn btn-primary" style="margin-bottom: var(--space-2xl);">
+        save settings
+    </button>
+</form>
+{% endblock %}

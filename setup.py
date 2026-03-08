@@ -414,6 +414,31 @@ def create_database():
         )
     """)
 
+    # --------------------------------------------------------
+    # user_preferences
+    # Per-user settings (patient info, location, notifications, etc.)
+    # One row per user, keyed by user_id
+    # --------------------------------------------------------
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS user_preferences (
+            user_id                   INTEGER PRIMARY KEY REFERENCES users(id),
+            patient_name              TEXT,
+            patient_dob               TEXT,
+            location_lat              REAL,
+            location_lon              REAL,
+            timezone                  TEXT DEFAULT 'America/Chicago',
+            temp_baseline_f           REAL DEFAULT 97.4,
+            track_cycle               INTEGER DEFAULT 0,
+            ntfy_topic                TEXT,
+            ntfy_server               TEXT DEFAULT 'https://ntfy.sh',
+            custom_weights            TEXT,
+            primary_intervention_name TEXT,
+            primary_intervention_date TEXT,
+            last_flare_alert_date     TEXT,
+            last_uv_alert_date        TEXT
+        )
+    """)
+
     conn.commit()
     conn.close()
     print(f"Database created at {DB_FILE} (gitignored - stays local)")
@@ -429,6 +454,7 @@ def verify_setup():
 
     expected = [
         "users",
+        "user_preferences",
         "daily_observations",
         "uv_data",
         "lab_results",

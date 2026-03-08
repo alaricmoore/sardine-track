@@ -91,6 +91,71 @@ def get_all_users() -> list:
         return [dict(r) for r in rows]
 
 
+def update_user_password(user_id: int, password_hash: str) -> None:
+    """Update a user's password hash."""
+    with get_db() as conn:
+        conn.execute(
+            "UPDATE users SET password_hash = ? WHERE id = ?",
+            (password_hash, user_id)
+        )
+
+
+# ============================================================
+# User preferences
+# ============================================================
+
+def get_user_preferences(user_id: int) -> Optional[dict]:
+    """Fetch all preferences for a user. Returns dict or None."""
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT * FROM user_preferences WHERE user_id = ?", (user_id,)
+        ).fetchone()
+        return dict(row) if row else None
+
+
+def upsert_user_preferences(user_id: int, prefs: dict) -> None:
+    """Insert or update preferences for a user.
+    Only updates keys present in prefs dict; leaves others unchanged.
+    """
+    with get_db() as conn:
+        existing = conn.execute(
+            "SELECT user_id FROM user_preferences WHERE user_id = ?", (user_id,)
+        ).fetchone()
+
+        if existing:
+            # Update only the provided keys
+            sets = []
+            vals = []
+            for key, val in prefs.items():
+                if key == 'user_id':
+                    continue
+                sets.append(f"{key} = ?")
+                vals.append(val)
+            if sets:
+                vals.append(user_id)
+                conn.execute(
+                    f"UPDATE user_preferences SET {', '.join(sets)} WHERE user_id = ?",
+                    vals
+                )
+        else:
+            # Insert new row
+            prefs['user_id'] = user_id
+            cols = ', '.join(prefs.keys())
+            placeholders = ', '.join('?' for _ in prefs)
+            conn.execute(
+                f"INSERT INTO user_preferences ({cols}) VALUES ({placeholders})",
+                list(prefs.values())
+            )
+
+
+def get_user_preference(user_id: int, key: str, default=None):
+    """Get a single preference value for a user."""
+    prefs = get_user_preferences(user_id)
+    if prefs is None:
+        return default
+    return prefs.get(key, default)
+
+
 # ============================================================
 # daily_observations
 # ============================================================

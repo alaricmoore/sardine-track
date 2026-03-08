@@ -60,15 +60,28 @@ DEFAULT_WEIGHTS = {
 # Path to custom weights config
 CUSTOM_WEIGHTS_PATH = os.path.join(os.path.dirname(__file__), 'config', 'custom_weights.json')
 
-def get_current_weights():
+def get_current_weights(user_id=None):
     """
-    Load weights from config file if exists, otherwise return defaults.
+    Load weights from user preferences if available, then filesystem fallback,
+    otherwise return defaults.
     """
+    # Try user preferences first (Phase 2+)
+    if user_id is not None:
+        prefs = db.get_user_preferences(user_id)
+        if prefs and prefs.get('custom_weights'):
+            try:
+                custom = json.loads(prefs['custom_weights'])
+                weights = DEFAULT_WEIGHTS.copy()
+                weights.update(custom)
+                return weights
+            except (json.JSONDecodeError, TypeError):
+                pass
+
+    # Fallback to filesystem (pre-migration compatibility)
     if os.path.exists(CUSTOM_WEIGHTS_PATH):
         try:
             with open(CUSTOM_WEIGHTS_PATH, 'r') as f:
                 custom = json.load(f)
-                # Merge with defaults in case new symptoms added
                 weights = DEFAULT_WEIGHTS.copy()
                 weights.update(custom)
                 return weights
@@ -77,23 +90,31 @@ def get_current_weights():
             return DEFAULT_WEIGHTS.copy()
     return DEFAULT_WEIGHTS.copy()
 
-def save_custom_weights(weights):
+def save_custom_weights(weights, user_id=None):
     """
-    Save custom weights to config file.
+    Save custom weights. Writes to user_preferences if user_id provided,
+    otherwise falls back to filesystem.
     """
-    # Create config directory if it doesn't exist
+    if user_id is not None:
+        db.upsert_user_preferences(user_id, {
+            'custom_weights': json.dumps(weights)
+        })
+        return
+
+    # Filesystem fallback
     config_dir = os.path.dirname(CUSTOM_WEIGHTS_PATH)
     if not os.path.exists(config_dir):
         os.makedirs(config_dir)
-    
-    # Save weights
     with open(CUSTOM_WEIGHTS_PATH, 'w') as f:
         json.dump(weights, f, indent=2)
 
-def reset_to_default_weights():
+def reset_to_default_weights(user_id=None):
     """
-    Delete custom weights config to revert to defaults.
+    Reset weights to defaults. Clears from user_preferences if user_id provided.
     """
+    if user_id is not None:
+        db.upsert_user_preferences(user_id, {'custom_weights': None})
+        return
     if os.path.exists(CUSTOM_WEIGHTS_PATH):
         os.remove(CUSTOM_WEIGHTS_PATH)
         
@@ -466,6 +487,19 @@ def require_login():
         return redirect(url_for('login'))
 
 
+def get_user_prefs() -> dict:
+    """Get current user's preferences, cached per-request via Flask g.
+    Returns empty dict for unauthenticated users or users with no prefs yet.
+    """
+    from flask import g
+    if not hasattr(g, '_user_prefs'):
+        if current_user.is_authenticated:
+            g._user_prefs = db.get_user_preferences(current_user.id) or {}
+        else:
+            g._user_prefs = {}
+    return g._user_prefs
+
+
 # ============================================================
 # Medication reminder notifications (ntfy)
 # ============================================================
@@ -662,12 +696,13 @@ if not app.debug or os.environ.get("WERKZEUG_RUN_MAIN") == "true":
 @app.context_processor
 def inject_globals():
     """Inject values available in every template."""
+    prefs = get_user_prefs()
     return {
-        "patient_name": CONFIG.get("patient_name", ""),
-        "patient_dob": CONFIG.get("patient_dob", ""),
+        "patient_name": prefs.get("patient_name") or CONFIG.get("patient_name", ""),
+        "patient_dob": prefs.get("patient_dob") or CONFIG.get("patient_dob", ""),
         "today": date.today().isoformat(),
         "app_version": CONFIG.get("app_version", "2.0.0"),
-        "track_cycle": CONFIG.get("track_cycle", False),
+        "track_cycle": prefs.get("track_cycle", CONFIG.get("track_cycle", False)),
         "config": CONFIG,
         "current_user": current_user,
     }
@@ -1223,8 +1258,9 @@ def bc_update(bc_id):
 
 @app.route("/cycle")
 def cycle_view():
-    """Menstrual cycle calendar — opt-in via config track_cycle=true."""
-    if not CONFIG.get("track_cycle"):
+    """Menstrual cycle calendar — opt-in via user preferences."""
+    prefs = get_user_prefs()
+    if not prefs.get("track_cycle", CONFIG.get("track_cycle")):
         return redirect(url_for("daily_entry"))
 
     year  = request.args.get("year",  type=int, default=date.today().year)
@@ -1608,7 +1644,8 @@ def clinical_record():
         if t:
             taper_by_med[med["id"]] = t
 
-    ntfy_configured = bool(CONFIG.get("ntfy_topic"))
+    prefs = get_user_prefs()
+    ntfy_configured = bool(prefs.get("ntfy_topic") or CONFIG.get("ntfy_topic"))
 
     return render_template(
         "clinical_record.html",
@@ -1962,8 +1999,9 @@ from flask import Response
 
 def _write_patient_header(writer):
     """Write patient name/DOB metadata rows at the top of a CSV export."""
-    name = CONFIG.get("patient_name", "")
-    dob = CONFIG.get("patient_dob", "")
+    prefs = get_user_prefs()
+    name = prefs.get("patient_name") or CONFIG.get("patient_name", "")
+    dob = prefs.get("patient_dob") or CONFIG.get("patient_dob", "")
     writer.writerow(["Patient:", name, "DOB:", dob])
     writer.writerow(["Export date:", date.today().isoformat()])
     writer.writerow([])
@@ -2257,7 +2295,8 @@ def _compute_phase_by_date_from_obs(all_obs: list) -> dict:
     """Build {date_str: 'pms'|'luteal'} from obs list using same logic as cycle_view.
     Returns {} if track_cycle is False or insufficient cycle data.
     """
-    if not CONFIG.get('track_cycle'):
+    prefs = get_user_prefs() if current_user and current_user.is_authenticated else {}
+    if not prefs.get('track_cycle', CONFIG.get('track_cycle')):
         return {}
 
     sorted_obs = sorted(all_obs, key=lambda r: r['date'])
@@ -2310,7 +2349,8 @@ def _compute_phase_by_date_from_obs(all_obs: list) -> dict:
 
 def _inject_cycle_phase(obs_list: list) -> None:
     """Annotate obs dicts in-place with cycle_in_high_risk_phase and cycle_phase_name."""
-    if not CONFIG.get('track_cycle'):
+    prefs = get_user_prefs() if current_user and current_user.is_authenticated else {}
+    if not prefs.get('track_cycle', CONFIG.get('track_cycle')):
         return
     phase_by_date = _compute_phase_by_date_from_obs(obs_list)
     for obs in obs_list:
@@ -2334,8 +2374,8 @@ def calculate_flare_prime_score(obs):
     """
     score = 0.0
     
-    # Load current weights (from config or defaults)
-    weights = get_current_weights()
+    # Load current weights (from user prefs or defaults)
+    weights = get_current_weights(current_user.id if current_user.is_authenticated else None)
     
     # 1. UV Exposure (exponential weighting: UV^1.5 × minutes)
     sun_min = obs.get('sun_exposure_min') or 0
@@ -2526,8 +2566,8 @@ def forecast_lab():
     # Calculate current stats
     model_stats = calculate_model_stats(analysis_set)
     
-    # Get current weights (from config or defaults)
-    current_weights = get_current_weights()
+    # Get current weights (from user prefs or defaults)
+    current_weights = get_current_weights(current_user.id)
     
     # Check if using custom weights
     using_custom = os.path.exists(CUSTOM_WEIGHTS_PATH)
@@ -2560,7 +2600,8 @@ def forecast_lab():
          'description': 'Joint pain without specificity'},
     ]
 
-    if CONFIG.get('track_cycle'):
+    prefs = get_user_prefs()
+    if prefs.get('track_cycle', CONFIG.get('track_cycle')):
         symptoms.append({
             'key': 'cycle_phase',
             'name': 'Cycle Phase (PMS/Luteal)',
@@ -2673,8 +2714,8 @@ def forecast_lab_apply():
             if not isinstance(value, (int, float)) or value < 0 or value > 3:
                 return jsonify({'success': False, 'error': f'Invalid weight for {key}'}), 400
         
-        # Save to config
-        save_custom_weights(custom_weights)
+        # Save to user preferences
+        save_custom_weights(custom_weights, user_id=current_user.id)
         
         # Recalculate stats with new weights
         all_obs = db.get_all_daily_observations()
@@ -2704,7 +2745,7 @@ def forecast_lab_reset():
     from flask import jsonify
     
     try:
-        reset_to_default_weights()
+        reset_to_default_weights(user_id=current_user.id)
         
         return jsonify({
             'success': True,
@@ -2892,7 +2933,8 @@ def calculate_flare_prime_score(obs):
 
     # 9. Cycle phase (PMS/luteal risk elevation)
     if obs.get('cycle_in_high_risk_phase'):
-        score += get_current_weights().get('cycle_phase', 1.0)
+        uid = current_user.id if current_user and current_user.is_authenticated else None
+        score += get_current_weights(uid).get('cycle_phase', 1.0)
 
     return round(score, 1)
 
@@ -3010,7 +3052,8 @@ def get_contributing_factors(obs: dict) -> list:
         # Cycle phase
         if obs.get('cycle_in_high_risk_phase'):
             phase_label = 'PMS phase' if obs.get('cycle_phase_name') == 'pms' else 'Luteal phase'
-            cycle_weight = get_current_weights().get('cycle_phase', 1.0)
+            uid = current_user.id if current_user and current_user.is_authenticated else None
+            cycle_weight = get_current_weights(uid).get('cycle_phase', 1.0)
             factors.append({'name': phase_label, 'points': cycle_weight, 'color': '#9563ec'})
 
         return factors
@@ -3153,8 +3196,9 @@ def get_score_breakdown(obs: dict) -> list:
     })
 
     # Cycle phase (only when tracking enabled)
-    if CONFIG.get('track_cycle'):
-        cw = get_current_weights()
+    prefs = get_user_prefs()
+    if prefs.get('track_cycle', CONFIG.get('track_cycle')):
+        cw = get_current_weights(current_user.id if current_user.is_authenticated else None)
         cycle_score = cw.get('cycle_phase', 1.0) if obs.get('cycle_in_high_risk_phase') else 0
         breakdown.append({
             'name': 'Cycle Phase',
@@ -3597,9 +3641,9 @@ def search():
         tracking_end=tracking_end,
         active_meds=active_meds,
         chart_dataset_json=json.dumps(chart_dataset),
-        patient_name=CONFIG.get("patient_name", ""),
+        patient_name=get_user_prefs().get("patient_name") or CONFIG.get("patient_name", ""),
     )
-    
+
 # ============================================================
 # Data Management & Export
 # ============================================================
@@ -3909,18 +3953,18 @@ def clinical_report():
     tracking_end   = all_obs[-1]["date"] if all_obs else None
     
     # Primary intervention for report context
-    primary_intervention = CONFIG.get("primary_intervention") or {}
-    intervention_name = primary_intervention.get("name")
-    intervention_date = primary_intervention.get("start_date")
-    
+    prefs = get_user_prefs()
+    intervention_name = prefs.get("primary_intervention_name") or (CONFIG.get("primary_intervention") or {}).get("name")
+    intervention_date = prefs.get("primary_intervention_date") or (CONFIG.get("primary_intervention") or {}).get("start_date")
+
     return render_template(
         "report.html",
         start_date=start_date,
         end_date=end_date,
         tracking_start=tracking_start,
         tracking_end=tracking_end,
-        patient_name=CONFIG.get("patient_name", ""),
-        patient_dob=CONFIG.get("patient_dob", ""),
+        patient_name=prefs.get("patient_name") or CONFIG.get("patient_name", ""),
+        patient_dob=prefs.get("patient_dob") or CONFIG.get("patient_dob", ""),
         primary_intervention_name=intervention_name,
         primary_intervention_date=intervention_date,
         observations=observations,
@@ -3993,6 +4037,78 @@ def delete_all_data():
         
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
+
+
+# ============================================================
+# Settings
+# ============================================================
+
+@app.route("/settings", methods=["GET", "POST"])
+def settings():
+    """Per-user settings page."""
+    prefs = db.get_user_preferences(current_user.id) or {}
+    saved = False
+    pw_error = None
+
+    if request.method == "POST":
+        # Collect form data
+        new_prefs = {
+            'patient_name': request.form.get('patient_name', '').strip() or None,
+            'patient_dob': request.form.get('patient_dob', '').strip() or None,
+            'timezone': request.form.get('timezone', '').strip() or 'America/Chicago',
+            'track_cycle': 1 if request.form.get('track_cycle') else 0,
+            'primary_intervention_name': request.form.get('primary_intervention_name', '').strip() or None,
+            'primary_intervention_date': request.form.get('primary_intervention_date', '').strip() or None,
+            'ntfy_topic': request.form.get('ntfy_topic', '').strip() or None,
+            'ntfy_server': request.form.get('ntfy_server', '').strip() or 'https://ntfy.sh',
+        }
+
+        # Numeric fields
+        try:
+            lat = request.form.get('location_lat', '').strip()
+            new_prefs['location_lat'] = float(lat) if lat else None
+        except ValueError:
+            new_prefs['location_lat'] = prefs.get('location_lat')
+
+        try:
+            lon = request.form.get('location_lon', '').strip()
+            new_prefs['location_lon'] = float(lon) if lon else None
+        except ValueError:
+            new_prefs['location_lon'] = prefs.get('location_lon')
+
+        try:
+            temp = request.form.get('temp_baseline_f', '').strip()
+            new_prefs['temp_baseline_f'] = float(temp) if temp else 97.4
+        except ValueError:
+            new_prefs['temp_baseline_f'] = prefs.get('temp_baseline_f', 97.4)
+
+        # Save preferences
+        db.upsert_user_preferences(current_user.id, new_prefs)
+
+        # Handle password change
+        new_pw = request.form.get('new_password', '')
+        confirm_pw = request.form.get('confirm_password', '')
+        if new_pw:
+            if new_pw != confirm_pw:
+                pw_error = "Passwords don't match."
+            elif len(new_pw) < 4:
+                pw_error = "Password must be at least 4 characters."
+            else:
+                pw_hash = bcrypt.hashpw(new_pw.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+                db.update_user_password(current_user.id, pw_hash)
+
+        if not pw_error:
+            saved = True
+
+        # Refresh prefs after save
+        prefs = db.get_user_preferences(current_user.id) or {}
+
+        # Clear the cached prefs so inject_globals picks up changes
+        from flask import g
+        if hasattr(g, '_user_prefs'):
+            del g._user_prefs
+
+    return render_template("settings.html", prefs=prefs, saved=saved, pw_error=pw_error)
 
 
 # ============================================================
