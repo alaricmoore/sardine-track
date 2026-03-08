@@ -34,26 +34,21 @@
     </div>
 </div>
 
-<!-- Comparison tool - COLLAPSIBLE -->
+<!-- Comparison tool -->
 <div class="card" style="margin-bottom:var(--space-xl);">
-    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:var(--space-md);">
-        <div class="card-title" style="margin:0;">custom symptom comparison</div>
-        <button class="btn btn-secondary" onclick="toggleComparison()">
-            <span id="comparison-toggle-text">show chart builder</span>
-        </button>
-    </div>
-    
-    <div id="comparison-panel" style="display:none;">
-        <div class="comparison-instructions">
-            <p style="margin:0 0 var(--space-md) 0; color:var(--text-muted); font-size:0.9rem;">
-                Check symptom categories below, choose a metric to compare them against,
-                then generate the chart. Dots show individual symptom occurrences,
-                the line shows total count of selected symptoms per day.
-            </p>
+    <div class="card-title" style="margin-bottom:var(--space-md);">symptom comparison</div>
+
+    <!-- Quick view presets -->
+    <div style="margin-bottom:var(--space-md);">
+        <div style="font-size:0.8rem; color:var(--text-muted); margin-bottom:var(--space-xs);">quick views</div>
+        <div style="display:flex; gap:var(--space-sm); flex-wrap:wrap;">
+            <button class="chart-preset-btn" data-preset="uv">UV vs symptoms</button>
+            <button class="chart-preset-btn" data-preset="hrv_sleep">HRV + sleep</button>
+            <button class="chart-preset-btn" data-preset="pain_fatigue">pain + fatigue</button>
+            <button class="chart-preset-btn" data-preset="all_symptoms">all symptoms</button>
         </div>
-        
-       
-    
+    </div>
+
     <!-- Symptom checkboxes -->
     <div class="symptom-selectors">
         <label class="symptom-checkbox">
@@ -77,50 +72,62 @@
             <span class="checkbox-label air">pulmonary</span>
         </label>
         <label class="symptom-checkbox">
-                    <input type="checkbox" value="rheumatic" data-color="#e85d9e">
-                    <span style="color:#e85d9e;">rheumatic</span>
-                </label>
+            <input type="checkbox" value="rheumatic" data-color="#e85d9e">
+            <span style="color:#e85d9e;">rheumatic</span>
+        </label>
         <label class="symptom-checkbox">
             <input type="checkbox" value="dermatological" data-color="#d4784a">
             <span class="checkbox-label derm">dermatological</span>
         </label>
         <label class="symptom-checkbox">
-                    <input type="checkbox" value="gastro" data-color="#a8d46f"">
-                    <span style="color:#e85d9e;">gastro</span>
-                </label>
+            <input type="checkbox" value="gastro" data-color="#a8d46f">
+            <span style="color:#a8d46f;">gastro</span>
+        </label>
         <label class="symptom-checkbox">
             <input type="checkbox" value="mucosal" data-color="#d4c4a0">
             <span class="checkbox-label word">mucosal</span>
         </label>
     </div>
     
-    <!-- Comparison controls -->
-    <div class="comparison-controls">
-        <div class="form-group" style="flex:1; min-width:200px;">
-            <label>compare with</label>
-            <select id="metric-select">
-                <option value="uv_dose">UV dose (index^1.5 × minutes)</option>
-                <option value="basal_temp_delta">basal temp delta</option>
-                <option value="hrv">HRV</option>
-                <option value="hours_slept">hours slept</option>
-                <option value="steps">steps walked</option>
-                <option value="emotional_state">emotional state</option>
-                <option value="pain_scale">pain (0-10)</option>
-                <option value="fatigue_scale">fatigue (0-10)</option>
-            </select>
+    <!-- Metric controls -->
+    <div class="comparison-controls" style="margin-top:var(--space-md);">
+        <div style="display:flex; gap:var(--space-md); flex-wrap:wrap; width:100%;">
+            <div class="form-group" style="flex:1; min-width:160px; margin:0;">
+                <label>metric 1</label>
+                <select id="metric-select">
+                    <option value="none">— none —</option>
+                    <option value="uv_dose">UV dose (index^1.5 × min)</option>
+                    <option value="basal_temp_delta">basal temp delta</option>
+                    <option value="hrv">HRV</option>
+                    <option value="hours_slept">hours slept</option>
+                    <option value="steps">steps walked</option>
+                    <option value="emotional_state">emotional state</option>
+                    <option value="pain_scale">pain (0-10)</option>
+                    <option value="fatigue_scale">fatigue (0-10)</option>
+                </select>
+            </div>
+            <div class="form-group" style="flex:1; min-width:160px; margin:0;">
+                <label>metric 2</label>
+                <select id="metric-select-2">
+                    <option value="none">— none —</option>
+                    <option value="uv_dose">UV dose (index^1.5 × min)</option>
+                    <option value="basal_temp_delta">basal temp delta</option>
+                    <option value="hrv">HRV</option>
+                    <option value="hours_slept">hours slept</option>
+                    <option value="steps">steps walked</option>
+                    <option value="emotional_state">emotional state</option>
+                    <option value="pain_scale">pain (0-10)</option>
+                    <option value="fatigue_scale">fatigue (0-10)</option>
+                </select>
+            </div>
         </div>
-        
-
-
-<button class="btn btn-primary" onclick="generateComparison()" id="generate-btn">
-        generate chart →
-        </button>
     </div>
-    <!-- Comparison chart (appears after generation) -->
+
+    <!-- Comparison chart -->
     <div id="chart-container" class="chart-container" style="display:none;">
         <div class="chart-title" id="chart-title">comparison</div>
         <canvas id="comparison-chart" style="max-height:400px;"></canvas>
-    </div>  
+    </div>
 </div>
 
 <!-- ============================================================
@@ -182,21 +189,6 @@ function loadData() {
 }
 
 
-// ============================================================
-// Collapsible comparison tool
-// ============================================================
-function toggleComparison() {
-    const panel = document.getElementById('comparison-panel');
-    const text = document.getElementById('comparison-toggle-text');
-    
-    if (panel.style.display === 'none') {
-        panel.style.display = 'block';
-        text.textContent = 'hide chart builder';
-    } else {
-        panel.style.display = 'none';
-        text.textContent = 'show chart builder';
-    }
-}
 
 // ============================================================
 // FLARE PREDICTOR ANALYSIS
@@ -779,20 +771,26 @@ function generateComparison() {
         color: cb.dataset.color
     }));
     
-    if (selectedSymptoms.length === 0) {
-        alert('Please select at least one symptom category');
-        return;
-    }
-    
     const metric = document.getElementById('metric-select').value;
+    const metric2 = document.getElementById('metric-select-2').value;
     const daily = TIMELINE_DATA.daily;
     const uvData = TIMELINE_DATA.uv;
+
+    // Nothing to show
+    if (selectedSymptoms.length === 0 && metric === 'none' && metric2 === 'none') {
+        document.getElementById('chart-container').style.display = 'none';
+        return;
+    }
 
     // Declare metric variables
     let metricData = [];
     let metricLabel = '';
     let metricColor = '#d4b84a';
     let metricAxis = {};
+    let metricData2 = [];
+    let metricLabel2 = '';
+    let metricColor2 = '#4ab8b8';
+    let metricAxis2 = {};
     
     // Build datasets
     const dates = daily.map(d => d.date);
@@ -814,48 +812,54 @@ function generateComparison() {
         uvDoseByDate[d.date] = uvNoon ? (Math.pow(uvNoon, 1.5) * sunMin) : 0;
     });
     
-    // Build metric data
-    if (metric === 'uv_dose') {
-        metricData = dates.map(d => uvDoseByDate[d] || null);
-        metricLabel = 'UV dose (index^1.5 × min)';
-        metricColor = '#d4b84a';
-        metricAxis = { min: 0, position: 'right', title: 'UV dose' };
-    } else if (metric === 'basal_temp_delta') {
-        metricData = daily.map(d => d.basal_temp_delta);
-        metricLabel = 'temp delta (°F)';
-        metricColor = '#d4784a';
-        metricAxis = { position: 'right', title: 'temp delta' };
-    } else if (metric === 'hrv') {
-        metricData = daily.map(d => d.hrv);
-        metricLabel = 'HRV (ms)';
-        metricColor = '#4a90d9';
-        metricAxis = { position: 'right', title: 'HRV (ms)' };
-    } else if (metric === 'hours_slept') {
-        metricData = daily.map(d => d.hours_slept);
-        metricLabel = 'hours slept';
-        metricColor = '#9b72cf';
-        metricAxis = { min: 0, max: 14, position: 'right', title: 'hours' };
-    } else if (metric === 'steps') {
-        metricData = daily.map(d => d.steps);
-        metricLabel = 'steps';
-        metricColor = '#4ab8b8';
-        metricAxis = { min: 0, position: 'right', title: 'steps' };
-    } else if (metric === 'emotional_state') {
-        metricData = daily.map(d => d.emotional_state);
-        metricLabel = 'emotional (0-10)';
-        metricColor = '#b8aee8';
-        metricAxis = { min: 0, max: 10, position: 'right', title: 'emotional' };
-    } else if (metric === 'pain_scale') {
-        metricData = daily.map(d => d.pain_scale);
-        metricLabel = 'pain (0-10)';
-        metricColor = '#c94040';
-        metricAxis = { min: 0, max: 10, position: 'right', title: 'pain' };
-    } else {  // fatigue_scale
-        metricData = daily.map(d => d.fatigue_scale);
-        metricLabel = 'fatigue (0-10)';
-        metricColor = '#d4a054';
-        metricAxis = { min: 0, max: 10, position: 'right', title: 'fatigue' };
+    // Helper: build metric data/label/color/axis from a metric key
+    function buildMetric(key) {
+        if (key === 'none') return null;
+        if (key === 'uv_dose') return {
+            data: dates.map(d => uvDoseByDate[d] || null),
+            label: 'UV dose (index^1.5 × min)', color: '#d4b84a',
+            axis: { min: 0, position: 'right' }
+        };
+        if (key === 'basal_temp_delta') return {
+            data: daily.map(d => d.basal_temp_delta),
+            label: 'temp delta (°F)', color: '#d4784a',
+            axis: { position: 'right' }
+        };
+        if (key === 'hrv') return {
+            data: daily.map(d => d.hrv),
+            label: 'HRV (ms)', color: '#4a90d9',
+            axis: { position: 'right' }
+        };
+        if (key === 'hours_slept') return {
+            data: daily.map(d => d.hours_slept),
+            label: 'hours slept', color: '#9b72cf',
+            axis: { min: 0, max: 14, position: 'right' }
+        };
+        if (key === 'steps') return {
+            data: daily.map(d => d.steps),
+            label: 'steps', color: '#4ab8b8',
+            axis: { min: 0, position: 'right' }
+        };
+        if (key === 'emotional_state') return {
+            data: daily.map(d => d.emotional_state),
+            label: 'emotional (0-10)', color: '#b8aee8',
+            axis: { min: 0, max: 10, position: 'right' }
+        };
+        if (key === 'pain_scale') return {
+            data: daily.map(d => d.pain_scale),
+            label: 'pain (0-10)', color: '#c94040',
+            axis: { min: 0, max: 10, position: 'right' }
+        };
+        // fatigue_scale
+        return {
+            data: daily.map(d => d.fatigue_scale),
+            label: 'fatigue (0-10)', color: '#d4a054',
+            axis: { min: 0, max: 10, position: 'right' }
+        };
     }
+
+    const m1 = buildMetric(metric);
+    const m2 = buildMetric(metric2);
     
     // Total symptom count
     const totalCount = daily.map(d => {
@@ -864,7 +868,7 @@ function generateComparison() {
     
     // Build datasets array
     const datasets = [];
-    
+
     // Individual symptom dots
     selectedSymptoms.forEach((symptom, idx) => {
         const yOffset = idx * 0.3;
@@ -879,35 +883,51 @@ function generateComparison() {
             yAxisID: 'ySymptoms',
         });
     });
-    
-    // Total symptom count line
-    datasets.push({
-        label: 'total symptom count',
-        data: totalCount,
-        borderColor: getComputedStyle(document.documentElement).getPropertyValue('--color-flare').trim(),
-        backgroundColor: 'rgba(255,255,255,0.1)',
-        borderWidth: 2,
-        pointRadius: 0,
-        tension: 0.3,
-        fill: false,
-        yAxisID: 'ySymptoms',
-    });
-    
-    // Comparison metric
-    datasets.push({
-        label: metricLabel,
-        data: metricData,
-        borderColor: metricColor,
-        backgroundColor: metric === 'uv_dose' 
-            ? 'rgba(212,184,74,0.1)'
-            : 'transparent',
-        borderColor: metricColor,
-        borderWidth: 2,
-        pointRadius: 3,
-        fill: metric === 'uv_dose',
-        spanGaps: true,
-        yAxisID: 'yMetric',
-    });
+
+    // Total symptom count line (only if symptoms selected)
+    if (selectedSymptoms.length > 0) {
+        datasets.push({
+            label: 'total symptom count',
+            data: totalCount,
+            borderColor: getComputedStyle(document.documentElement).getPropertyValue('--color-flare').trim(),
+            backgroundColor: 'rgba(255,255,255,0.1)',
+            borderWidth: 2,
+            pointRadius: 0,
+            tension: 0.3,
+            fill: false,
+            yAxisID: 'ySymptoms',
+        });
+    }
+
+    // Metric 1
+    if (m1) {
+        datasets.push({
+            label: m1.label,
+            data: m1.data,
+            borderColor: m1.color,
+            backgroundColor: metric === 'uv_dose' ? 'rgba(212,184,74,0.1)' : 'transparent',
+            borderWidth: 2,
+            pointRadius: 3,
+            fill: metric === 'uv_dose',
+            spanGaps: true,
+            yAxisID: 'yMetric',
+        });
+    }
+
+    // Metric 2
+    if (m2) {
+        datasets.push({
+            label: m2.label,
+            data: m2.data,
+            borderColor: m2.color,
+            backgroundColor: 'transparent',
+            borderWidth: 2,
+            pointRadius: 3,
+            fill: false,
+            spanGaps: true,
+            yAxisID: 'yMetric2',
+        });
+    }
     
     // Destroy previous chart
     if (comparisonChart) {
@@ -982,54 +1002,80 @@ function generateComparison() {
                 grid: { color: 'rgba(255,255,255,0.06)' },
                 ticks: { color: '#9994a8', maxTicksLimit: 12, maxRotation: 45 }
             },
-            y: {
+            ySymptoms: {
                 type: 'linear',
                 position: 'left',
+                display: selectedSymptoms.length > 0,
                 grid: { color: 'rgba(255,255,255,0.06)' },
                 ticks: { color: '#9994a8' }
             },
-            yMetric: metricAxis
+            yMetric: m1 ? Object.assign({ type: 'linear', ticks: { color: m1.color }, grid: { drawOnChartArea: !m2 } }, m1.axis) : { display: false },
+            yMetric2: m2 ? Object.assign({ type: 'linear', ticks: { color: m2.color }, grid: { drawOnChartArea: false } }, m2.axis) : { display: false }
         }
     }
 });
 
     
     // Update title
-    const symptomNames = selectedSymptoms.map(s => s.key.replace('_', ' ')).join(', ');
-    document.getElementById('chart-title').textContent = 
-        `${symptomNames} vs ${metricLabel}`;
-    
-    // Show chart, hide empty state
+    const parts = [];
+    if (selectedSymptoms.length > 0) parts.push(selectedSymptoms.map(s => s.key.replace('_', ' ')).join(', '));
+    if (m1) parts.push(m1.label);
+    if (m2) parts.push(m2.label);
+    document.getElementById('chart-title').textContent = parts.join(' vs ') || 'comparison';
+
+    // Show chart
     document.getElementById('chart-container').style.display = 'block';
 }
 
-// Restore previous selection from sessionStorage
-window.addEventListener('DOMContentLoaded', () => {
-    try {
-        const saved = sessionStorage.getItem('symptomComparison');
-        if (saved) {
-            const { symptoms, metric, showFlares } = JSON.parse(saved);
-            symptoms.forEach(s => {
-                const cb = document.querySelector(`input[value="${s}"]`);
-                if (cb) cb.checked = true;
-            });
-            document.getElementById('metric-select').value = metric;
-            //document.getElementById('show-flares').checked = showFlares;
-        }
-    } catch(e) {}
-});
+// ============================================================
+// Chart presets
+// ============================================================
+const CHART_PRESETS = {
+    uv:           { symptoms: 'all',  metric1: 'uv_dose',     metric2: 'none' },
+    hrv_sleep:    { symptoms: 'all',  metric1: 'hrv',         metric2: 'hours_slept' },
+    pain_fatigue: { symptoms: 'none', metric1: 'pain_scale',  metric2: 'fatigue_scale' },
+    all_symptoms: { symptoms: 'all',  metric1: 'none',        metric2: 'none' },
+};
 
-// Save selection on generate
-document.getElementById('generate-btn')?.addEventListener('click', () => {
-    const symptoms = Array.from(
-        document.querySelectorAll('.symptom-checkbox input:checked')
-    ).map(cb => cb.value);
-    const metric = document.getElementById('metric-select').value;
-    //const showFlares = document.getElementById('show-flares').checked;
-    
-    sessionStorage.setItem('symptomComparison', JSON.stringify({
-        symptoms, metric, //showFlares
-    }));
+function applyChartPreset(name) {
+    const p = CHART_PRESETS[name];
+    document.querySelectorAll('.symptom-checkbox input').forEach(cb => {
+        cb.checked = p.symptoms === 'all';
+    });
+    document.getElementById('metric-select').value = p.metric1;
+    document.getElementById('metric-select-2').value = p.metric2;
+    document.querySelectorAll('.chart-preset-btn').forEach(b =>
+        b.classList.toggle('active', b.dataset.preset === name));
+    generateComparison();
+}
+
+function clearActiveChartPreset() {
+    document.querySelectorAll('.chart-preset-btn').forEach(b => b.classList.remove('active'));
+}
+
+// Auto-update on control change (debounced 200ms)
+let _chartUpdateTimer = null;
+function scheduleChartUpdate() {
+    clearTimeout(_chartUpdateTimer);
+    _chartUpdateTimer = setTimeout(generateComparison, 200);
+}
+
+window.addEventListener('DOMContentLoaded', () => {
+    document.querySelectorAll('.symptom-checkbox input').forEach(cb => {
+        cb.addEventListener('change', () => { clearActiveChartPreset(); scheduleChartUpdate(); });
+    });
+    document.getElementById('metric-select').addEventListener('change', () => {
+        clearActiveChartPreset(); scheduleChartUpdate();
+    });
+    document.getElementById('metric-select-2').addEventListener('change', () => {
+        clearActiveChartPreset(); scheduleChartUpdate();
+    });
+    document.querySelectorAll('.chart-preset-btn').forEach(btn => {
+        btn.addEventListener('click', () => applyChartPreset(btn.dataset.preset));
+    });
+
+    // Auto-apply UV preset on load
+    applyChartPreset('uv');
 });
 
 // Restore active button state based on current date range
@@ -1088,6 +1134,25 @@ window.addEventListener('DOMContentLoaded', displayFlareStats);
 
 .preset-btn:hover,
 .preset-btn.active {
+    background: var(--bg-elevated);
+    color: var(--text-primary);
+    border-color: var(--color-accent);
+}
+
+.chart-preset-btn {
+    padding: var(--space-xs) var(--space-md);
+    border: 1px solid var(--border-medium);
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--text-secondary);
+    font-family: var(--font-body);
+    font-size: 0.875rem;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.chart-preset-btn:hover,
+.chart-preset-btn.active {
     background: var(--bg-elevated);
     color: var(--text-primary);
     border-color: var(--color-accent);
