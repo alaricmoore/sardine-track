@@ -369,7 +369,7 @@ function runSimulation() {
     document.getElementById('simulation-results').style.display = 'block';
     
     // Send weights to backend for simulation
-    fetch('/forecast/lab/simulate', {
+    csrfFetch('/forecast/lab/simulate', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({weights: currentWeights})
@@ -408,7 +408,7 @@ function applyChanges() {
     btn.innerHTML = '⏳ Applying...';
     btn.disabled = true;
     
-    fetch('/forecast/lab/apply', {
+    csrfFetch('/forecast/lab/apply', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({weights: currentWeights})

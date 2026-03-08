@@ -676,7 +676,7 @@ function confirmDelete() {
         btn.disabled = true;
         
         // Execute deletion
-        fetch('/delete/all-data', { method: 'POST' })
+        csrfFetch('/delete/all-data', { method: 'POST' })
             .then(response => {
                 if (response.ok) {
                     alert('All data has been deleted. Redirecting to home page...');

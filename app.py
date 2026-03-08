@@ -17,7 +17,7 @@ import json
 import os
 from datetime import date, datetime, timedelta
 
-from flask import Flask, jsonify, render_template, request, redirect, url_for, Response
+from flask import Flask, jsonify, render_template, request, redirect, url_for, Response, session
 
 import db
 import uv_fetcher
@@ -396,6 +396,31 @@ def load_config() -> dict:
 
 CONFIG = load_config()
 
+# ============================================================
+# Security: SECRET_KEY, CSRF, optional passcode
+# ============================================================
+
+_secret = CONFIG.get('secret_key')
+if not _secret:
+    import secrets as _secrets
+    _secret = _secrets.token_hex(32)
+    print("[WARNING] No secret_key in config.json. Generated a temporary one — "
+          "sessions will reset on every restart. Run setup.py to persist it.")
+app.secret_key = _secret
+
+from flask_wtf.csrf import CSRFProtect
+csrf = CSRFProtect(app)
+
+
+@app.before_request
+def require_passcode():
+    if not CONFIG.get('passcode'):
+        return
+    if request.endpoint in ('login', 'logout', 'static'):
+        return
+    if not session.get('authenticated'):
+        return redirect(url_for('login'))
+
 
 # ============================================================
 # Medication reminder notifications (ntfy)
@@ -559,6 +584,7 @@ def inject_globals():
         "today": date.today().isoformat(),
         "app_version": CONFIG.get("app_version", "2.0.0"),
         "track_cycle": CONFIG.get("track_cycle", False),
+        "config": CONFIG,
     }
 
 
@@ -570,6 +596,28 @@ def inject_globals():
 def index():
     """Home page - redirects to daily entry for today."""
     return redirect(url_for("daily_entry"))
+
+
+@app.route("/login", methods=["GET", "POST"])
+@csrf.exempt
+def login():
+    """Optional passcode login. Only active when 'passcode' is set in config.json."""
+    if not CONFIG.get('passcode'):
+        return redirect(url_for('index'))
+    error = None
+    if request.method == "POST":
+        if request.form.get("passcode") == CONFIG.get("passcode"):
+            session['authenticated'] = True
+            session.permanent = False
+            return redirect(url_for("index"))
+        error = "Incorrect passcode."
+    return render_template("login.html", error=error)
+
+
+@app.route("/logout", methods=["POST"])
+def logout():
+    session.clear()
+    return redirect(url_for("login"))
 
 
 # ============================================================
@@ -3668,6 +3716,6 @@ if __name__ == "__main__":
     app.run(
         host="0.0.0.0",   # accessible from phone on same network
         port=5000,
-        debug=True,        # set to False when you want cleaner output
+        debug=CONFIG.get('debug', False),
     )
     

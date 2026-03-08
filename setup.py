@@ -11,6 +11,7 @@ Usage:
 
 import json
 import os
+import secrets
 import sqlite3
 import sys
 
@@ -72,11 +73,15 @@ def create_config():
     config["track_cycle"] = track_cycle == "y"
 
     config["app_version"] = "2.0.0"
+    config["debug"] = False
+    config["secret_key"] = secrets.token_hex(32)
 
     with open(CONFIG_FILE, "w") as f:
         json.dump(config, f, indent=2)
 
     print(f"\nConfig saved to {CONFIG_FILE} (gitignored - stays local)")
+    print("\nOptional: add \"passcode\": \"yourpin\" to config.json to require")
+    print("a login passcode to access the app (useful on shared networks).")
     return config
 
 

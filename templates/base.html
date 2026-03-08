@@ -3,6 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
     <title>{% block title %}biotracking{% endblock %}</title>
 
     <!-- Serif typography from Google Fonts -->
@@ -789,6 +790,23 @@
                         search
                     </a></li>
                     {% endif %}
+                    {% if config.get('passcode') %}
+                    <li>
+                        <form method="POST" action="{{ url_for('logout') }}" style="display:inline;">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <button type="submit"
+                                    style="background:none; border:none; cursor:pointer;
+                                           font-size:0.875rem; color:var(--text-secondary);
+                                           padding:var(--space-xs) var(--space-sm);
+                                           border-radius:var(--radius-sm);
+                                           font-family:var(--font-body);"
+                                    onmouseover="this.style.color='var(--text-primary)';this.style.background='var(--bg-elevated)'"
+                                    onmouseout="this.style.color='var(--text-secondary)';this.style.background='none'">
+                                lock
+                            </button>
+                        </form>
+                    </li>
+                    {% endif %}
                     <li style="margin-left: auto; display: flex; align-items: center; gap: 0.25rem;">
                         <button id="theme-toggle" 
                                 style="background: var(--bg-elevated); 
@@ -832,6 +850,31 @@
 {% block scripts %}{% endblock %}
 
 <script>
+// CSRF: auto-inject token into all POST forms + provide csrfFetch helper
+(function() {
+    const token = document.querySelector('meta[name="csrf-token"]')?.content;
+    if (!token) return;
+
+    document.addEventListener('DOMContentLoaded', function() {
+        document.querySelectorAll('form').forEach(function(form) {
+            if (form.method.toLowerCase() === 'post' &&
+                !form.querySelector('[name="csrf_token"]')) {
+                const inp = document.createElement('input');
+                inp.type = 'hidden';
+                inp.name = 'csrf_token';
+                inp.value = token;
+                form.appendChild(inp);
+            }
+        });
+    });
+
+    window.csrfFetch = function(url, options) {
+        options = options || {};
+        options.headers = Object.assign({'X-CSRFToken': token}, options.headers || {});
+        return fetch(url, options);
+    };
+})();
+
 // Theme toggle functionality
 const themeToggle = document.getElementById('theme-toggle');
 const darkOption = document.getElementById('theme-dark');

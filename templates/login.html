@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+
+{% block title %}login — biotracking{% endblock %}
+
+{% block content %}
+<div style="max-width:360px; margin:var(--space-2xl) auto;">
+    <div class="card">
+        <div style="margin-bottom:var(--space-lg);">
+            <div class="app-wordmark" style="font-size:1.3rem; margin-bottom:var(--space-xs);">
+                bio<span style="color:var(--color-accent);">tracking</span>
+            </div>
+            <p style="color:var(--text-muted); font-size:0.875rem; margin:0;">
+                enter your passcode to continue
+            </p>
+        </div>
+
+        {% if error %}
+        <p style="color:var(--color-danger); margin-bottom:var(--space-md); font-size:0.9rem;">
+            {{ error }}
+        </p>
+        {% endif %}
+
+        <form method="POST" action="{{ url_for('login') }}">
+            <div class="form-group">
+                <label for="passcode">passcode</label>
+                <input type="password" id="passcode" name="passcode"
+                       autofocus autocomplete="current-password"
+                       style="letter-spacing:0.2em;">
+            </div>
+            <button type="submit" class="btn btn-primary btn-full">
+                unlock
+            </button>
+        </form>
+    </div>
+</div>
+{% endblock %}

@@ -16,3 +16,6 @@ numpy>=1.24.0
 
 # Background scheduler for medication reminders
 apscheduler>=3.10
+
+# CSRF protection
+flask-wtf>=1.2.0
