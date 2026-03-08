@@ -1116,6 +1116,60 @@ def _detect_ovulation_bbt(bbt_by_date: dict, cycle_start: date, cycle_end: date)
     return None
 
 
+# ============================================================
+# BC (contraceptive) classification — derived, not stored
+# ============================================================
+BC_IS_HORMONAL = {
+    "combined_pill", "progestin_only_pill", "hormonal_iud",
+    "implant", "patch", "ring", "injection",
+}
+BC_CONTAINS_ESTROGEN = {"combined_pill", "patch", "ring"}
+
+BC_TYPE_LABELS = {
+    "none":               "no BC",
+    "combined_pill":      "combined pill (estrogen + progestin)",
+    "progestin_only_pill":"progestin-only pill",
+    "hormonal_iud":       "hormonal IUD",
+    "copper_iud":         "copper IUD",
+    "implant":            "implant",
+    "patch":              "patch (estrogen + progestin)",
+    "ring":               "ring (estrogen + progestin)",
+    "injection":          "injection (progestin)",
+    "barrier":            "barrier method",
+    "other":              "other",
+}
+
+
+@app.route("/bc/add", methods=["POST"])
+def bc_add():
+    db.add_bc_regime({
+        "bc_type":    request.form.get("bc_type", "none"),
+        "name":       request.form.get("name") or None,
+        "start_date": request.form.get("start_date"),
+        "end_date":   request.form.get("end_date") or None,
+        "notes":      request.form.get("notes") or None,
+    })
+    return redirect(url_for("cycle_view"))
+
+
+@app.route("/bc/delete/<int:bc_id>", methods=["POST"])
+def bc_delete(bc_id):
+    db.delete_bc_regime(bc_id)
+    return redirect(url_for("cycle_view"))
+
+
+@app.route("/bc/update/<int:bc_id>", methods=["POST"])
+def bc_update(bc_id):
+    db.update_bc_regime(bc_id, {
+        "bc_type":    request.form.get("bc_type", "none"),
+        "name":       request.form.get("name") or None,
+        "start_date": request.form.get("start_date"),
+        "end_date":   request.form.get("end_date") or None,
+        "notes":      request.form.get("notes") or None,
+    })
+    return redirect(url_for("cycle_view"))
+
+
 @app.route("/cycle")
 def cycle_view():
     """Menstrual cycle calendar — opt-in via config track_cycle=true."""
@@ -1269,15 +1323,29 @@ def cycle_view():
     _DISPLAY_PHASES = ("period", "follicular", "luteal")
 
     all_obs_full = db.get_daily_observations_range(history_start, month_end)
+    bc_history   = db.get_bc_history()  # sorted start_date ASC
 
-    _sym_counts  = {p: {k: 0 for k in _SYMPTOM_KEYS} for p in _DISPLAY_PHASES}
-    _hrv_vals    = {p: [] for p in _DISPLAY_PHASES}
-    _pain_vals   = {p: [] for p in _DISPLAY_PHASES}
-    _fat_vals    = {p: [] for p in _DISPLAY_PHASES}
-    _obs_counts  = {p: 0 for p in _DISPLAY_PHASES}
+    def _bc_for_date(date_str: str) -> dict | None:
+        """Return the active BC record for a given date, or None."""
+        for bc in reversed(bc_history):
+            if bc["start_date"] <= date_str:
+                if bc["end_date"] is None or bc["end_date"] >= date_str:
+                    return bc
+        return None
+
+    def _empty_buckets() -> dict:
+        return {
+            p: {"sym": {k: 0 for k in _SYMPTOM_KEYS}, "hrv": [],
+                "pain": [], "fat": [], "n": 0}
+            for p in _DISPLAY_PHASES
+        }
+
+    buckets_all      = _empty_buckets()
+    buckets_hormonal = _empty_buckets()
+    buckets_no_bc    = _empty_buckets()
 
     for obs in all_obs_full:
-        ds = obs["date"]
+        ds     = obs["date"]
         raw_ph = phase_by_date.get(ds)
         if obs.get("period_flow") and obs["period_flow"] not in ("", None, "spotting"):
             dp = "period"
@@ -1285,55 +1353,82 @@ def cycle_view():
             dp = "luteal"
         else:
             dp = "follicular"
-        _obs_counts[dp] += 1
-        for k in _SYMPTOM_KEYS:
-            if obs.get(k):
-                _sym_counts[dp][k] += 1
-        if obs.get("hrv") is not None:
-            _hrv_vals[dp].append(obs["hrv"])
-        if obs.get("pain_scale") is not None:
-            _pain_vals[dp].append(obs["pain_scale"])
-        if obs.get("fatigue_scale") is not None:
-            _fat_vals[dp].append(obs["fatigue_scale"])
 
-    def _pm(lst):
+        bc       = _bc_for_date(ds)
+        bc_type  = bc["bc_type"] if bc else None
+        hormonal = bc_type in BC_IS_HORMONAL
+
+        for bkt in (buckets_all,
+                    buckets_hormonal if hormonal else buckets_no_bc):
+            bkt[dp]["n"] += 1
+            for k in _SYMPTOM_KEYS:
+                if obs.get(k):
+                    bkt[dp]["sym"][k] += 1
+            if obs.get("hrv") is not None:
+                bkt[dp]["hrv"].append(obs["hrv"])
+            if obs.get("pain_scale") is not None:
+                bkt[dp]["pain"].append(obs["pain_scale"])
+            if obs.get("fatigue_scale") is not None:
+                bkt[dp]["fat"].append(obs["fatigue_scale"])
+
+    def _pm(lst: list) -> float | None:
         return round(sum(lst) / len(lst), 1) if lst else None
 
-    phase_analytics = {
-        p: {
-            "days":    _obs_counts[p],
-            "hrv":     _pm(_hrv_vals[p]),
-            "pain":    _pm(_pain_vals[p]),
-            "fatigue": _pm(_fat_vals[p]),
-            "symptoms": {
-                k: round(_sym_counts[p][k] / _obs_counts[p] * 100)
-                if _obs_counts[p] else 0
-                for k in _SYMPTOM_KEYS
-            },
+    def _bkt_to_analytics(bkt: dict) -> dict:
+        return {
+            p: {
+                "days":    bkt[p]["n"],
+                "hrv":     _pm(bkt[p]["hrv"]),
+                "pain":    _pm(bkt[p]["pain"]),
+                "fatigue": _pm(bkt[p]["fat"]),
+                "symptoms": {
+                    k: round(bkt[p]["sym"][k] / bkt[p]["n"] * 100)
+                    if bkt[p]["n"] else 0
+                    for k in _SYMPTOM_KEYS
+                },
+            }
+            for p in _DISPLAY_PHASES
         }
-        for p in _DISPLAY_PHASES
-    }
 
-    # Sort symptom rows by luteal % descending (most phase-sensitive first)
-    symptom_rows = sorted(
-        [{"key": k, "label": _SYMPTOM_LABELS[k],
-          "period":     phase_analytics["period"]["symptoms"][k],
-          "follicular": phase_analytics["follicular"]["symptoms"][k],
-          "luteal":     phase_analytics["luteal"]["symptoms"][k]}
-         for k in _SYMPTOM_KEYS],
-        key=lambda r: r["luteal"], reverse=True,
+    phase_analytics          = _bkt_to_analytics(buckets_all)
+    phase_analytics_hormonal = _bkt_to_analytics(buckets_hormonal)
+    phase_analytics_no_bc    = _bkt_to_analytics(buckets_no_bc)
+
+    # Show stratification toggle only when both strata have ≥30 days of follicular data
+    # (follicular is the baseline / largest phase — a reliable proxy for overall coverage)
+    show_bc_toggle = (
+        phase_analytics_hormonal["follicular"]["days"] >= 30
+        and phase_analytics_no_bc["follicular"]["days"] >= 30
     )
 
-    # Per-cycle length series for trend chart (period_starts are date strings)
+    def _sym_rows(pa: dict) -> list:
+        return sorted(
+            [{"key": k, "label": _SYMPTOM_LABELS[k],
+              "period":     pa["period"]["symptoms"][k],
+              "follicular": pa["follicular"]["symptoms"][k],
+              "luteal":     pa["luteal"]["symptoms"][k]}
+             for k in _SYMPTOM_KEYS],
+            key=lambda r: r["luteal"], reverse=True,
+        )
+
+    symptom_rows          = _sym_rows(phase_analytics)
+    symptom_rows_hormonal = _sym_rows(phase_analytics_hormonal)
+    symptom_rows_no_bc    = _sym_rows(phase_analytics_no_bc)
+
+    # Per-cycle length series with BC annotation
     cycle_length_series = []
     if len(period_starts) >= 2:
         for i in range(len(period_starts) - 1):
             length = (date.fromisoformat(period_starts[i + 1]) -
                       date.fromisoformat(period_starts[i])).days
             if 15 <= length <= 60:
+                bc       = _bc_for_date(period_starts[i])
+                bc_type  = bc["bc_type"] if bc else None
                 cycle_length_series.append({
-                    "date": period_starts[i],
-                    "length": length,
+                    "date":        period_starts[i],
+                    "length":      length,
+                    "bc_type":     bc_type or "none",
+                    "is_hormonal": bc_type in BC_IS_HORMONAL if bc_type else False,
                 })
 
     # Intervention cycle-length effects (up to 3 cycles before/after each intervention)
@@ -1377,8 +1472,16 @@ def cycle_view():
         phase_day_counts=phase_day_counts,
         intervention_effects=intervention_effects,
         phase_analytics=phase_analytics,
+        phase_analytics_hormonal=phase_analytics_hormonal,
+        phase_analytics_no_bc=phase_analytics_no_bc,
+        show_bc_toggle=show_bc_toggle,
         symptom_rows=symptom_rows,
+        symptom_rows_hormonal=symptom_rows_hormonal,
+        symptom_rows_no_bc=symptom_rows_no_bc,
         cycle_length_series=cycle_length_series,
+        bc_history=bc_history,
+        bc_type_labels=BC_TYPE_LABELS,
+        bc_is_hormonal=list(BC_IS_HORMONAL),
         prev_year=prev_year, prev_month=prev_month,
         next_year=next_year, next_month=next_month,
         cal=calendar,

@@ -383,6 +383,22 @@ def create_database():
         )
     """)
 
+    # --------------------------------------------------------
+    # bc_history
+    # Contraceptive history — kept separate from medications so it
+    # stays out of clinical-record exports and supports typed analytics
+    # --------------------------------------------------------
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS bc_history (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            bc_type     TEXT NOT NULL,   -- see BC_TYPE_LABELS in app.py
+            name        TEXT,            -- brand / formulation (optional)
+            start_date  TEXT NOT NULL,   -- YYYY-MM-DD
+            end_date    TEXT,            -- nullable, null = currently active
+            notes       TEXT
+        )
+    """)
+
     conn.commit()
     conn.close()
     print(f"Database created at {DB_FILE} (gitignored - stays local)")

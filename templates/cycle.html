@@ -4,6 +4,24 @@
 
 {% block head %}
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+.chart-preset-btn {
+    padding: var(--space-xs) var(--space-md);
+    border: 1px solid var(--border-medium);
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--text-secondary);
+    font-family: var(--font-body);
+    cursor: pointer;
+    transition: all 0.15s;
+}
+.chart-preset-btn:hover,
+.chart-preset-btn.active {
+    background: var(--bg-elevated);
+    color: var(--text-primary);
+    border-color: var(--color-accent);
+}
+</style>
 {% endblock %}
 
 {% block content %}
@@ -398,6 +416,87 @@
 </div>
 {% endif %}
 
+<!-- BC History -->
+<div class="card" style="margin-top: var(--space-lg);">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:var(--space-sm);">
+        <div style="font-size: 0.75rem; color: var(--text-muted);">contraceptive history</div>
+        <button class="btn btn-secondary" style="font-size:0.75rem; padding:2px 10px;"
+                onclick="document.getElementById('bc-add-form').style.display =
+                         document.getElementById('bc-add-form').style.display === 'none' ? 'block' : 'none'">
+            + add
+        </button>
+    </div>
+
+    {% if bc_history %}
+    <div style="margin-bottom: var(--space-md);">
+        {% for bc in bc_history | sort(attribute='start_date') %}
+        <div style="display:flex; align-items:baseline; gap:var(--space-sm); font-size:0.8rem;
+                    padding: 4px 0; border-bottom: 1px solid var(--border-subtle);">
+            <span style="font-family:var(--font-mono); color:var(--text-muted); white-space:nowrap; font-size:0.7rem;">
+                {{ bc.start_date }} — {{ bc.end_date or 'present' }}
+            </span>
+            <span style="color:var(--text-secondary); flex:1;">
+                {{ bc_type_labels.get(bc.bc_type, bc.bc_type) }}
+                {% if bc.name %}<span style="color:var(--text-muted);">({{ bc.name }})</span>{% endif %}
+                {% if bc.bc_type in bc_is_hormonal %}
+                <span style="font-size:0.65rem; background:rgba(155,114,207,0.2);
+                             color:#9b72cf; border-radius:3px; padding:0 4px; margin-left:4px;">hormonal</span>
+                {% endif %}
+            </span>
+            <form method="POST" action="{{ url_for('bc_delete', bc_id=bc.id) }}" style="display:inline; margin:0;">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" style="background:none; border:none; color:var(--text-muted);
+                                             cursor:pointer; font-size:0.75rem; padding:0 4px;"
+                        title="delete">×</button>
+            </form>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <p style="font-size:0.75rem; color:var(--text-muted); margin:0 0 var(--space-md) 0;">
+        No contraceptive history recorded. Add a record to enable BC stratification in phase analytics.
+    </p>
+    {% endif %}
+
+    <!-- Add form (hidden by default) -->
+    <div id="bc-add-form" style="display:none; border-top:1px solid var(--border-subtle); padding-top:var(--space-md); margin-top:var(--space-sm);">
+        <form method="POST" action="{{ url_for('bc_add') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div style="display:flex; gap:var(--space-md); flex-wrap:wrap; margin-bottom:var(--space-sm);">
+                <div class="form-group" style="flex:2; min-width:160px; margin:0;">
+                    <label style="font-size:0.75rem;">type</label>
+                    <select name="bc_type" style="font-size:0.8rem;">
+                        {% for val, label in bc_type_labels.items() %}
+                        <option value="{{ val }}">{{ label }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="form-group" style="flex:1; min-width:120px; margin:0;">
+                    <label style="font-size:0.75rem;">brand / name (optional)</label>
+                    <input type="text" name="name" placeholder="e.g. Mirena" style="font-size:0.8rem;">
+                </div>
+            </div>
+            <div style="display:flex; gap:var(--space-md); flex-wrap:wrap; margin-bottom:var(--space-md);">
+                <div class="form-group" style="flex:1; min-width:130px; margin:0;">
+                    <label style="font-size:0.75rem;">start date</label>
+                    <input type="date" name="start_date" required style="font-size:0.8rem;">
+                </div>
+                <div class="form-group" style="flex:1; min-width:130px; margin:0;">
+                    <label style="font-size:0.75rem;">end date (blank if current)</label>
+                    <input type="date" name="end_date" style="font-size:0.8rem;">
+                </div>
+                <div class="form-group" style="flex:2; min-width:160px; margin:0;">
+                    <label style="font-size:0.75rem;">notes (optional)</label>
+                    <input type="text" name="notes" style="font-size:0.8rem;">
+                </div>
+            </div>
+            <button type="submit" class="btn btn-primary" style="font-size:0.8rem;">save</button>
+            <button type="button" class="btn btn-secondary" style="font-size:0.8rem; margin-left:var(--space-sm);"
+                    onclick="document.getElementById('bc-add-form').style.display='none'">cancel</button>
+        </form>
+    </div>
+</div>
+
 <!-- Phase Analytics -->
 {% if phase_analytics and phase_analytics.follicular.days > 0 %}
 <div class="card" style="margin-top: var(--space-lg);">
@@ -411,9 +510,21 @@
         </span>
     </p>
 
-    <!-- Symptom frequency table -->
-    <div style="font-size: 0.7rem; color: var(--text-muted); margin-bottom: var(--space-xs);">symptom frequency by phase</div>
-    <div style="overflow-x: auto; margin-bottom: var(--space-lg);">
+    <!-- BC stratification toggle -->
+    {% if show_bc_toggle %}
+    <div style="display:flex; gap:var(--space-sm); margin-bottom:var(--space-md); flex-wrap:wrap;">
+        <button class="chart-preset-btn active" id="bc-toggle-all"
+                onclick="setBCView('all')" style="font-size:0.75rem;">all data</button>
+        <button class="chart-preset-btn" id="bc-toggle-hormonal"
+                onclick="setBCView('hormonal')" style="font-size:0.75rem;">on hormonal BC</button>
+        <button class="chart-preset-btn" id="bc-toggle-none"
+                onclick="setBCView('none')" style="font-size:0.75rem;">off hormonal BC</button>
+    </div>
+    {% endif %}
+
+    <!-- Symptom frequency tables (three versions, JS toggles visibility) -->
+    {% macro sym_table(rows, table_id) %}
+    <div id="{{ table_id }}" style="overflow-x: auto; margin-bottom: var(--space-lg);">
         <table style="width: 100%; border-collapse: collapse; font-size: 0.8rem;">
             <thead>
                 <tr style="border-bottom: 1px solid var(--border-medium);">
@@ -424,31 +535,31 @@
                 </tr>
             </thead>
             <tbody>
-                {% for row in symptom_rows %}
+                {% for row in rows %}
                 {% if row.period > 0 or row.follicular > 0 or row.luteal > 0 %}
                 <tr style="border-bottom: 1px solid var(--border-subtle);">
                     <td style="padding: 4px 8px; color: var(--text-secondary);">{{ row.label }}</td>
                     <td style="text-align: center; padding: 4px 8px;">
-                        <span style="display: inline-block; padding: 2px 6px; border-radius: 3px;
-                                     background: rgba(201,64,64,{{ row.period / 100 * 0.7 }});
-                                     font-family: var(--font-mono); font-size: 0.75rem;
-                                     color: {% if row.period >= 20 %}var(--text-primary){% else %}var(--text-muted){% endif %};">
+                        <span style="display:inline-block; padding:2px 6px; border-radius:3px;
+                                     background:rgba(201,64,64,{{ row.period / 100 * 0.7 }});
+                                     font-family:var(--font-mono); font-size:0.75rem;
+                                     color:{% if row.period >= 20 %}var(--text-primary){% else %}var(--text-muted){% endif %};">
                             {{ row.period }}%
                         </span>
                     </td>
                     <td style="text-align: center; padding: 4px 8px;">
-                        <span style="display: inline-block; padding: 2px 6px; border-radius: 3px;
-                                     background: rgba(74,144,217,{{ row.follicular / 100 * 0.7 }});
-                                     font-family: var(--font-mono); font-size: 0.75rem;
-                                     color: {% if row.follicular >= 20 %}var(--text-primary){% else %}var(--text-muted){% endif %};">
+                        <span style="display:inline-block; padding:2px 6px; border-radius:3px;
+                                     background:rgba(74,144,217,{{ row.follicular / 100 * 0.7 }});
+                                     font-family:var(--font-mono); font-size:0.75rem;
+                                     color:{% if row.follicular >= 20 %}var(--text-primary){% else %}var(--text-muted){% endif %};">
                             {{ row.follicular }}%
                         </span>
                     </td>
                     <td style="text-align: center; padding: 4px 8px;">
-                        <span style="display: inline-block; padding: 2px 6px; border-radius: 3px;
-                                     background: rgba(155,114,207,{{ row.luteal / 100 * 0.7 }});
-                                     font-family: var(--font-mono); font-size: 0.75rem;
-                                     color: {% if row.luteal >= 20 %}var(--text-primary){% else %}var(--text-muted){% endif %};">
+                        <span style="display:inline-block; padding:2px 6px; border-radius:3px;
+                                     background:rgba(155,114,207,{{ row.luteal / 100 * 0.7 }});
+                                     font-family:var(--font-mono); font-size:0.75rem;
+                                     color:{% if row.luteal >= 20 %}var(--text-primary){% else %}var(--text-muted){% endif %};">
                             {{ row.luteal }}%
                         </span>
                     </td>
@@ -458,6 +569,14 @@
             </tbody>
         </table>
     </div>
+    {% endmacro %}
+
+    <div style="font-size: 0.7rem; color: var(--text-muted); margin-bottom: var(--space-xs);">symptom frequency by phase</div>
+    {{ sym_table(symptom_rows, 'sym-table-all') }}
+    {% if show_bc_toggle %}
+    {{ sym_table(symptom_rows_hormonal, 'sym-table-hormonal') }}
+    {{ sym_table(symptom_rows_no_bc, 'sym-table-none') }}
+    {% endif %}
 
     <!-- Biometrics by phase (Chart.js grouped bar) -->
     {% set has_biometrics = phase_analytics.follicular.hrv is not none
@@ -473,6 +592,12 @@
     <!-- Cycle length trend -->
     {% if cycle_length_series | length >= 3 %}
     <div style="font-size: 0.7rem; color: var(--text-muted); margin-bottom: var(--space-xs);">cycle length over time</div>
+    {% if bc_history %}
+    <div style="display:flex; gap:var(--space-md); font-size:0.7rem; color:var(--text-muted); margin-bottom:var(--space-xs);">
+        <span>&#9679; <span style="color:#9b72cf;">hormonal BC</span></span>
+        <span>&#9679; <span style="color:#d4b84a;">no hormonal BC</span></span>
+    </div>
+    {% endif %}
     <div style="max-height: 180px;">
         <canvas id="cycle-length-chart"></canvas>
     </div>
@@ -481,27 +606,33 @@
 
 <script>
 (function() {
-    const PA = {{ phase_analytics | tojson }};
-    const phaseColors = { period: '#e46363ff', follicular: '#64a7f0ff', luteal: '#b18ce3ff' };
+    const PA_ALL      = {{ phase_analytics | tojson }};
+    const PA_HORMONAL = {{ phase_analytics_hormonal | tojson }};
+    const PA_NO_BC    = {{ phase_analytics_no_bc | tojson }};
     const phases      = ['period', 'follicular', 'luteal'];
     const phaseLabels = ['period', 'follicular', 'luteal / PMS'];
-    const gridColor   = 'rgba(132, 120, 120, 0.16)';
+    const phaseColors = { period: '#c94040', follicular: '#4a90d9', luteal: '#9b72cf' };
+    const gridColor   = 'rgba(255,255,255,0.06)';
     const tickColor   = '#9994a8';
 
     // Biometrics chart
     const bioCtx = document.getElementById('phase-biometrics-chart');
+    let bioChart = null;
     if (bioCtx) {
-        new Chart(bioCtx, {
+        function bioDatasets(pa) {
+            return phases.map((p, i) => ({
+                label: phaseLabels[i],
+                data: [pa[p].hrv, pa[p].pain, pa[p].fatigue],
+                backgroundColor: phaseColors[p] + 'bb',
+                borderColor:     phaseColors[p],
+                borderWidth: 1,
+            }));
+        }
+        bioChart = new Chart(bioCtx, {
             type: 'bar',
             data: {
                 labels: ['HRV (ms)', 'Pain (0–10)', 'Fatigue (0–10)'],
-                datasets: phases.map((p, i) => ({
-                    label: phaseLabels[i],
-                    data: [PA[p].hrv, PA[p].pain, PA[p].fatigue],
-                    backgroundColor: phaseColors[p] + 'bb',
-                    borderColor:     phaseColors[p],
-                    borderWidth: 1,
-                }))
+                datasets: bioDatasets(PA_ALL),
             },
             options: {
                 responsive: true,
@@ -524,6 +655,7 @@
     if (clCtx) {
         const CL = {{ cycle_length_series | tojson }};
         const avg = Math.round(CL.reduce((s, c) => s + c.length, 0) / CL.length);
+        const ptColor = CL.map(c => c.is_hormonal ? '#9b72cf' : '#d4b84a');
         new Chart(clCtx, {
             type: 'line',
             data: {
@@ -532,16 +664,18 @@
                     {
                         label: 'cycle length (days)',
                         data: CL.map(c => c.length),
-                        borderColor: '#d4b84a',
-                        backgroundColor: 'rgba(212,184,74,0.1)',
+                        borderColor: 'rgba(212,184,74,0.5)',
+                        backgroundColor: 'rgba(212,184,74,0.08)',
+                        pointBackgroundColor: ptColor,
+                        pointBorderColor: ptColor,
                         fill: true,
                         tension: 0.3,
-                        pointRadius: 4,
+                        pointRadius: 5,
                     },
                     {
                         label: `avg ${avg}d`,
                         data: CL.map(() => avg),
-                        borderColor: 'rgba(153,148,168,0.5)',
+                        borderColor: 'rgba(153,148,168,0.4)',
                         borderWidth: 1,
                         borderDash: [4, 3],
                         pointRadius: 0,
@@ -560,10 +694,10 @@
                          ticks: { color: tickColor, maxTicksLimit: 8, maxRotation: 0 } }
                 },
                 plugins: {
-                    legend: { labels: { color: tickColor, boxWidth: 12, padding: 12 } },
+                    legend: { display: false },
                     tooltip: {
                         callbacks: {
-                            label: ctx => ctx.dataset.label === `avg ${avg}d`
+                            label: ctx => ctx.datasetIndex === 1
                                 ? `average: ${avg} days`
                                 : `${ctx.parsed.y} days`
                         }
@@ -572,6 +706,44 @@
             }
         });
     }
+    {% endif %}
+
+    // BC stratification toggle
+    {% if show_bc_toggle %}
+    const symTables = {
+        all:      document.getElementById('sym-table-all'),
+        hormonal: document.getElementById('sym-table-hormonal'),
+        none:     document.getElementById('sym-table-none'),
+    };
+    const toggleBtns = {
+        all:      document.getElementById('bc-toggle-all'),
+        hormonal: document.getElementById('bc-toggle-hormonal'),
+        none:     document.getElementById('bc-toggle-none'),
+    };
+    const paMap = { all: PA_ALL, hormonal: PA_HORMONAL, none: PA_NO_BC };
+
+    // Hide hormonal and none tables on load
+    symTables.hormonal.style.display = 'none';
+    symTables.none.style.display = 'none';
+
+    window.setBCView = function(view) {
+        Object.keys(symTables).forEach(k => {
+            symTables[k].style.display = k === view ? '' : 'none';
+        });
+        Object.keys(toggleBtns).forEach(k => {
+            toggleBtns[k].classList.toggle('active', k === view);
+        });
+        if (bioChart) {
+            bioChart.data.datasets = phases.map((p, i) => ({
+                label: phaseLabels[i],
+                data: [paMap[view][p].hrv, paMap[view][p].pain, paMap[view][p].fatigue],
+                backgroundColor: phaseColors[p] + 'bb',
+                borderColor:     phaseColors[p],
+                borderWidth: 1,
+            }));
+            bioChart.update();
+        }
+    };
     {% endif %}
 })();
 </script>

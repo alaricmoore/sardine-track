@@ -720,6 +720,49 @@ def close_all_connections():
 
 
 # ============================================================
+# Contraceptive history functions
+# ============================================================
+
+def get_bc_history() -> list[dict]:
+    """All BC history records ordered by start_date ASC."""
+    with get_db() as conn:
+        rows = conn.execute(
+            "SELECT * FROM bc_history ORDER BY start_date ASC"
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def add_bc_regime(data: dict) -> int:  # type: ignore[return]
+    """Insert a new BC record. Returns new id."""
+    with get_db() as conn:
+        cursor = conn.execute(
+            """INSERT INTO bc_history (bc_type, name, start_date, end_date, notes)
+               VALUES (?, ?, ?, ?, ?)""",
+            (data["bc_type"], data.get("name"), data["start_date"],
+             data.get("end_date"), data.get("notes")),
+        )
+    return cursor.lastrowid
+
+
+def update_bc_regime(bc_id: int, data: dict) -> None:
+    """Update an existing BC record."""
+    with get_db() as conn:
+        conn.execute(
+            """UPDATE bc_history
+               SET bc_type=?, name=?, start_date=?, end_date=?, notes=?
+               WHERE id=?""",
+            (data["bc_type"], data.get("name"), data["start_date"],
+             data.get("end_date"), data.get("notes"), bc_id),
+        )
+
+
+def delete_bc_regime(bc_id: int) -> None:
+    """Delete a BC record."""
+    with get_db() as conn:
+        conn.execute("DELETE FROM bc_history WHERE id = ?", (bc_id,))
+
+
+# ============================================================
 # Taper schedule and dose reminder functions
 # ============================================================
 
