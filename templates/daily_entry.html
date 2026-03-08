@@ -70,10 +70,11 @@
     </div>
 </div>
 {% else %}
-<div class="card" style="border-color: var(--border-medium);">
-    <p style="color: var(--text-muted); font-size:0.875rem; font-style:italic;">
-        UV data unavailable — no internet connection or API error.
-        You can enter UV values manually below.
+<div class="card" style="border-color: var(--color-accent); background: var(--bg-elevated);">
+    <p style="font-size:0.875rem; margin:0;">
+        <strong style="color:var(--text-primary);">UV data unavailable</strong>
+        <span style="color:var(--text-muted);"> — API unreachable or no internet.
+        Enter UV values manually below if known.</span>
     </p>
 </div>
 {% endif %}

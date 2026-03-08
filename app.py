@@ -546,6 +546,43 @@ def _check_flare_risk_alert() -> None:
         print(f"[flare-alert] state save failed: {e}")
 
 
+UV_ALERT_STATE_PATH = os.path.join(os.path.dirname(__file__), "config", "uv_alert_state.json")
+
+def _check_uv_fetch() -> None:
+    """Daily cron job: ensure today's UV data is fetched; send ntfy alert if it fails."""
+    if not CONFIG.get("ntfy_topic"):
+        return
+
+    today_str = date.today().isoformat()
+
+    # Rate-limit: only alert once per calendar day
+    try:
+        if os.path.exists(UV_ALERT_STATE_PATH):
+            with open(UV_ALERT_STATE_PATH) as f:
+                state = json.load(f)
+            if state.get("last_alert_date") == today_str:
+                return
+    except Exception:
+        pass
+
+    uv = uv_fetcher.fetch_and_store_uv_for_date(today_str)
+
+    if uv is None:
+        _send_ntfy_alert(
+            f"Could not fetch UV index data for {today_str}. "
+            "Open-Meteo may be unreachable. Enter UV manually on today's entry.",
+            title="UV data unavailable",
+            priority="default",
+            tags="satellite",
+        )
+        try:
+            os.makedirs(os.path.dirname(UV_ALERT_STATE_PATH), exist_ok=True)
+            with open(UV_ALERT_STATE_PATH, "w") as f:
+                json.dump({"last_alert_date": today_str}, f)
+        except Exception as e:
+            print(f"[uv-alert] state save failed: {e}")
+
+
 def _check_and_send_reminders() -> None:
     """Background job: send ntfy notifications for doses due in the next minute."""
     now = datetime.now()
@@ -569,6 +606,8 @@ if not app.debug or os.environ.get("WERKZEUG_RUN_MAIN") == "true":
     _scheduler.add_job(_check_and_send_reminders, "interval", minutes=1)
     _alert_hour = CONFIG.get("flare_alert_hour", 8)
     _scheduler.add_job(_check_flare_risk_alert, "cron", hour=_alert_hour, minute=0)
+    _uv_alert_hour = CONFIG.get("uv_alert_hour", 9)
+    _scheduler.add_job(_check_uv_fetch, "cron", hour=_uv_alert_hour, minute=0)
     _scheduler.start()
 
 
