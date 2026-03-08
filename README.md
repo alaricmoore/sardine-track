@@ -128,6 +128,7 @@ Enabled via `track_cycle: true` in setup. Designed for patients where steroids, 
 
 - **Local-first**: All data stored in local SQLite database on your machine
 - **No cloud sync**: Data never leaves your computer by default
+- **Optional passcode lock**: Require a PIN to access the app — useful on shared networks, with roommates, or in any situation where you need your health data to stay private from people in your physical space. Enable by adding one line to `config.json`. See [Optional Passcode](#optional-passcode-access-control) below.
 - **Optional remote access**: Raspberry Pi + Tailscale + Oracle Cloud setup for secure mobile access (see REMOTE_ACCESS.md)
 - **Version control safe**: Comprehensive `.gitignore` protects health data from accidental commits
 - **Export control**: You decide what data leaves your system and when
@@ -474,6 +475,50 @@ To disable flare alerts entirely without removing ntfy, just don't add `flare_al
 
 ---
 
+## Optional Passcode (Access Control)
+
+Health data can be sensitive in ways that go beyond the abstract. If you share a living space, use your laptop in shared areas, or are in any situation where you need your data visible only to you, the optional passcode adds a simple lock screen to the app.
+
+**To enable:**
+
+Open `config.json` (in your biotracking folder) in any text editor and add one line:
+
+```json
+"passcode": "yourpin"
+```
+
+For example, if your config currently ends with:
+
+```json
+  "debug": false,
+  "secret_key": "abc123..."
+}
+```
+
+Make it:
+
+```json
+  "debug": false,
+  "secret_key": "abc123...",
+  "passcode": "yourpin"
+}
+```
+
+Restart the app. From now on, anyone visiting the app URL will see a passcode prompt before they can access any data.
+
+A **lock** button will appear in the navigation bar. Clicking it ends your session immediately.
+
+**To disable:** remove the `"passcode"` line from `config.json` and restart.
+
+**Notes:**
+
+- The passcode can be any string — a word, a number, a phrase. It's stored in your local `config.json` file, which is already gitignored and never committed to GitHub.
+- This is a "lock the door" measure, not a cryptographic security system. It protects against casual access (someone picking up your laptop, a roommate, a family member) on a trusted home network. It is not a substitute for full-disk encryption if your threat model involves physical device seizure.
+- If you forget your passcode, open `config.json` in a text editor and either read it there or remove the line.
+- Sessions expire when you close the browser tab or click **lock**. There is no persistent "remember me."
+
+---
+
 ## Troubleshooting
 
 **"Port 5000 is already in use"** (common on macOS which uses 5000 for AirPlay)
@@ -631,7 +676,8 @@ biotracking/
 │   ├── daily_confirm.html
 │   ├── clinical_record.html
 │   ├── search.html
-│   └── report.html
+│   ├── report.html
+│   └── login.html
 └── import_*.py         # Data import scripts
 ```
 
