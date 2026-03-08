@@ -2,6 +2,10 @@
 
 {% block title %}cycle — {{ month_name }} — biotracking{% endblock %}
 
+{% block head %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+{% endblock %}
+
 {% block content %}
 <div class="page-header">
     <h1>cycle</h1>
@@ -9,7 +13,7 @@
 </div>
 
 <!-- Month navigation -->
-<div class="date-nav" style="margin-bottom: var(--space-lg);">
+<div class="date-nav">
     <a href="{{ url_for('cycle_view', year=prev_year, month=prev_month) }}" class="date-nav-btn">
         ← previous
     </a>
@@ -19,6 +23,88 @@
     <a href="{{ url_for('cycle_view', year=next_year, month=next_month) }}" class="date-nav-btn">
         next →
     </a>
+</div>
+
+
+<!-- Legend -->
+<div class="card" style="margin-top: var(--space-lg);">
+    <div style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: var(--space-sm);">legend</div>
+    <div style="display: flex; gap: var(--space-lg); flex-wrap: wrap; align-items: center; font-size: 0.8rem;">
+
+        <div style="display: flex; gap: var(--space-md); align-items: center;">
+            <div style="display: flex; gap: var(--space-sm); align-items: center;">
+                <div style="width: 14px; height: 4px; background: var(--cycle-flow-heavy); border-radius: 2px;"></div>
+                <span style="color: var(--text-muted);">heavy</span>
+            </div>
+            <div style="display: flex; gap: var(--space-sm); align-items: center;">
+                <div style="width: 14px; height: 4px; background: var(--cycle-flow-medium); border-radius: 2px;"></div>
+                <span style="color: var(--text-muted);">medium</span>
+            </div>
+            <div style="display: flex; gap: var(--space-sm); align-items: center;">
+                <div style="width: 14px; height: 4px; background: var(--cycle-flow-light); border-radius: 2px;"></div>
+                <span style="color: var(--text-muted);">light</span>
+            </div>
+            <div style="display: flex; gap: var(--space-sm); align-items: center;">
+                <div style="width: 14px; height: 4px; background: var(--cycle-flow-spotting); border-radius: 2px;"></div>
+                <span style="color: var(--text-muted);">spotting</span>
+            </div>
+        </div>
+
+        <div style="width: 1px; height: 16px; background: var(--border-subtle);"></div>
+
+        <div style="display: flex; gap: var(--space-md); align-items: center;">
+            <div style="display: flex; gap: var(--space-sm); align-items: center;">
+                <div style="width: 14px; height: 14px; border-radius: 2px;
+                            background: var(--cycle-pms-bg);
+                            border: 1px solid var(--border-subtle);"></div>
+                <span style="color: var(--text-muted);">pms window</span>
+            </div>
+            <div style="display: flex; gap: var(--space-sm); align-items: center;">
+                <div style="width: 14px; height: 14px; border-radius: 2px;
+                            background: var(--cycle-luteal-bg);
+                            border: 1px solid var(--border-subtle);"></div>
+                <span style="color: var(--text-muted);">luteal phase</span>
+            </div>
+        </div>
+
+        <div style="width: 1px; height: 16px; background: var(--border-subtle);"></div>
+
+        <div style="display: flex; gap: var(--space-md); align-items: center;">
+            <span style="font-size: 0.6rem; background: var(--badge-migraine-bg, #7f1d1d33);
+                         color: #fca5a5; border-radius: 3px; padding: 0 4px;">flare</span>
+            <span style="color: var(--text-muted);">flare day</span>
+        </div>
+        <div style="display: flex; gap: var(--space-sm); align-items: center;">
+            <span style="font-size: 0.6rem; background: var(--bg-elevated);
+                         color: var(--color-accent); border-radius: 3px; padding: 0 4px;">Rx</span>
+            <span style="color: var(--text-muted);">intervention start</span>
+        </div>
+        <div style="display: flex; gap: var(--space-sm); align-items: center;">
+            <span style="font-size: 0.6rem; background: var(--bg-elevated);
+                         color: var(--text-muted); border-radius: 3px; padding: 0 4px;">Rx</span>
+            <span style="color: var(--text-muted);">intervention ongoing</span>
+        </div>
+
+
+        <div style="width: 1px; height: 16px; background: var(--border-subtle);"></div>
+
+        <div style="display: flex; gap: var(--space-md); align-items: center;">
+            <div style="display: flex; gap: var(--space-sm); align-items: center;">
+                <div style="width: 14px; height: 4px; background: var(--cycle-bbt-dot); border-radius: 2px;"></div>
+                <span style="color: var(--text-muted);">bbt high (+0.2°+)</span>
+            </div>
+            <div style="display: flex; gap: var(--space-sm); align-items: center;">
+                <div style="width: 14px; height: 4px; background: var(--cycle-bbt-low); border-radius: 2px;"></div>
+                <span style="color: var(--text-muted);">bbt low</span>
+            </div>
+        </div>
+
+    </div>
+    <p style="font-size: 0.7rem; color: var(--text-muted); margin-top: var(--space-md); margin-bottom: 0;">
+        Phase bands use BBT-detected ovulation where available, otherwise date arithmetic.
+        Click any day to view or edit that entry.
+        BBT shown as delta from your configured baseline (colored border at cell bottom).
+    </p>
 </div>
 
 <!-- Summary stats -->
@@ -312,85 +398,182 @@
 </div>
 {% endif %}
 
-<!-- Legend -->
+<!-- Phase Analytics -->
+{% if phase_analytics and phase_analytics.follicular.days > 0 %}
 <div class="card" style="margin-top: var(--space-lg);">
-    <div style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: var(--space-sm);">legend</div>
-    <div style="display: flex; gap: var(--space-lg); flex-wrap: wrap; align-items: center; font-size: 0.8rem;">
-
-        <div style="display: flex; gap: var(--space-md); align-items: center;">
-            <div style="display: flex; gap: var(--space-sm); align-items: center;">
-                <div style="width: 14px; height: 4px; background: var(--cycle-flow-heavy); border-radius: 2px;"></div>
-                <span style="color: var(--text-muted);">heavy</span>
-            </div>
-            <div style="display: flex; gap: var(--space-sm); align-items: center;">
-                <div style="width: 14px; height: 4px; background: var(--cycle-flow-medium); border-radius: 2px;"></div>
-                <span style="color: var(--text-muted);">medium</span>
-            </div>
-            <div style="display: flex; gap: var(--space-sm); align-items: center;">
-                <div style="width: 14px; height: 4px; background: var(--cycle-flow-light); border-radius: 2px;"></div>
-                <span style="color: var(--text-muted);">light</span>
-            </div>
-            <div style="display: flex; gap: var(--space-sm); align-items: center;">
-                <div style="width: 14px; height: 4px; background: var(--cycle-flow-spotting); border-radius: 2px;"></div>
-                <span style="color: var(--text-muted);">spotting</span>
-            </div>
-        </div>
-
-        <div style="width: 1px; height: 16px; background: var(--border-subtle);"></div>
-
-        <div style="display: flex; gap: var(--space-md); align-items: center;">
-            <div style="display: flex; gap: var(--space-sm); align-items: center;">
-                <div style="width: 14px; height: 14px; border-radius: 2px;
-                            background: var(--cycle-pms-bg);
-                            border: 1px solid var(--border-subtle);"></div>
-                <span style="color: var(--text-muted);">pms window</span>
-            </div>
-            <div style="display: flex; gap: var(--space-sm); align-items: center;">
-                <div style="width: 14px; height: 14px; border-radius: 2px;
-                            background: var(--cycle-luteal-bg);
-                            border: 1px solid var(--border-subtle);"></div>
-                <span style="color: var(--text-muted);">luteal phase</span>
-            </div>
-        </div>
-
-        <div style="width: 1px; height: 16px; background: var(--border-subtle);"></div>
-
-        <div style="display: flex; gap: var(--space-md); align-items: center;">
-            <span style="font-size: 0.6rem; background: var(--badge-migraine-bg, #7f1d1d33);
-                         color: #fca5a5; border-radius: 3px; padding: 0 4px;">flare</span>
-            <span style="color: var(--text-muted);">flare day</span>
-        </div>
-        <div style="display: flex; gap: var(--space-sm); align-items: center;">
-            <span style="font-size: 0.6rem; background: var(--bg-elevated);
-                         color: var(--color-accent); border-radius: 3px; padding: 0 4px;">Rx</span>
-            <span style="color: var(--text-muted);">intervention start</span>
-        </div>
-        <div style="display: flex; gap: var(--space-sm); align-items: center;">
-            <span style="font-size: 0.6rem; background: var(--bg-elevated);
-                         color: var(--text-muted); border-radius: 3px; padding: 0 4px;">Rx</span>
-            <span style="color: var(--text-muted);">intervention ongoing</span>
-        </div>
-
-
-        <div style="width: 1px; height: 16px; background: var(--border-subtle);"></div>
-
-        <div style="display: flex; gap: var(--space-md); align-items: center;">
-            <div style="display: flex; gap: var(--space-sm); align-items: center;">
-                <div style="width: 14px; height: 4px; background: var(--cycle-bbt-dot); border-radius: 2px;"></div>
-                <span style="color: var(--text-muted);">bbt high (+0.2°+)</span>
-            </div>
-            <div style="display: flex; gap: var(--space-sm); align-items: center;">
-                <div style="width: 14px; height: 4px; background: var(--cycle-bbt-low); border-radius: 2px;"></div>
-                <span style="color: var(--text-muted);">bbt low</span>
-            </div>
-        </div>
-
-    </div>
-    <p style="font-size: 0.7rem; color: var(--text-muted); margin-top: var(--space-md); margin-bottom: 0;">
-        Phase bands use BBT-detected ovulation where available, otherwise date arithmetic.
-        Click any day to view or edit that entry.
-        BBT shown as delta from your configured baseline (colored border at cell bottom).
+    <div style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: var(--space-sm);">phase analytics</div>
+    <p style="font-size: 0.75rem; color: var(--text-muted); margin: 0 0 var(--space-md) 0;">
+        Aggregated across all tracked history. Luteal includes PMS window.
+        <span style="font-family: var(--font-mono);">
+            period {{ phase_analytics.period.days }}d &nbsp;·&nbsp;
+            follicular {{ phase_analytics.follicular.days }}d &nbsp;·&nbsp;
+            luteal/PMS {{ phase_analytics.luteal.days }}d
+        </span>
     </p>
+
+    <!-- Symptom frequency table -->
+    <div style="font-size: 0.7rem; color: var(--text-muted); margin-bottom: var(--space-xs);">symptom frequency by phase</div>
+    <div style="overflow-x: auto; margin-bottom: var(--space-lg);">
+        <table style="width: 100%; border-collapse: collapse; font-size: 0.8rem;">
+            <thead>
+                <tr style="border-bottom: 1px solid var(--border-medium);">
+                    <th style="text-align: left; padding: 4px 8px; color: var(--text-muted); font-weight: normal; min-width: 120px;"></th>
+                    <th style="text-align: center; padding: 4px 8px; color: #c94040; font-weight: normal;">period</th>
+                    <th style="text-align: center; padding: 4px 8px; color: #4a90d9; font-weight: normal;">follicular</th>
+                    <th style="text-align: center; padding: 4px 8px; color: #9b72cf; font-weight: normal;">luteal / PMS</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in symptom_rows %}
+                {% if row.period > 0 or row.follicular > 0 or row.luteal > 0 %}
+                <tr style="border-bottom: 1px solid var(--border-subtle);">
+                    <td style="padding: 4px 8px; color: var(--text-secondary);">{{ row.label }}</td>
+                    <td style="text-align: center; padding: 4px 8px;">
+                        <span style="display: inline-block; padding: 2px 6px; border-radius: 3px;
+                                     background: rgba(201,64,64,{{ row.period / 100 * 0.7 }});
+                                     font-family: var(--font-mono); font-size: 0.75rem;
+                                     color: {% if row.period >= 20 %}var(--text-primary){% else %}var(--text-muted){% endif %};">
+                            {{ row.period }}%
+                        </span>
+                    </td>
+                    <td style="text-align: center; padding: 4px 8px;">
+                        <span style="display: inline-block; padding: 2px 6px; border-radius: 3px;
+                                     background: rgba(74,144,217,{{ row.follicular / 100 * 0.7 }});
+                                     font-family: var(--font-mono); font-size: 0.75rem;
+                                     color: {% if row.follicular >= 20 %}var(--text-primary){% else %}var(--text-muted){% endif %};">
+                            {{ row.follicular }}%
+                        </span>
+                    </td>
+                    <td style="text-align: center; padding: 4px 8px;">
+                        <span style="display: inline-block; padding: 2px 6px; border-radius: 3px;
+                                     background: rgba(155,114,207,{{ row.luteal / 100 * 0.7 }});
+                                     font-family: var(--font-mono); font-size: 0.75rem;
+                                     color: {% if row.luteal >= 20 %}var(--text-primary){% else %}var(--text-muted){% endif %};">
+                            {{ row.luteal }}%
+                        </span>
+                    </td>
+                </tr>
+                {% endif %}
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <!-- Biometrics by phase (Chart.js grouped bar) -->
+    {% set has_biometrics = phase_analytics.follicular.hrv is not none
+                         or phase_analytics.follicular.pain is not none
+                         or phase_analytics.follicular.fatigue is not none %}
+    {% if has_biometrics %}
+    <div style="font-size: 0.7rem; color: var(--text-muted); margin-bottom: var(--space-xs);">biometrics by phase (mean)</div>
+    <div style="max-height: 220px; margin-bottom: var(--space-lg);">
+        <canvas id="phase-biometrics-chart"></canvas>
+    </div>
+    {% endif %}
+
+    <!-- Cycle length trend -->
+    {% if cycle_length_series | length >= 3 %}
+    <div style="font-size: 0.7rem; color: var(--text-muted); margin-bottom: var(--space-xs);">cycle length over time</div>
+    <div style="max-height: 180px;">
+        <canvas id="cycle-length-chart"></canvas>
+    </div>
+    {% endif %}
 </div>
 
+<script>
+(function() {
+    const PA = {{ phase_analytics | tojson }};
+    const phaseColors = { period: '#e46363ff', follicular: '#64a7f0ff', luteal: '#b18ce3ff' };
+    const phases      = ['period', 'follicular', 'luteal'];
+    const phaseLabels = ['period', 'follicular', 'luteal / PMS'];
+    const gridColor   = 'rgba(132, 120, 120, 0.16)';
+    const tickColor   = '#9994a8';
+
+    // Biometrics chart
+    const bioCtx = document.getElementById('phase-biometrics-chart');
+    if (bioCtx) {
+        new Chart(bioCtx, {
+            type: 'bar',
+            data: {
+                labels: ['HRV (ms)', 'Pain (0–10)', 'Fatigue (0–10)'],
+                datasets: phases.map((p, i) => ({
+                    label: phaseLabels[i],
+                    data: [PA[p].hrv, PA[p].pain, PA[p].fatigue],
+                    backgroundColor: phaseColors[p] + 'bb',
+                    borderColor:     phaseColors[p],
+                    borderWidth: 1,
+                }))
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    y: { beginAtZero: true,
+                         grid: { color: gridColor },
+                         ticks: { color: tickColor } },
+                    x: { grid: { display: false },
+                         ticks: { color: tickColor } }
+                },
+                plugins: { legend: { labels: { color: tickColor, boxWidth: 12, padding: 12 } } }
+            }
+        });
+    }
+
+    // Cycle length trend
+    const clCtx = document.getElementById('cycle-length-chart');
+    {% if cycle_length_series | length >= 3 %}
+    if (clCtx) {
+        const CL = {{ cycle_length_series | tojson }};
+        const avg = Math.round(CL.reduce((s, c) => s + c.length, 0) / CL.length);
+        new Chart(clCtx, {
+            type: 'line',
+            data: {
+                labels: CL.map(c => c.date),
+                datasets: [
+                    {
+                        label: 'cycle length (days)',
+                        data: CL.map(c => c.length),
+                        borderColor: '#d4b84a',
+                        backgroundColor: 'rgba(212,184,74,0.1)',
+                        fill: true,
+                        tension: 0.3,
+                        pointRadius: 4,
+                    },
+                    {
+                        label: `avg ${avg}d`,
+                        data: CL.map(() => avg),
+                        borderColor: 'rgba(153,148,168,0.5)',
+                        borderWidth: 1,
+                        borderDash: [4, 3],
+                        pointRadius: 0,
+                        fill: false,
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    y: { min: 18, max: 45,
+                         grid: { color: gridColor },
+                         ticks: { color: tickColor, stepSize: 7 } },
+                    x: { grid: { display: false },
+                         ticks: { color: tickColor, maxTicksLimit: 8, maxRotation: 0 } }
+                },
+                plugins: {
+                    legend: { labels: { color: tickColor, boxWidth: 12, padding: 12 } },
+                    tooltip: {
+                        callbacks: {
+                            label: ctx => ctx.dataset.label === `avg ${avg}d`
+                                ? `average: ${avg} days`
+                                : `${ctx.parsed.y} days`
+                        }
+                    }
+                }
+            }
+        });
+    }
+    {% endif %}
+})();
+</script>
+{% endif %}
 {% endblock %}

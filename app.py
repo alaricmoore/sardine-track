@@ -1253,6 +1253,89 @@ def cycle_view():
         if row.get("flare_occurred"):
             flare_phase_counts[ph] = flare_phase_counts.get(ph, 0) + 1
 
+    # Phase analytics: symptom frequency + biometrics by phase
+    # Uses full observations (SELECT *) to access symptom booleans, HRV, pain, fatigue
+    _SYMPTOM_KEYS = [
+        "neurological", "cognitive", "musculature", "migraine",
+        "pulmonary", "dermatological", "rheumatic", "gastro", "mucosal",
+    ]
+    _SYMPTOM_LABELS = {
+        "neurological": "Neurological", "cognitive": "Cognitive",
+        "musculature": "Musculature", "migraine": "Migraine",
+        "pulmonary": "Pulmonary", "dermatological": "Dermatological",
+        "rheumatic": "Rheumatic", "gastro": "Gastrointestinal",
+        "mucosal": "Mucosal",
+    }
+    _DISPLAY_PHASES = ("period", "follicular", "luteal")
+
+    all_obs_full = db.get_daily_observations_range(history_start, month_end)
+
+    _sym_counts  = {p: {k: 0 for k in _SYMPTOM_KEYS} for p in _DISPLAY_PHASES}
+    _hrv_vals    = {p: [] for p in _DISPLAY_PHASES}
+    _pain_vals   = {p: [] for p in _DISPLAY_PHASES}
+    _fat_vals    = {p: [] for p in _DISPLAY_PHASES}
+    _obs_counts  = {p: 0 for p in _DISPLAY_PHASES}
+
+    for obs in all_obs_full:
+        ds = obs["date"]
+        raw_ph = phase_by_date.get(ds)
+        if obs.get("period_flow") and obs["period_flow"] not in ("", None, "spotting"):
+            dp = "period"
+        elif raw_ph in ("pms", "luteal"):
+            dp = "luteal"
+        else:
+            dp = "follicular"
+        _obs_counts[dp] += 1
+        for k in _SYMPTOM_KEYS:
+            if obs.get(k):
+                _sym_counts[dp][k] += 1
+        if obs.get("hrv") is not None:
+            _hrv_vals[dp].append(obs["hrv"])
+        if obs.get("pain_scale") is not None:
+            _pain_vals[dp].append(obs["pain_scale"])
+        if obs.get("fatigue_scale") is not None:
+            _fat_vals[dp].append(obs["fatigue_scale"])
+
+    def _pm(lst):
+        return round(sum(lst) / len(lst), 1) if lst else None
+
+    phase_analytics = {
+        p: {
+            "days":    _obs_counts[p],
+            "hrv":     _pm(_hrv_vals[p]),
+            "pain":    _pm(_pain_vals[p]),
+            "fatigue": _pm(_fat_vals[p]),
+            "symptoms": {
+                k: round(_sym_counts[p][k] / _obs_counts[p] * 100)
+                if _obs_counts[p] else 0
+                for k in _SYMPTOM_KEYS
+            },
+        }
+        for p in _DISPLAY_PHASES
+    }
+
+    # Sort symptom rows by luteal % descending (most phase-sensitive first)
+    symptom_rows = sorted(
+        [{"key": k, "label": _SYMPTOM_LABELS[k],
+          "period":     phase_analytics["period"]["symptoms"][k],
+          "follicular": phase_analytics["follicular"]["symptoms"][k],
+          "luteal":     phase_analytics["luteal"]["symptoms"][k]}
+         for k in _SYMPTOM_KEYS],
+        key=lambda r: r["luteal"], reverse=True,
+    )
+
+    # Per-cycle length series for trend chart (period_starts are date strings)
+    cycle_length_series = []
+    if len(period_starts) >= 2:
+        for i in range(len(period_starts) - 1):
+            length = (date.fromisoformat(period_starts[i + 1]) -
+                      date.fromisoformat(period_starts[i])).days
+            if 15 <= length <= 60:
+                cycle_length_series.append({
+                    "date": period_starts[i],
+                    "length": length,
+                })
+
     # Intervention cycle-length effects (up to 3 cycles before/after each intervention)
     intervention_effects = []
     for m in all_meds:
@@ -1293,6 +1376,9 @@ def cycle_view():
         flare_phase_counts=flare_phase_counts,
         phase_day_counts=phase_day_counts,
         intervention_effects=intervention_effects,
+        phase_analytics=phase_analytics,
+        symptom_rows=symptom_rows,
+        cycle_length_series=cycle_length_series,
         prev_year=prev_year, prev_month=prev_month,
         next_year=next_year, next_month=next_month,
         cal=calendar,
