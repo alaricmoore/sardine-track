@@ -10,13 +10,9 @@ Current and recent dates use Open-Meteo via uv_fetcher.py.
 Requires: "visual_crossing_key" in config.json
 
 Usage:
-    python backfill_uv.py
-
-    # Preview what would be fetched without writing:
-    python backfill_uv.py --dry-run
-
-    # Force re-fetch even for dates already stored:
-    python backfill_uv.py --force
+    python backfill_uv.py --user alaric
+    python backfill_uv.py --user alaric --force
+    python backfill_uv.py --user-id 1 --dry-run
 """
 
 import argparse
@@ -28,6 +24,8 @@ from datetime import datetime, timedelta
 from typing import Optional
 
 import requests
+
+import db
 
 
 # ============================================================
@@ -147,10 +145,8 @@ def fetch_uv_range_visual_crossing(
 # Main backfill
 # ============================================================
 
-def run_backfill(dry_run: bool = False, force: bool = False) -> None:
+def run_backfill(user_id: int, dry_run: bool = False, force: bool = False) -> None:
     """Fetch and store UV data for all observation dates missing it."""
-
-    import db
 
     config = load_config()
 
@@ -160,17 +156,20 @@ def run_backfill(dry_run: bool = False, force: bool = False) -> None:
         print("       Sign up free at visualcrossing.com and add your key.")
         sys.exit(1)
 
-    lat = config.get("location_lat")
-    lon = config.get("location_lon")
+    # Use user preferences for location, fall back to config
+    prefs = db.get_user_preferences(user_id)
+    lat = (prefs or {}).get("location_lat") or config.get("location_lat")
+    lon = (prefs or {}).get("location_lon") or config.get("location_lon")
     timezone = config.get("timezone", "America/Chicago")
 
     if not lat or not lon:
-        print("ERROR: location_lat/location_lon not set in config.json")
-        print("       Run setup.py to configure your location.")
+        print("ERROR: location_lat/location_lon not set in config.json or user preferences")
         sys.exit(1)
 
-    # Get all observation dates
-    observations = db.get_all_daily_observations()
+    location_key = db.make_location_key(float(lat), float(lon))
+
+    # Get all observation dates for this user
+    observations = db.get_all_daily_observations(user_id)
     if not observations:
         print("No daily observations found. Import your tracker data first.")
         return
@@ -183,11 +182,7 @@ def run_backfill(dry_run: bool = False, force: bool = False) -> None:
     else:
         dates_needed = []
         for d in all_dates:
-            existing = None
-            try:
-                existing = db.get_uv_data(d)
-            except Exception:
-                pass
+            existing = db.get_uv_data(location_key, d)
             if not existing:
                 dates_needed.append(d)
 
@@ -258,6 +253,7 @@ def run_backfill(dry_run: bool = False, force: bool = False) -> None:
             continue
 
         db.upsert_uv_data(
+            location_key=location_key,
             date_str=uv["date"],
             uv_morning=uv["uv_morning"],
             uv_noon=uv["uv_noon"],
@@ -285,6 +281,17 @@ def run_backfill(dry_run: bool = False, force: bool = False) -> None:
 # Entry point
 # ============================================================
 
+def _resolve_user_id(args) -> int:
+    """Resolve user_id from --user (username) or --user-id (int)."""
+    if args.user:
+        user = db.get_user_by_username(args.user)
+        if not user:
+            print(f"ERROR: no user with username '{args.user}'")
+            sys.exit(1)
+        return user["id"]
+    return args.user_id
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Backfill historical UV data from Visual Crossing"
@@ -299,6 +306,12 @@ if __name__ == "__main__":
         action="store_true",
         help="Re-fetch UV even for dates that already have data stored"
     )
+    user_group = parser.add_mutually_exclusive_group()
+    user_group.add_argument("--user", type=str,
+                            help="Username to backfill UV data for")
+    user_group.add_argument("--user-id", type=int, default=1,
+                            help="User ID to backfill UV data for (default: 1)")
 
     args = parser.parse_args()
-    run_backfill(dry_run=args.dry_run, force=args.force)
+    user_id = _resolve_user_id(args)
+    run_backfill(user_id=user_id, dry_run=args.dry_run, force=args.force)
