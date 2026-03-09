@@ -22,6 +22,7 @@ Usage:
     python import_apple_health.py path/to/health_export.csv
     python import_apple_health.py path/to/health_export.csv --dry-run
     python import_apple_health.py path/to/health_export.csv --create-new
+    python import_apple_health.py path/to/health_export.csv --user-id 2
 """
 
 import argparse
@@ -65,7 +66,7 @@ def parse_float(value: str) -> Optional[float]:
         return None
 
 
-def run_import(csv_path: str, dry_run: bool = False,
+def run_import(csv_path: str, user_id: int = 1, dry_run: bool = False,
         create_new: bool = False, overwrite: bool = False) -> None:
 
     if not os.path.exists(csv_path):
@@ -79,6 +80,7 @@ def run_import(csv_path: str, dry_run: bool = False,
     print(f"================================")
     print(f"File:       {csv_path}")
     print(f"Baseline:   {temp_baseline}°F")
+    print(f"User ID:    {user_id}")
     print(f"Dry run:    {dry_run}")
     print(f"Create new: {create_new}")
     print(f"Overwrite:  {overwrite}")
@@ -170,7 +172,7 @@ def run_import(csv_path: str, dry_run: bool = False,
                 continue
 
             # Check if row exists
-            existing = db.get_daily_observation(date_str)
+            existing = db.get_daily_observations(user_id, date_str)
 
             if existing:
                 # Only update fields that have new data and are currently empty
@@ -187,7 +189,7 @@ def run_import(csv_path: str, dry_run: bool = False,
 
                 if len(updates) > 1:  # more than just the date key
                     try:
-                        db.upsert_daily_observation(updates)
+                        db.upsert_daily_observations(user_id, updates)
                         updated += 1
                     except Exception as e:
                         errors += 1
@@ -207,7 +209,7 @@ def run_import(csv_path: str, dry_run: bool = False,
                 if sleep is not None:
                     new_row["hours_slept"] = sleep
                 try:
-                    db.upsert_daily_observation(new_row)
+                    db.upsert_daily_observations(user_id, new_row)
                     created += 1
                 except Exception as e:
                     errors += 1
@@ -233,6 +235,18 @@ def run_import(csv_path: str, dry_run: bool = False,
         print("Reload the HRV view to see your updated data.")
 
 
+def _resolve_user_id(args) -> int:
+    """Resolve user_id from --user (username) or --user-id (int)."""
+    if args.user:
+        import db
+        user = db.get_user_by_username(args.user)
+        if not user:
+            print(f"ERROR: no user with username '{args.user}'")
+            sys.exit(1)
+        return user["id"]
+    return args.user_id
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Import Apple Health biometrics from Health Export CSV"
@@ -244,7 +258,13 @@ if __name__ == "__main__":
                         help="Create new observation rows for dates not in DB")
     parser.add_argument("--overwrite", action="store_true",
                         help="Overwrite existing field values with Apple Health data")
+    user_group = parser.add_mutually_exclusive_group()
+    user_group.add_argument("--user", type=str,
+                            help="Username to import data for")
+    user_group.add_argument("--user-id", type=int, default=1,
+                            help="User ID to import data for (default: 1)")
 
     args = parser.parse_args()
-    run_import(args.csv_file, dry_run=args.dry_run,
+    user_id = _resolve_user_id(args)
+    run_import(args.csv_file, user_id=user_id, dry_run=args.dry_run,
                create_new=args.create_new, overwrite=args.overwrite)

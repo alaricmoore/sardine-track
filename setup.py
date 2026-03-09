@@ -155,11 +155,13 @@ def create_database():
 
     # --------------------------------------------------------
     # daily_observations
-    # Core symptom and biometric data, one row per day
+    # Core symptom and biometric data, one row per user per day
     # --------------------------------------------------------
     c.execute("""
         CREATE TABLE IF NOT EXISTS daily_observations (
-            date                TEXT PRIMARY KEY,  -- YYYY-MM-DD
+            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id             INTEGER NOT NULL REFERENCES users(id),
+            date                TEXT NOT NULL,      -- YYYY-MM-DD
             steps               INTEGER,
             hours_slept         REAL,
             hrv                 REAL,
@@ -203,7 +205,9 @@ def create_database():
             flare_occurred      INTEGER DEFAULT 0,
 
             -- Catch-all
-            notes               TEXT
+            notes               TEXT,
+
+            UNIQUE(user_id, date)
         )
     """)
     
@@ -239,15 +243,19 @@ def create_database():
 
     # --------------------------------------------------------
     # uv_data
-    # UV index by date, pulled from API or entered manually
+    # UV index by location+date, pulled from API or entered manually
+    # Shared across users at the same location
     # --------------------------------------------------------
     c.execute("""
         CREATE TABLE IF NOT EXISTS uv_data (
-            date        TEXT PRIMARY KEY,  -- YYYY-MM-DD
-            uv_morning  REAL,
-            uv_noon     REAL,
-            uv_evening  REAL,
-            source      TEXT DEFAULT 'api' -- 'api' or 'manual'
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            location_key TEXT NOT NULL DEFAULT 'default',  -- "lat,lon" rounded to 2 decimals
+            date         TEXT NOT NULL,   -- YYYY-MM-DD
+            uv_morning   REAL,
+            uv_noon      REAL,
+            uv_evening   REAL,
+            source       TEXT DEFAULT 'api',
+            UNIQUE(location_key, date)
         )
     """)
 
@@ -258,6 +266,7 @@ def create_database():
     c.execute("""
         CREATE TABLE IF NOT EXISTS lab_results (
             id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id             INTEGER REFERENCES users(id),
             date                TEXT NOT NULL,      -- YYYY-MM-DD
             test_name           TEXT NOT NULL,
             numeric_value       REAL,               -- nullable
@@ -278,6 +287,7 @@ def create_database():
     c.execute("""
         CREATE TABLE IF NOT EXISTS ana_results (
             id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id         INTEGER REFERENCES users(id),
             date            TEXT NOT NULL,          -- YYYY-MM-DD
             titer_integer   INTEGER,                -- stored as int: 40, 80, 160
             screen_result   TEXT,                   -- 'positive' or 'negative'
@@ -294,6 +304,7 @@ def create_database():
     c.execute("""
         CREATE TABLE IF NOT EXISTS clinical_events (
             id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id         INTEGER REFERENCES users(id),
             date            TEXT NOT NULL,          -- YYYY-MM-DD
             event_type      TEXT NOT NULL,          -- 'encounter', 'biopsy', 'injection', 'procedure', 'other'
             provider        TEXT,
@@ -310,6 +321,7 @@ def create_database():
     c.execute("""
         CREATE TABLE IF NOT EXISTS medications (
             id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id     INTEGER REFERENCES users(id),
             drug_name   TEXT NOT NULL,
             dose        REAL,
             unit        TEXT,                       -- 'mg', 'mcg', 'IU', etc.
@@ -341,6 +353,7 @@ def create_database():
     c.execute("""
         CREATE TABLE IF NOT EXISTS taper_schedules (
             id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id      INTEGER REFERENCES users(id),
             medication_id INTEGER NOT NULL REFERENCES medications(id) ON DELETE CASCADE,
             start_date   TEXT NOT NULL,   -- YYYY-MM-DD
             active       INTEGER DEFAULT 1,
@@ -355,6 +368,7 @@ def create_database():
     c.execute("""
         CREATE TABLE IF NOT EXISTS scheduled_doses (
             id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id             INTEGER REFERENCES users(id),
             taper_schedule_id   INTEGER NOT NULL REFERENCES taper_schedules(id) ON DELETE CASCADE,
             medication_id       INTEGER NOT NULL REFERENCES medications(id) ON DELETE CASCADE,
             scheduled_datetime  TEXT NOT NULL,  -- 'YYYY-MM-DD HH:MM'
@@ -387,6 +401,7 @@ def create_database():
     c.execute("""
         CREATE TABLE IF NOT EXISTS clinicians (
             id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id         INTEGER REFERENCES users(id),
             name            TEXT NOT NULL,
             specialty       TEXT NOT NULL,
             clinic_name     TEXT,
@@ -406,6 +421,7 @@ def create_database():
     c.execute("""
         CREATE TABLE IF NOT EXISTS bc_history (
             id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id     INTEGER REFERENCES users(id),
             bc_type     TEXT NOT NULL,   -- see BC_TYPE_LABELS in app.py
             name        TEXT,            -- brand / formulation (optional)
             start_date  TEXT NOT NULL,   -- YYYY-MM-DD

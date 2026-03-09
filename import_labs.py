@@ -11,6 +11,7 @@ Usage:
     python import_labs.py path/to/flare_lab_results.csv
     python import_labs.py path/to/flare_lab_results.csv --dry-run
     python import_labs.py path/to/flare_lab_results.csv --preview 5
+    python import_labs.py path/to/flare_lab_results.csv --user-id 2
 """
 
 import argparse
@@ -90,7 +91,7 @@ def parse_float(value: str) -> Optional[float]:
         return None
 
 
-def run_import(csv_path: str, dry_run: bool = False,
+def run_import(csv_path: str, user_id: int = 1, dry_run: bool = False,
                preview: Optional[int] = None) -> None:
 
     if not os.path.exists(csv_path):
@@ -100,6 +101,7 @@ def run_import(csv_path: str, dry_run: bool = False,
     print(f"biotracking lab import")
     print(f"======================")
     print(f"File:     {csv_path}")
+    print(f"User ID:  {user_id}")
     print(f"Dry run:  {dry_run}")
     if preview:
         print(f"Preview:  first {preview} rows")
@@ -185,7 +187,7 @@ def run_import(csv_path: str, dry_run: bool = False,
                     "provider":           provider,
                     "lab_facility":       lab_facility,
                 }
-                db.add_lab_result(data)
+                db.add_lab_result(user_id, data)
                 imported += 1
             except Exception as e:
                 errors += 1
@@ -208,6 +210,18 @@ def run_import(csv_path: str, dry_run: bool = False,
         print("Open the clinical record → labs tab to verify.")
 
 
+def _resolve_user_id(args) -> int:
+    """Resolve user_id from --user (username) or --user-id (int)."""
+    if args.user:
+        import db
+        user = db.get_user_by_username(args.user)
+        if not user:
+            print(f"ERROR: no user with username '{args.user}'")
+            sys.exit(1)
+        return user["id"]
+    return args.user_id
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Import lab results from flare_lab_results CSV"
@@ -217,6 +231,13 @@ if __name__ == "__main__":
                         help="Preview without writing to database")
     parser.add_argument("--preview", type=int, metavar="N",
                         help="Preview first N rows only")
+    user_group = parser.add_mutually_exclusive_group()
+    user_group.add_argument("--user", type=str,
+                            help="Username to import data for")
+    user_group.add_argument("--user-id", type=int, default=1,
+                            help="User ID to import data for (default: 1)")
 
     args = parser.parse_args()
-    run_import(args.csv_file, dry_run=args.dry_run, preview=args.preview)
+    user_id = _resolve_user_id(args)
+    run_import(args.csv_file, user_id=user_id,
+              dry_run=args.dry_run, preview=args.preview)

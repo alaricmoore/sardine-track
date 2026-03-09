@@ -500,6 +500,21 @@ def get_user_prefs() -> dict:
     return g._user_prefs
 
 
+def get_location_key() -> str:
+    """Get the current user's location key for UV data lookups."""
+    prefs = get_user_prefs()
+    lat = prefs.get('location_lat') or CONFIG.get('location_lat')
+    lon = prefs.get('location_lon') or CONFIG.get('location_lon')
+    if lat and lon:
+        return db.make_location_key(float(lat), float(lon))
+    return 'default'
+
+
+def uid() -> int:
+    """Shorthand for current_user.id — used throughout routes."""
+    return current_user.id
+
+
 # ============================================================
 # Medication reminder notifications (ntfy)
 # ============================================================
@@ -526,11 +541,33 @@ def _send_ntfy(message: str) -> None:
         print(f"[reminder] ntfy send failed: {e}")
 
 
-def _send_ntfy_alert(message: str, title: str, priority: str = "default", tags: str = "warning") -> None:
-    """Send a push notification with custom title, priority, and tags."""
+def _send_ntfy_to(server: str, topic: str, message: str) -> None:
+    """Send a push notification to a specific ntfy server/topic."""
     import requests as _requests
-    topic = CONFIG.get("ntfy_topic")
-    server = CONFIG.get("ntfy_server", "https://ntfy.sh")
+    try:
+        _requests.post(
+            f"{server}/{topic}",
+            data=message.encode("utf-8"),
+            headers={
+                "Title": "Medication Reminder",
+                "Priority": "high",
+                "Tags": "pill",
+            },
+            timeout=5,
+        )
+    except Exception as e:
+        print(f"[reminder] ntfy send failed: {e}")
+
+
+def _send_ntfy_alert(message: str, title: str, priority: str = "default",
+                     tags: str = "warning", server: str = None,
+                     topic: str = None) -> None:
+    """Send a push notification with custom title, priority, and tags.
+    If server/topic not provided, falls back to global CONFIG.
+    """
+    import requests as _requests
+    topic = topic or CONFIG.get("ntfy_topic")
+    server = server or CONFIG.get("ntfy_server", "https://ntfy.sh")
     if not topic:
         return
     try:
@@ -545,120 +582,132 @@ def _send_ntfy_alert(message: str, title: str, priority: str = "default", tags: 
             timeout=5,
         )
     except Exception as e:
-        print(f"[flare-alert] ntfy send failed: {e}")
-
-
-FLARE_ALERT_STATE_PATH = os.path.join(os.path.dirname(__file__), "config", "flare_alert_state.json")
+        print(f"[ntfy-alert] send failed: {e}")
 
 
 def _check_flare_risk_alert() -> None:
-    """Daily cron job: send ntfy flare warning when risk is elevated or cycle phase is changing."""
-    if not CONFIG.get("ntfy_topic"):
-        return
-
+    """Daily cron job: send ntfy flare warning when risk is elevated or cycle phase is changing.
+    Loops over all users with ntfy configured.
+    """
     today_str = date.today().isoformat()
-
-    # Rate limit: only one alert per calendar day
-    if os.path.exists(FLARE_ALERT_STATE_PATH):
-        try:
-            with open(FLARE_ALERT_STATE_PATH) as f:
-                state = json.load(f)
-            if state.get("last_alert_date") == today_str:
-                return
-        except Exception:
-            pass
-
-    # Load observations and inject cycle phase
-    all_obs = db.get_all_daily_observations()
-    if not all_obs or len(all_obs) < 3:
+    users = db.get_users_with_ntfy()
+    if not users:
         return
-    all_obs.sort(key=lambda x: x["date"], reverse=True)
-    _inject_cycle_phase(all_obs)
-
-    # 3-day weighted average score
-    scores = [calculate_flare_prime_score(obs) for obs in all_obs[:3]]
-    w3 = [1.0, 0.75, 0.5]
-    weighted_score = sum(s * w for s, w in zip(scores, w3)) / sum(w3)
-
-    # Tomorrow's cycle phase (forward-looking)
-    tomorrow_str = (date.today() + timedelta(days=1)).isoformat()
-    phase_by_date = _compute_phase_by_date_from_obs(all_obs)
-    tomorrow_phase = phase_by_date.get(tomorrow_str)
-    entering_high_risk_tomorrow = tomorrow_phase in ("pms", "luteal")
-    today_phase = all_obs[0].get("cycle_phase_name") if all_obs else None
 
     MODERATE_THRESHOLD = 5.0
     HIGH_THRESHOLD = 8.0
 
-    should_alert = weighted_score >= MODERATE_THRESHOLD or entering_high_risk_tomorrow
-    if not should_alert:
-        return
+    for user in users:
+        user_id = user["user_id"]
+        topic = user["ntfy_topic"]
+        server = user.get("ntfy_server") or "https://ntfy.sh"
 
-    # Build message body
-    risk_info = get_risk_level(weighted_score)
-    risk_label = risk_info["level"]
+        # Rate limit: only one alert per user per calendar day
+        if user.get("last_flare_alert_date") == today_str:
+            continue
 
-    factors = get_contributing_factors(all_obs[0])
-    top_factors = ", ".join(f["name"] for f in factors[:3]) if factors else ""
+        # Load observations and inject cycle phase
+        all_obs = db.get_all_daily_observations(user_id)
+        if not all_obs or len(all_obs) < 3:
+            continue
+        all_obs.sort(key=lambda x: x["date"], reverse=True)
+        _inject_cycle_phase(all_obs)
 
-    lines = [f"Score: {weighted_score:.1f}  |  {risk_label}"]
-    if top_factors:
-        lines.append(f"Factors: {top_factors}")
-    if entering_high_risk_tomorrow and today_phase not in ("pms", "luteal"):
-        lines.append(f"Entering {tomorrow_phase} phase tomorrow.")
-    elif today_phase in ("pms", "luteal"):
-        lines.append(f"Currently in {today_phase} phase.")
+        # 3-day weighted average score
+        scores = [calculate_flare_prime_score(obs) for obs in all_obs[:3]]
+        w3 = [1.0, 0.75, 0.5]
+        weighted_score = sum(s * w for s, w in zip(scores, w3)) / sum(w3)
 
-    message = "\n".join(lines)
-    priority = "high" if weighted_score >= HIGH_THRESHOLD else "default"
-    tags = "rotating_light" if weighted_score >= HIGH_THRESHOLD else "warning"
+        # Tomorrow's cycle phase (forward-looking)
+        tomorrow_str = (date.today() + timedelta(days=1)).isoformat()
+        phase_by_date = _compute_phase_by_date_from_obs(all_obs)
+        tomorrow_phase = phase_by_date.get(tomorrow_str)
+        entering_high_risk_tomorrow = tomorrow_phase in ("pms", "luteal")
+        today_phase = all_obs[0].get("cycle_phase_name") if all_obs else None
 
-    _send_ntfy_alert(message, title=f"Flare risk: {risk_label}", priority=priority, tags=tags)
+        should_alert = weighted_score >= MODERATE_THRESHOLD or entering_high_risk_tomorrow
+        if not should_alert:
+            continue
 
-    # Persist state so we don't double-alert today
-    try:
-        os.makedirs(os.path.dirname(FLARE_ALERT_STATE_PATH), exist_ok=True)
-        with open(FLARE_ALERT_STATE_PATH, "w") as f:
-            json.dump({"last_alert_date": today_str, "last_score": round(weighted_score, 1)}, f)
-    except Exception as e:
-        print(f"[flare-alert] state save failed: {e}")
+        # Build message body
+        risk_info = get_risk_level(weighted_score)
+        risk_label = risk_info["level"]
 
+        factors = get_contributing_factors(all_obs[0])
+        top_factors = ", ".join(f["name"] for f in factors[:3]) if factors else ""
 
-UV_ALERT_STATE_PATH = os.path.join(os.path.dirname(__file__), "config", "uv_alert_state.json")
+        lines = [f"Score: {weighted_score:.1f}  |  {risk_label}"]
+        if top_factors:
+            lines.append(f"Factors: {top_factors}")
+        if entering_high_risk_tomorrow and today_phase not in ("pms", "luteal"):
+            lines.append(f"Entering {tomorrow_phase} phase tomorrow.")
+        elif today_phase in ("pms", "luteal"):
+            lines.append(f"Currently in {today_phase} phase.")
+
+        message = "\n".join(lines)
+        priority = "high" if weighted_score >= HIGH_THRESHOLD else "default"
+        tags = "rotating_light" if weighted_score >= HIGH_THRESHOLD else "warning"
+
+        _send_ntfy_alert(message, title=f"Flare risk: {risk_label}",
+                         priority=priority, tags=tags,
+                         server=server, topic=topic)
+
+        # Persist per-user rate limit in user_preferences
+        try:
+            db.upsert_user_preferences(user_id, {"last_flare_alert_date": today_str})
+        except Exception as e:
+            print(f"[flare-alert] state save failed for user {user_id}: {e}")
+
 
 def _check_uv_fetch() -> None:
-    """Daily cron job: ensure today's UV data is fetched; send ntfy alert if it fails."""
-    if not CONFIG.get("ntfy_topic"):
-        return
-
+    """Daily cron job: fetch UV data for each distinct user location.
+    Alerts users via ntfy if their location's UV fetch fails.
+    """
     today_str = date.today().isoformat()
 
-    # Rate-limit: only alert once per calendar day
-    try:
-        if os.path.exists(UV_ALERT_STATE_PATH):
-            with open(UV_ALERT_STATE_PATH) as f:
-                state = json.load(f)
-            if state.get("last_alert_date") == today_str:
-                return
-    except Exception:
-        pass
+    # Fetch UV for each distinct location
+    locations = db.get_distinct_user_locations()
+    failed_location_keys = set()
 
-    uv = uv_fetcher.fetch_and_store_uv_for_date(today_str)
+    for loc in locations:
+        lat, lon = loc["location_lat"], loc["location_lon"]
+        location_key = db.make_location_key(lat, lon)
+        uv = uv_fetcher.fetch_and_store_uv_for_date(today_str, location_key=location_key)
+        if uv is None:
+            failed_location_keys.add(location_key)
 
-    if uv is None:
+    # Alert users whose locations failed (only those with ntfy configured)
+    if not failed_location_keys:
+        return
+
+    users = db.get_users_with_ntfy()
+    for user in users:
+        # Rate limit per user
+        if user.get("last_uv_alert_date") == today_str:
+            continue
+
+        lat = user.get("location_lat")
+        lon = user.get("location_lon")
+        if not lat or not lon:
+            continue
+
+        user_loc_key = db.make_location_key(lat, lon)
+        if user_loc_key not in failed_location_keys:
+            continue
+
         _send_ntfy_alert(
             f"Could not fetch UV index data for {today_str}. "
             "Open-Meteo may be unreachable. Enter UV manually on today's entry.",
             title="UV data unavailable",
             priority="default",
             tags="satellite",
+            server=user.get("ntfy_server") or "https://ntfy.sh",
+            topic=user["ntfy_topic"],
         )
         try:
-            os.makedirs(os.path.dirname(UV_ALERT_STATE_PATH), exist_ok=True)
-            with open(UV_ALERT_STATE_PATH, "w") as f:
-                json.dump({"last_alert_date": today_str}, f)
+            db.upsert_user_preferences(user["user_id"], {"last_uv_alert_date": today_str})
         except Exception as e:
-            print(f"[uv-alert] state save failed: {e}")
+            print(f"[uv-alert] state save failed for user {user['user_id']}: {e}")
 
 
 def _check_and_send_reminders() -> None:
@@ -666,12 +715,16 @@ def _check_and_send_reminders() -> None:
     now = datetime.now()
     window_end = now + timedelta(minutes=1)
     try:
-        pending = db.get_pending_doses(
+        pending = db.get_all_pending_doses_with_ntfy(
             now.strftime("%Y-%m-%d %H:%M"),
             window_end.strftime("%Y-%m-%d %H:%M"),
         )
         for dose in pending:
-            _send_ntfy(dose["dose_label"])
+            # Send to user's own ntfy topic
+            topic = dose.get("ntfy_topic")
+            server = dose.get("ntfy_server") or "https://ntfy.sh"
+            if topic:
+                _send_ntfy_to(server, topic, dose["dose_label"])
             db.mark_dose_notified(dose["id"])
     except Exception as e:
         print(f"[reminder] scheduler error: {e}")
@@ -771,16 +824,16 @@ def daily_entry():
     is_today = (entry_date == date.today())
     
     # Auto-fetch and store UV for this date if not already present
-    uv = uv_fetcher.fetch_and_store_uv_for_date(entry_date_str)
-    
+    uv = uv_fetcher.fetch_and_store_uv_for_date(entry_date_str, get_location_key())
+
     # Load any existing entry for this date
-    existing = db.get_daily_observations(entry_date_str)
+    existing = db.get_daily_observations(uid(), entry_date_str)
     
     # Load active medications for the sidebar
-    active_meds = db.get_active_medications()
+    active_meds = db.get_active_medications(uid())
 
     # Load today's scheduled doses for the reminder checklist
-    todays_doses = db.get_todays_doses(entry_date_str)
+    todays_doses = db.get_todays_doses(uid(), entry_date_str)
 
     quick_mode = request.args.get("mode") == "quick"
 
@@ -851,15 +904,15 @@ def daily_entry_submit():
         "cycle_notes": form.get("cycle_notes", "").strip() or None,
     }
 
-    db.upsert_daily_observations(data)
+    db.upsert_daily_observations(uid(), data)
     return redirect(url_for("daily_confirm", entry_date=data["date"]))
 
 
 @app.route("/daily/confirm/<entry_date>")
 def daily_confirm(entry_date):
     """Confirmation screen after daily entry submission."""
-    entry = db.get_daily_observations(entry_date)
-    uv = db.get_uv_data(entry_date)
+    entry = db.get_daily_observations(uid(), entry_date)
+    uv = db.get_uv_data(get_location_key(), entry_date)
     return render_template("daily_confirm.html", entry=entry, uv=uv)
 
 
@@ -879,10 +932,10 @@ def timeline():
     if request.args.get("end"):
         end_date = request.args.get("end")
 
-    data = db.get_timeline_data(start_date, end_date)
-    
+    data = db.get_timeline_data(uid(), get_location_key(), start_date, end_date)
+
     # Get primary intervention info
-    all_meds = db.get_all_medications()
+    all_meds = db.get_all_medications(uid())
     primary_med = next((m for m in all_meds if m.get("is_primary_intervention") == 1), None)
     
     intervention_date = None
@@ -1048,13 +1101,13 @@ def compute_lag_correlations(observations: list, uv_data: list) -> dict:
 @app.route("/uv-lag")
 def uv_lag():
     """UV lag correlation analysis view."""
-    observations = db.get_all_daily_observations()
+    observations = db.get_all_daily_observations(uid())
     if not observations:
         return render_template("uv_lag.html", has_data=False)
 
     start_date = observations[0]["date"]
     end_date   = observations[-1]["date"]
-    uv_data    = db.get_uv_data_range(start_date, end_date)
+    uv_data    = db.get_uv_data_range(get_location_key(), start_date, end_date)
 
     if not uv_data:
         return render_template("uv_lag.html", has_data=False,
@@ -1122,7 +1175,7 @@ def compute_hrv_data(observations: list, intervention_date: str = None) -> dict:
     }
 
 
-def compute_sleep_bbt_uv(observations: list) -> dict:
+def compute_sleep_bbt_uv(observations: list, location_key: str = 'default') -> dict:
     """Build sleep/BBT dataset paired with UV from the previous day (lag 1).
 
     For each observation that has sleep or BBT data, look up UV noon
@@ -1149,7 +1202,7 @@ def compute_sleep_bbt_uv(observations: list) -> dict:
         # Get UV from the previous day
         prev_date = (datetime.strptime(date_str, "%Y-%m-%d") -
                      timedelta(days=1)).strftime("%Y-%m-%d")
-        uv_row = _db.get_uv_data(prev_date)
+        uv_row = _db.get_uv_data(location_key, prev_date)
         uv_noon = uv_row.get("uv_noon") if uv_row else None
 
         dates.append(date_str)
@@ -1228,7 +1281,7 @@ BC_TYPE_LABELS = {
 
 @app.route("/bc/add", methods=["POST"])
 def bc_add():
-    db.add_bc_regime({
+    db.add_bc_regime(uid(), {
         "bc_type":    request.form.get("bc_type", "none"),
         "name":       request.form.get("name") or None,
         "start_date": request.form.get("start_date"),
@@ -1240,13 +1293,13 @@ def bc_add():
 
 @app.route("/bc/delete/<int:bc_id>", methods=["POST"])
 def bc_delete(bc_id):
-    db.delete_bc_regime(bc_id)
+    db.delete_bc_regime(uid(), bc_id)
     return redirect(url_for("cycle_view"))
 
 
 @app.route("/bc/update/<int:bc_id>", methods=["POST"])
 def bc_update(bc_id):
-    db.update_bc_regime(bc_id, {
+    db.update_bc_regime(uid(), bc_id, {
         "bc_type":    request.form.get("bc_type", "none"),
         "name":       request.form.get("name") or None,
         "start_date": request.form.get("start_date"),
@@ -1270,7 +1323,7 @@ def cycle_view():
     history_start = (date(year, month, 1) - timedelta(days=365)).isoformat()
     month_last_day = calendar.monthrange(year, month)[1]
     month_end = date(year, month, month_last_day).isoformat()
-    all_data = db.get_cycle_data(history_start, month_end)
+    all_data = db.get_cycle_data(uid(), history_start, month_end)
 
     # Build BBT lookup for the entire history window
     bbt_by_date = {
@@ -1368,7 +1421,7 @@ def cycle_view():
 
     # Intervention markers: (drug_name, 'start') for new starts this month,
     # (drug_name, 'active') on day-1 for meds active from a prior month
-    all_meds = db.get_all_medications()
+    all_meds = db.get_all_medications(uid())
     intervention_dates: dict = {}
     for m in all_meds:
         if not (m.get("is_primary_intervention") or m.get("is_secondary_intervention")):
@@ -1409,8 +1462,8 @@ def cycle_view():
     }
     _DISPLAY_PHASES = ("period", "follicular", "luteal")
 
-    all_obs_full = db.get_daily_observations_range(history_start, month_end)
-    bc_history   = db.get_bc_history()  # sorted start_date ASC
+    all_obs_full = db.get_daily_observations_range(uid(), history_start, month_end)
+    bc_history   = db.get_bc_history(uid())  # sorted start_date ASC
 
     def _bc_for_date(date_str: str) -> dict | None:
         """Return the active BC record for a given date, or None."""
@@ -1578,8 +1631,8 @@ def cycle_view():
 @app.route("/hrv")
 def hrv_view():
     """HRV trend with rolling average, intervention split, and sleep/BBT/UV."""
-    observations = db.get_all_daily_observations()
-    all_meds = db.get_all_medications()
+    observations = db.get_all_daily_observations(uid())
+    all_meds = db.get_all_medications(uid())
     
     # Find primary intervention (the medication marked as primary)
     primary_med = next((m for m in all_meds if m.get("is_primary_intervention") == 1), None)
@@ -1602,7 +1655,7 @@ def hrv_view():
     ]
     
     hrv_data = compute_hrv_data(observations, intervention_date)
-    sleep_bbt_uv = compute_sleep_bbt_uv(observations)
+    sleep_bbt_uv = compute_sleep_bbt_uv(observations, get_location_key())
     
     return render_template(
         "hrv.html",
@@ -1622,12 +1675,12 @@ def hrv_view():
 @app.route("/clinical")
 def clinical_record():
     """Record - labs, ANA, meds, events, clinicians."""
-    labs = db.get_lab_results()
-    ana = db.get_ana_results()
-    meds = db.get_all_medications()
-    events = db.get_clinical_events()
-    clinicians = db.get_all_clinicians()
-    test_names = db.get_lab_test_names()
+    labs = db.get_lab_results(uid())
+    ana = db.get_ana_results(uid())
+    meds = db.get_all_medications(uid())
+    events = db.get_clinical_events(uid())
+    clinicians = db.get_all_clinicians(uid())
+    test_names = db.get_lab_test_names(uid())
 
     # Split active/inactive meds
     today_str = date.today().isoformat()
@@ -1640,7 +1693,7 @@ def clinical_record():
     # Build taper schedule lookup keyed by medication_id
     taper_by_med = {}
     for med in active:
-        t = db.get_active_taper_for_medication(med["id"])
+        t = db.get_active_taper_for_medication(uid(), med["id"])
         if t:
             taper_by_med[med["id"]] = t
 
@@ -1668,6 +1721,7 @@ def update_medication(med_id):
     form = request.form
     
     db.update_medication(
+        user_id=uid(),
         med_id=med_id,
         drug_name=form.get("drug_name"),
         dose=float(form.get("dose")) if form.get("dose") else None,
@@ -1688,7 +1742,7 @@ def update_medication(med_id):
 @app.route("/medication/delete/<int:med_id>", methods=["POST"])
 def delete_medication(med_id):
     """Delete a medication."""
-    db.delete_medication(med_id)
+    db.delete_medication(uid(), med_id)
     return redirect(url_for("clinical_record") + "#medications")
 
 
@@ -1717,7 +1771,7 @@ def taper_create():
             idx = key[len("dose_amount_"):]
             doses_raw.setdefault(idx, {})["amount"] = val
 
-    schedule_id = db.create_taper_schedule(med_id, start_date)
+    schedule_id = db.create_taper_schedule(uid(), med_id, start_date)
 
     dose_rows = []
     for idx in sorted(doses_raw.keys(), key=lambda x: int(x)):
@@ -1736,14 +1790,14 @@ def taper_create():
             "dose_unit": unit,
         })
 
-    db.insert_scheduled_doses(dose_rows)
+    db.insert_scheduled_doses(uid(), dose_rows)
     return redirect(url_for("clinical_record") + "#medications")
 
 
 @app.route("/taper/delete/<int:schedule_id>", methods=["POST"])
 def taper_delete(schedule_id):
     """Delete a taper schedule and all its doses."""
-    db.delete_taper_schedule(schedule_id)
+    db.delete_taper_schedule(uid(), schedule_id)
     return redirect(url_for("clinical_record") + "#medications")
 
 
@@ -1761,7 +1815,7 @@ def dose_take(dose_id):
 def doses_today():
     """JSON endpoint: today's scheduled doses."""
     today_str = date.today().isoformat()
-    doses = db.get_todays_doses(today_str)
+    doses = db.get_todays_doses(uid(), today_str)
     return jsonify(doses)
 
 
@@ -1772,7 +1826,7 @@ def doses_today():
 @app.route("/clinician/add", methods=["POST"])
 def add_clinician():
     """Add a new clinician."""
-    db.add_clinician({
+    db.add_clinician(uid(), {
         "name": request.form.get("name"),
         "specialty": request.form.get("specialty"),
         "clinic_name": request.form.get("clinic_name") or None,
@@ -1791,6 +1845,7 @@ def update_clinician(clinician_id):
     form = request.form
     
     db.update_clinician(
+        user_id=uid(),
         clinician_id=clinician_id,
         name=form.get("name"),
         specialty=form.get("specialty"),
@@ -1808,7 +1863,7 @@ def update_clinician(clinician_id):
 @app.route("/clinician/delete/<int:clinician_id>", methods=["POST"])
 def delete_clinician(clinician_id):
     """Delete a clinician."""
-    db.delete_clinician(clinician_id)
+    db.delete_clinician(uid(), clinician_id)
     return redirect(url_for("clinical_record") + "#clinicians")
 
 
@@ -1833,7 +1888,7 @@ def add_lab():
         "lab_facility": form.get("lab_facility", "").strip() or None,
         "notes": form.get("notes", "").strip() or None,
     }
-    db.add_lab_result(data)
+    db.add_lab_result(uid(), data)
     return redirect(url_for("clinical_record") + "#labs")
 
 
@@ -1846,6 +1901,7 @@ def add_ana():
     patterns = [p.strip() for p in patterns_raw.split(",") if p.strip()]
 
     db.add_ana_result(
+        user_id=uid(),
         date_str=form.get("date"),
         titer_integer=int(form["titer"]) if form.get("titer", "").strip() else None,
         screen_result=form.get("screen_result", "").strip(),
@@ -1868,14 +1924,14 @@ def add_event():
         "notes": form.get("notes", "").strip() or None,
         "follow_up_date": form.get("follow_up_date", "").strip() or None,
     }
-    db.add_clinical_event(data)
+    db.add_clinical_event(uid(), data)
     return redirect(url_for("clinical_record") + "#events")
 
 
 @app.route("/medication/add", methods=["POST"])
 def add_medication():
     """Add a new medication."""
-    db.add_medication({
+    db.add_medication(uid(), {
         "drug_name": request.form.get("drug_name"),
         "dose": request.form.get("dose"),
         "unit": request.form.get("unit"),
@@ -1899,7 +1955,7 @@ def add_medication():
 def end_medication(med_id):
     """Mark a medication as ended today."""
     end_date = request.form.get("end_date", date.today().isoformat())
-    db.end_medication(med_id, end_date)
+    db.end_medication(uid(), med_id, end_date)
     return redirect(url_for("clinical_record") + "#medications")
 
 # lab results update/delete
@@ -1917,6 +1973,7 @@ def update_lab(lab_id):
             return None
     
     db.update_lab_result(
+        user_id=uid(),
         lab_id=lab_id,
         date=form.get("date"),
         test_name=form.get("test_name"),
@@ -1936,7 +1993,7 @@ def update_lab(lab_id):
 @app.route("/lab/delete/<int:lab_id>", methods=["POST"])
 def delete_lab(lab_id):
     """Delete a lab result."""
-    db.delete_lab_result(lab_id)
+    db.delete_lab_result(uid(), lab_id)
     return redirect(url_for("clinical_record") + "#labs")
 
 
@@ -1946,6 +2003,7 @@ def update_ana(ana_id):
     form = request.form
     
     db.update_ana_result(
+        user_id=uid(),
         ana_id=ana_id,
         date=form.get("date"),
         titer=form.get("titer") or None,
@@ -1961,7 +2019,7 @@ def update_ana(ana_id):
 @app.route("/ana/delete/<int:ana_id>", methods=["POST"])
 def delete_ana(ana_id):
     """Delete an ANA result."""
-    db.delete_ana_result(ana_id)
+    db.delete_ana_result(uid(), ana_id)
     return redirect(url_for("clinical_record") + "#ana")
 
 
@@ -1971,6 +2029,7 @@ def update_event(event_id):
     form = request.form
     
     db.update_clinical_event(
+        user_id=uid(),
         event_id=event_id,
         date=form.get("date"),
         event_type=form.get("event_type"),
@@ -1985,7 +2044,7 @@ def update_event(event_id):
 @app.route("/event/delete/<int:event_id>", methods=["POST"])
 def delete_event(event_id):
     """Delete a clinical event."""
-    db.delete_clinical_event(event_id)
+    db.delete_clinical_event(uid(), event_id)
     return redirect(url_for("clinical_record") + "#events")
 
 #======================================
@@ -2016,7 +2075,7 @@ def export_labs():
         return "Missing date range parameters", 400
     
     # Get labs in date range
-    all_labs = db.get_lab_results()
+    all_labs = db.get_lab_results(uid())
     filtered_labs = [
         lab for lab in all_labs
         if start_date <= lab["date"] <= end_date
@@ -2078,7 +2137,7 @@ def export_clinicians():
     """Export all clinicians as CSV."""
     
     # Get all clinicians
-    clinicians = db.get_all_clinicians()
+    clinicians = db.get_all_clinicians(uid())
     
     # Sort by name
     clinicians.sort(key=lambda x: x.get('name', '').lower())
@@ -2135,7 +2194,7 @@ def export_medications():
     filter_type = request.args.get("filter", "active")
     
     # Get all medications
-    all_meds = db.get_all_medications()
+    all_meds = db.get_all_medications(uid())
     
     # Filter based on selection
     today_str = date.today().isoformat()
@@ -2225,7 +2284,7 @@ def export_events():
         return "Missing date range parameters", 400
     
     # Get all events
-    all_events = db.get_clinical_events()
+    all_events = db.get_clinical_events(uid())
     
     # Filter by date range
     filtered_events = [
@@ -2554,7 +2613,7 @@ def forecast_lab():
     Terminal-style UI for adjusting weights and running simulations.
     """
     # Get current model performance
-    all_obs = db.get_all_daily_observations()
+    all_obs = db.get_all_daily_observations(uid())
     if not all_obs or len(all_obs) < 7:
         return redirect(url_for('forecast'))
     
@@ -2668,7 +2727,7 @@ def forecast_lab_simulate():
     custom_weights = request.json.get('weights', {})
     
     # Get data
-    all_obs = db.get_all_daily_observations()
+    all_obs = db.get_all_daily_observations(uid())
     all_obs.sort(key=lambda x: x['date'], reverse=True)
     _inject_cycle_phase(all_obs)
     analysis_set = all_obs[:60]
@@ -2718,7 +2777,7 @@ def forecast_lab_apply():
         save_custom_weights(custom_weights, user_id=current_user.id)
         
         # Recalculate stats with new weights
-        all_obs = db.get_all_daily_observations()
+        all_obs = db.get_all_daily_observations(uid())
         all_obs.sort(key=lambda x: x['date'], reverse=True)
         _inject_cycle_phase(all_obs)
         analysis_set = all_obs[:60]
@@ -2768,7 +2827,7 @@ def forecast():
     from datetime import datetime, timedelta
     
     # Get last 30 days of observations for analysis
-    all_obs = db.get_all_daily_observations()
+    all_obs = db.get_all_daily_observations(uid())
     if not all_obs:
         return render_template("forecast.html", has_data=False)
     
@@ -3225,7 +3284,7 @@ def forecast_history():
     """Show past 30 days of predictions vs actuals."""
     
     # Get last 30 days
-    all_obs = db.get_all_daily_observations()
+    all_obs = db.get_all_daily_observations(uid())
     if not all_obs:
         return redirect(url_for('forecast'))
     
@@ -3308,7 +3367,7 @@ def forecast_accuracy():
     days_param = request.args.get('days', '60')
     
     # Get all observations
-    all_obs = db.get_all_daily_observations()
+    all_obs = db.get_all_daily_observations(uid())
     if not all_obs:
         return redirect(url_for('forecast'))
     
@@ -3507,8 +3566,8 @@ def search():
     total = 0
 
     # Always fetch full dataset for report summary and chart
-    all_observations = db.get_all_daily_observations()
-    all_meds         = db.get_all_medications()
+    all_observations = db.get_all_daily_observations(uid())
+    all_meds         = db.get_all_medications(uid())
 
     tracking_start = all_observations[0]["date"] if all_observations else None
     tracking_end   = all_observations[-1]["date"] if all_observations else None
@@ -3522,7 +3581,7 @@ def search():
 
     uv_all = []
     if tracking_start and tracking_end:
-        uv_all = db.get_uv_data_range(tracking_start, tracking_end)
+        uv_all = db.get_uv_data_range(get_location_key(), tracking_start, tracking_end)
 
     chart_dataset = {
         "dates": [o["date"] for o in all_observations],
@@ -3564,7 +3623,7 @@ def search():
                 total += 1
 
         # Lab results
-        labs = db.get_lab_results()
+        labs = db.get_lab_results(uid())
         for lab in labs:
             fields = [
                 lab.get("test_name") or "",
@@ -3587,7 +3646,7 @@ def search():
                 total += 1
 
         # Clinical events
-        events = db.get_clinical_events()
+        events = db.get_clinical_events(uid())
         for e in events:
             fields = [
                 e.get("notes") or "",
@@ -3648,111 +3707,80 @@ def search():
 # Data Management & Export
 # ============================================================
 
-import zipfile
-import shutil
-from pathlib import Path
-from datetime import datetime
-
 @app.route("/export/all-data")
 def export_all_data():
     """Export complete database and all data as ZIP file."""
-    
-    # Create temporary directory for exports
+    from io import BytesIO
+
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    temp_dir = Path(f"/tmp/biotracking_export_{timestamp}")
-    temp_dir.mkdir(exist_ok=True)
-    zip_path = None  # Initialize here
-    
-    try:
-        # 1. Copy SQLite database
-        db_path = Path("biotracking.db")  # Adjust to your actual DB path
+    zip_buffer = BytesIO()
+
+    with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zipf:
+        # 1. Include SQLite database
+        db_path = Path("biotracking.db")
         if db_path.exists():
-            shutil.copy(db_path, temp_dir / "biotracking.db")
-        
-        # 2. Export all tables as CSV
-        export_csvs_to_directory(temp_dir)
-        
-        # 3. Create ZIP file
-        zip_path = temp_dir.parent / f"biotracking_backup_{timestamp}.zip"
-        with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
-            for file in temp_dir.rglob('*'):
-                if file.is_file():
-                    zipf.write(file, file.relative_to(temp_dir))
-        
-        # 4. Send ZIP file
-        return send_file(
-            zip_path,
-            mimetype='application/zip',
-            as_attachment=True,
-            download_name=f'biotracking_backup_{timestamp}.zip'
-        )
-    
-    finally:
-        # Cleanup temp directory
-        if temp_dir.exists():
-            shutil.rmtree(temp_dir)
-        if zip_path and zip_path.exists():  # Check if zip_path was created
-            zip_path.unlink()
-        
+            zipf.write(str(db_path), "biotracking.db")
+
+        # 2. Export all tables as CSV into the ZIP
+        _export_csvs_to_zip(zipf)
+
+    zip_buffer.seek(0)
+    return send_file(
+        zip_buffer,
+        mimetype='application/zip',
+        as_attachment=True,
+        download_name=f'biotracking_backup_{timestamp}.zip'
+    )
 
 
-def export_csvs_to_directory(directory: Path):
-    """Export all database tables as CSV files to a directory."""
-    
+def _export_csvs_to_zip(zipf):
+    """Export all database tables as CSV strings into a ZipFile."""
+
+    def make_csv(data: list, columns: list) -> str:
+        output = StringIO()
+        writer = csv.writer(output)
+        writer.writerow(columns)
+        for row in data:
+            writer.writerow([row.get(col, '') for col in columns])
+        return output.getvalue()
+
     # Daily observations
-    daily_obs = db.get_all_observations()  # You'll need this function in db.py
-    write_csv(directory / "daily_observations.csv", daily_obs, [
+    daily_obs = db.get_all_observations(uid())
+    zipf.writestr("daily_observations.csv", make_csv(daily_obs, [
         'date', 'sun_exposure_min', 'neurological', 'musculature', 'migraine',
         'cognitive', 'dermatological', 'pulmonary', 'rheumatic', 'gastro', 'mucosal',
         'pain_scale', 'fatigue_scale', 'emotional_state', 'flare_occurred',
         'basal_temp_delta', 'hours_slept', 'hrv', 'steps', 'notes'
-    ])
-    
+    ]))
+
     # Labs
-    labs = db.get_lab_results()
-    write_csv(directory / "labs.csv", labs, [
+    zipf.writestr("labs.csv", make_csv(db.get_lab_results(uid()), [
         'date', 'test_name', 'numeric_value', 'unit', 'qualitative_result',
         'reference_range', 'flag', 'provider', 'lab_facility', 'notes'
-    ])
-    
+    ]))
+
     # Medications
-    meds = db.get_all_medications()
-    write_csv(directory / "medications.csv", meds, [
+    zipf.writestr("medications.csv", make_csv(db.get_all_medications(uid()), [
         'drug_name', 'dose', 'unit', 'frequency', 'route', 'category',
         'indication', 'start_date', 'end_date', 'is_primary_intervention',
         'is_secondary_intervention', 'notes'
-    ])
-    
+    ]))
+
     # Events
-    events = db.get_clinical_events()
-    write_csv(directory / "events.csv", events, [
+    zipf.writestr("events.csv", make_csv(db.get_clinical_events(uid()), [
         'date', 'event_type', 'provider', 'facility', 'follow_up_date', 'notes'
-    ])
-    
+    ]))
+
     # Clinicians
-    clinicians = db.get_all_clinicians()
-    write_csv(directory / "clinicians.csv", clinicians, [
+    zipf.writestr("clinicians.csv", make_csv(db.get_all_clinicians(uid()), [
         'name', 'specialty', 'clinic_name', 'phone', 'email', 'network',
         'address', 'notes'
-    ])
-    
+    ]))
+
     # ANA results
-    ana_results = db.get_ana_results()
-    write_csv(directory / "ana_results.csv", ana_results, [
+    zipf.writestr("ana_results.csv", make_csv(db.get_ana_results(uid()), [
         'date', 'titer', 'screen_result', 'patterns', 'provider', 'notes'
-    ])
-
-
-def write_csv(filepath: Path, data: list, columns: list):
-    """Write data to CSV file."""
-    output = StringIO()
-    writer = csv.writer(output)
-    writer.writerow(columns)
-    
-    for row in data:
-        writer.writerow([row.get(col, '') for col in columns])
-    
-    filepath.write_text(output.getvalue())
+    ]))
 
 # ============================================================
 # Clinical Report
@@ -3842,7 +3870,7 @@ def generate_findings(observations, uv_data, start_date, end_date, n_obs=None):
             })
 
     # Medications started during this period
-    all_meds = db.get_all_medications()
+    all_meds = db.get_all_medications(uid())
     meds_started = [m for m in all_meds if start_date <= m['start_date'] <= end_date]
     for med in meds_started:
         dose_str = f"{med.get('dose', '') or ''} {med.get('unit', '') or ''}".strip()
@@ -3870,26 +3898,26 @@ def clinical_report():
     )
     
     # Fetch data for period
-    observations = [o for o in db.get_all_daily_observations()
+    observations = [o for o in db.get_all_daily_observations(uid())
                     if start_date <= o["date"] <= end_date]
     
-    uv_data = db.get_uv_data_range(start_date, end_date) if observations else []
+    uv_data = db.get_uv_data_range(get_location_key(), start_date, end_date) if observations else []
     
     # Active medications
-    all_meds = db.get_all_medications()
+    all_meds = db.get_all_medications(uid())
     today_str = date.today().isoformat()
     active_meds = [m for m in all_meds
                    if m["start_date"] <= today_str and
                       (m.get("end_date") is None or m["end_date"] >= today_str)]
     
     # Flagged lab abnormals in period
-    all_labs = db.get_lab_results()
+    all_labs = db.get_lab_results(uid())
     flagged_labs = [lab for lab in all_labs
                     if start_date <= lab["date"] <= end_date
                     and lab.get("flag") in ("high", "low", "critical", "abnormal")]
     
     # Clinical events in period
-    all_events = db.get_clinical_events()
+    all_events = db.get_clinical_events(uid())
     events = [e for e in all_events
               if start_date <= e["date"] <= end_date]
     events.sort(key=lambda x: x["date"], reverse=True)
@@ -3933,7 +3961,7 @@ def clinical_report():
     )
 
     # ANA — all-time positive results only (negatives excluded; ANA fluctuates in early disease)
-    all_ana = db.get_ana_results() if hasattr(db, 'get_ana_results') else []
+    all_ana = db.get_ana_results(uid()) if hasattr(db, 'get_ana_results') else []
     positive_ana = sorted(
         [a for a in all_ana
          if (a.get('screen_result') or '').lower().strip()
@@ -3948,7 +3976,7 @@ def clinical_report():
     correlations = compute_lag_correlations(observations, uv_data) if observations and uv_data else {}
     
     # Full tracking period
-    all_obs = db.get_all_daily_observations()
+    all_obs = db.get_all_daily_observations(uid())
     tracking_start = all_obs[0]["date"] if all_obs else None
     tracking_end   = all_obs[-1]["date"] if all_obs else None
     
@@ -3995,19 +4023,19 @@ def api_timeline():
         "start",
         (date.today() - timedelta(days=90)).isoformat()
     )
-    data = db.get_timeline_data(start_date, end_date)
+    data = db.get_timeline_data(uid(), get_location_key(), start_date, end_date)
     return jsonify(data)
 
 
 @app.route("/api/uv-lag")
 def api_uv_lag():
     """JSON endpoint for UV lag correlation data."""
-    observations = db.get_all_daily_observations()
+    observations = db.get_all_daily_observations(uid())
     if not observations:
         return jsonify({"error": "no data"})
     start = observations[0]["date"]
     end = observations[-1]["date"]
-    uv_data = db.get_uv_data_range(start, end)
+    uv_data = db.get_uv_data_range(get_location_key(), start, end)
     return jsonify({"observations": observations, "uv": uv_data})
 
 # ============================================================

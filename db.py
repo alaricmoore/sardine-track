@@ -156,17 +156,53 @@ def get_user_preference(user_id: int, key: str, default=None):
     return prefs.get(key, default)
 
 
+def get_users_with_ntfy() -> list[dict]:
+    """Return all users who have ntfy_topic configured in their preferences.
+    Includes user_id, ntfy_topic, ntfy_server, and location fields.
+    """
+    with get_db() as conn:
+        rows = conn.execute("""
+            SELECT u.id AS user_id, u.username, u.display_name,
+                   p.ntfy_topic, p.ntfy_server, p.location_lat, p.location_lon,
+                   p.timezone, p.last_flare_alert_date, p.last_uv_alert_date
+            FROM users u
+            JOIN user_preferences p ON u.id = p.user_id
+            WHERE p.ntfy_topic IS NOT NULL AND p.ntfy_topic != ''
+        """).fetchall()
+        return [dict(r) for r in rows]
+
+
+def get_distinct_user_locations() -> list[dict]:
+    """Return distinct (location_lat, location_lon, timezone) from user_preferences.
+    Each entry includes the list of user_ids at that location.
+    """
+    with get_db() as conn:
+        rows = conn.execute("""
+            SELECT location_lat, location_lon, timezone, GROUP_CONCAT(user_id) AS user_ids
+            FROM user_preferences
+            WHERE location_lat IS NOT NULL AND location_lon IS NOT NULL
+            GROUP BY ROUND(location_lat, 2), ROUND(location_lon, 2)
+        """).fetchall()
+        results = []
+        for r in rows:
+            d = dict(r)
+            d["user_ids"] = [int(uid) for uid in d["user_ids"].split(",")]
+            results.append(d)
+        return results
+
+
 # ============================================================
 # daily_observations
 # ============================================================
 
-def upsert_daily_observations(data: dict) -> bool:
+def upsert_daily_observations(user_id: int, data: dict) -> bool:
     """Insert or update a daily observation row.
-    
+
     Args:
+        user_id: the owning user's id.
         data: dict with keys matching daily_observations columns.
               'date' is required. All other fields are optional.
-    
+
     Returns:
         True on success.
     """
@@ -191,16 +227,17 @@ def upsert_daily_observations(data: dict) -> bool:
         "period_flow", "cramping", "cycle_notes",
     ]
 
-    # Only include fields present in data
-    present = {k: data[k] for k in fields if k in data}
+    # Only include fields present in data, plus user_id
+    present = {"user_id": user_id}
+    present.update({k: data[k] for k in fields if k in data})
     columns = ", ".join(present.keys())
     placeholders = ", ".join(["?" for _ in present])
-    updates = ", ".join([f"{k}=excluded.{k}" for k in present if k != "date"])
+    updates = ", ".join([f"{k}=excluded.{k}" for k in present if k not in ("date", "user_id")])
 
     sql = f"""
         INSERT INTO daily_observations ({columns})
         VALUES ({placeholders})
-        ON CONFLICT(date) DO UPDATE SET {updates}
+        ON CONFLICT(user_id, date) DO UPDATE SET {updates}
     """
 
     with get_db() as conn:
@@ -209,57 +246,59 @@ def upsert_daily_observations(data: dict) -> bool:
     return True
 
 
-def get_daily_observations(date_str: str) -> Optional[dict]:
-    """Fetch a single daily observation by date."""
+def get_daily_observations(user_id: int, date_str: str) -> Optional[dict]:
+    """Fetch a single daily observation by user and date."""
     with get_db() as conn:
         row = conn.execute(
-            "SELECT * FROM daily_observations WHERE date = ?",
-            (date_str,)
+            "SELECT * FROM daily_observations WHERE user_id = ? AND date = ?",
+            (user_id, date_str)
         ).fetchone()
     return dict(row) if row else None
 
 
-def get_daily_observations_range(start_date: str, end_date: str) -> list[dict]:
-    """Fetch all daily observations between two dates inclusive."""
+def get_daily_observations_range(user_id: int, start_date: str, end_date: str) -> list[dict]:
+    """Fetch all daily observations between two dates inclusive for a user."""
     with get_db() as conn:
         rows = conn.execute(
             """SELECT * FROM daily_observations
-               WHERE date BETWEEN ? AND ?
+               WHERE user_id = ? AND date BETWEEN ? AND ?
                ORDER BY date ASC""",
-            (start_date, end_date)
+            (user_id, start_date, end_date)
         ).fetchall()
     return [dict(row) for row in rows]
 
 
-def get_cycle_data(start_date: str, end_date: str) -> list[dict]:
+def get_cycle_data(user_id: int, start_date: str, end_date: str) -> list[dict]:
     """Fetch observations for the cycle calendar (period, BBT, flare, cramping)."""
     with get_db() as conn:
         rows = conn.execute(
             """SELECT date, period_flow, cramping, cycle_notes,
                       basal_temp_delta, flare_occurred
                FROM daily_observations
-               WHERE date BETWEEN ? AND ?
+               WHERE user_id = ? AND date BETWEEN ? AND ?
                ORDER BY date""",
-            (start_date, end_date)
+            (user_id, start_date, end_date)
         ).fetchall()
     return [dict(r) for r in rows]
 
 
-def get_all_daily_observations() -> list[dict]:
-    """Fetch all daily observations ordered by date."""
+def get_all_daily_observations(user_id: int) -> list[dict]:
+    """Fetch all daily observations ordered by date for a user."""
     with get_db() as conn:
         rows = conn.execute(
-            "SELECT * FROM daily_observations ORDER BY date ASC"
+            "SELECT * FROM daily_observations WHERE user_id = ? ORDER BY date ASC",
+            (user_id,)
         ).fetchall()
     return [dict(row) for row in rows]
 
-def get_all_observations():
-    """Get all daily observations."""
+def get_all_observations(user_id: int):
+    """Get all daily observations for a user."""
     with get_db() as conn:
         cursor = conn.execute("""
-            SELECT * FROM daily_observations 
+            SELECT * FROM daily_observations
+            WHERE user_id = ?
             ORDER BY date DESC
-        """)
+        """, (user_id,))
         rows = cursor.fetchall()
     return [dict(row) for row in rows]
 
@@ -268,39 +307,46 @@ def get_all_observations():
 # uv_data
 # ============================================================
 
-def upsert_uv_data(date_str: str, uv_morning: float, uv_noon: float,
-                   uv_evening: float, source: str = "api") -> bool:
-    """Insert or update UV data for a given date."""
+def make_location_key(lat: float, lon: float) -> str:
+    """Create a location key from lat/lon, rounded to 2 decimal places (~1km)."""
+    return f"{lat:.2f},{lon:.2f}"
+
+
+def upsert_uv_data(location_key: str, date_str: str, uv_morning: float,
+                   uv_noon: float, uv_evening: float,
+                   source: str = "api") -> bool:
+    """Insert or update UV data for a given location + date."""
     with get_db() as conn:
         conn.execute("""
-            INSERT INTO uv_data (date, uv_morning, uv_noon, uv_evening, source)
-            VALUES (?, ?, ?, ?, ?)
-            ON CONFLICT(date) DO UPDATE SET
+            INSERT INTO uv_data (location_key, date, uv_morning, uv_noon, uv_evening, source)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(location_key, date) DO UPDATE SET
                 uv_morning=excluded.uv_morning,
                 uv_noon=excluded.uv_noon,
                 uv_evening=excluded.uv_evening,
                 source=excluded.source
-        """, (date_str, uv_morning, uv_noon, uv_evening, source))
+        """, (location_key, date_str, uv_morning, uv_noon, uv_evening, source))
     return True
 
 
-def get_uv_data(date_str: str) -> Optional[dict]:
-    """Fetch UV data for a specific date."""
+def get_uv_data(location_key: str, date_str: str) -> Optional[dict]:
+    """Fetch UV data for a specific location + date."""
     with get_db() as conn:
         row = conn.execute(
-            "SELECT * FROM uv_data WHERE date = ?", (date_str,)
+            "SELECT * FROM uv_data WHERE location_key = ? AND date = ?",
+            (location_key, date_str)
         ).fetchone()
     return dict(row) if row else None
 
 
-def get_uv_data_range(start_date: str, end_date: str) -> list[dict]:
-    """Fetch UV data for a date range."""
+def get_uv_data_range(location_key: str, start_date: str, end_date: str) -> list[dict]:
+    """Fetch UV data for a location over a date range."""
     with get_db() as conn:
         rows = conn.execute(
             """SELECT * FROM uv_data
-               WHERE date BETWEEN ? AND ?
+               WHERE location_key = ? AND date BETWEEN ? AND ?
                ORDER BY date ASC""",
-            (start_date, end_date)
+            (location_key, start_date, end_date)
         ).fetchall()
     return [dict(row) for row in rows]
 
@@ -309,7 +355,7 @@ def get_uv_data_range(start_date: str, end_date: str) -> list[dict]:
 # lab_results
 # ============================================================
 
-def add_lab_result(data: dict) -> int:
+def add_lab_result(user_id: int, data: dict) -> int:
     """Insert a lab result. Returns the new row id."""
     required = {"date", "test_name"}
     missing = required - set(data.keys())
@@ -324,7 +370,8 @@ def add_lab_result(data: dict) -> int:
         "qualitative_result", "reference_range", "flag",
         "provider", "lab_facility", "notes"
     ]
-    present = {k: data[k] for k in fields if k in data}
+    present = {"user_id": user_id}
+    present.update({k: data[k] for k in fields if k in data})
     columns = ", ".join(present.keys())
     placeholders = ", ".join(["?" for _ in present])
 
@@ -336,12 +383,12 @@ def add_lab_result(data: dict) -> int:
         return cursor.lastrowid
 
 
-def get_lab_results(test_name: Optional[str] = None,
+def get_lab_results(user_id: int, test_name: Optional[str] = None,
                     start_date: Optional[str] = None,
                     end_date: Optional[str] = None) -> list[dict]:
-    """Fetch lab results, optionally filtered by test name and date range."""
-    conditions = []
-    params = []
+    """Fetch lab results for a user, optionally filtered by test name and date range."""
+    conditions = ["user_id = ?"]
+    params = [user_id]
 
     if test_name:
         conditions.append("test_name = ?")
@@ -353,7 +400,7 @@ def get_lab_results(test_name: Optional[str] = None,
         conditions.append("date <= ?")
         params.append(end_date)
 
-    where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+    where = f"WHERE {' AND '.join(conditions)}"
 
     with get_db() as conn:
         rows = conn.execute(
@@ -363,19 +410,21 @@ def get_lab_results(test_name: Optional[str] = None,
     return [dict(row) for row in rows]
 
 
-def get_lab_test_names() -> list[str]:
-    """Return a sorted list of all distinct test names."""
+def get_lab_test_names(user_id: int) -> list[str]:
+    """Return a sorted list of all distinct test names for a user."""
     with get_db() as conn:
         rows = conn.execute(
-            "SELECT DISTINCT test_name FROM lab_results ORDER BY test_name ASC"
+            "SELECT DISTINCT test_name FROM lab_results WHERE user_id = ? ORDER BY test_name ASC",
+            (user_id,)
         ).fetchall()
     return [row[0] for row in rows]
 
 
-def delete_lab_result(result_id: int) -> bool:
-    """Delete a lab result by id."""
+def delete_lab_result(user_id: int, result_id: int) -> bool:
+    """Delete a lab result by id, scoped to user."""
     with get_db() as conn:
-        conn.execute("DELETE FROM lab_results WHERE id = ?", (result_id,))
+        conn.execute("DELETE FROM lab_results WHERE id = ? AND user_id = ?",
+                     (result_id, user_id))
     return True
 
 
@@ -383,20 +432,21 @@ def delete_lab_result(result_id: int) -> bool:
 # ana_results
 # ============================================================
 
-def add_ana_result(date_str: str, titer_integer: Optional[int],
+def add_ana_result(user_id: int, date_str: str, titer_integer: Optional[int],
                    screen_result: str, patterns: list[str],
                    provider: Optional[str] = None,
                    notes: Optional[str] = None) -> int:
     """Insert an ANA result. Patterns stored as JSON array.
-    
+
     Args:
+        user_id: owning user's id.
         date_str: YYYY-MM-DD
         titer_integer: titer as integer (40, 80, 160, etc.)
         screen_result: 'positive' or 'negative'
         patterns: list of AC codes e.g. ['AC-4', 'AC-29']
         provider: ordering provider name
         notes: free text
-    
+
     Returns:
         New row id.
     """
@@ -404,17 +454,17 @@ def add_ana_result(date_str: str, titer_integer: Optional[int],
     with get_db() as conn:
         cursor = conn.execute("""
             INSERT INTO ana_results
-                (date, titer_integer, screen_result, patterns, provider, notes)
-            VALUES (?, ?, ?, ?, ?, ?)
-        """, (date_str, titer_integer, screen_result, patterns_json, provider, notes))
+                (user_id, date, titer_integer, screen_result, patterns, provider, notes)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (user_id, date_str, titer_integer, screen_result, patterns_json, provider, notes))
         return cursor.lastrowid
 
 
-def get_ana_results(start_date: Optional[str] = None,
+def get_ana_results(user_id: int, start_date: Optional[str] = None,
                     end_date: Optional[str] = None) -> list[dict]:
-    """Fetch ANA results, with patterns deserialized to lists."""
-    conditions = []
-    params = []
+    """Fetch ANA results for a user, with patterns deserialized to lists."""
+    conditions = ["user_id = ?"]
+    params = [user_id]
     if start_date:
         conditions.append("date >= ?")
         params.append(start_date)
@@ -422,7 +472,7 @@ def get_ana_results(start_date: Optional[str] = None,
         conditions.append("date <= ?")
         params.append(end_date)
 
-    where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+    where = f"WHERE {' AND '.join(conditions)}"
 
     with get_db() as conn:
         rows = conn.execute(
@@ -442,7 +492,7 @@ def get_ana_results(start_date: Optional[str] = None,
 # clinical_events
 # ============================================================
 
-def add_clinical_event(data: dict) -> int:
+def add_clinical_event(user_id: int, data: dict) -> int:
     """Insert a clinical event. Returns new row id."""
     required = {"date", "event_type"}
     missing = required - set(data.keys())
@@ -450,7 +500,8 @@ def add_clinical_event(data: dict) -> int:
         raise ValueError(f"clinical_event missing required fields: {missing}")
 
     fields = ["date", "event_type", "provider", "facility", "notes", "follow_up_date"]
-    present = {k: data[k] for k in fields if k in data}
+    present = {"user_id": user_id}
+    present.update({k: data[k] for k in fields if k in data})
     columns = ", ".join(present.keys())
     placeholders = ", ".join(["?" for _ in present])
 
@@ -462,12 +513,12 @@ def add_clinical_event(data: dict) -> int:
         return cursor.lastrowid
 
 
-def get_clinical_events(event_type: Optional[str] = None,
+def get_clinical_events(user_id: int, event_type: Optional[str] = None,
                         start_date: Optional[str] = None,
                         end_date: Optional[str] = None) -> list[dict]:
-    """Fetch clinical events, optionally filtered."""
-    conditions = []
-    params = []
+    """Fetch clinical events for a user, optionally filtered."""
+    conditions = ["user_id = ?"]
+    params: list = [user_id]
     if event_type:
         conditions.append("event_type = ?")
         params.append(event_type)
@@ -478,7 +529,7 @@ def get_clinical_events(event_type: Optional[str] = None,
         conditions.append("date <= ?")
         params.append(end_date)
 
-    where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+    where = f"WHERE {' AND '.join(conditions)}"
 
     with get_db() as conn:
         rows = conn.execute(
@@ -492,18 +543,19 @@ def get_clinical_events(event_type: Optional[str] = None,
 # medications
 # ============================================================
 
-def add_medication(data: dict) -> int:
-    """Add a new medication."""
+def add_medication(user_id: int, data: dict) -> int:
+    """Add a new medication for a user."""
     with get_db() as conn:
         c = conn.cursor()
         c.execute("""
             INSERT INTO medications (
-                drug_name, dose, unit, frequency, route, category,
+                user_id, drug_name, dose, unit, frequency, route, category,
                 indication, start_date, end_date, notes,
                 is_primary_intervention, is_secondary_intervention
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
+            user_id,
             data.get("drug_name"),
             data.get("dose"),
             data.get("unit"),
@@ -520,34 +572,36 @@ def add_medication(data: dict) -> int:
         return c.lastrowid
 
 
-def end_medication(med_id: int, end_date: str) -> bool:
-    """Mark a medication course as ended."""
+def end_medication(user_id: int, med_id: int, end_date: str) -> bool:
+    """Mark a medication course as ended, scoped to user."""
     with get_db() as conn:
         conn.execute(
-            "UPDATE medications SET end_date = ? WHERE id = ?",
-            (end_date, med_id)
+            "UPDATE medications SET end_date = ? WHERE id = ? AND user_id = ?",
+            (end_date, med_id, user_id)
         )
     return True
 
 
-def get_active_medications(as_of_date: Optional[str] = None) -> list[dict]:
-    """Return medications active on a given date (default: today)."""
+def get_active_medications(user_id: int, as_of_date: Optional[str] = None) -> list[dict]:
+    """Return medications active on a given date for a user (default: today)."""
     as_of = as_of_date or today()
     with get_db() as conn:
         rows = conn.execute("""
             SELECT * FROM medications
-            WHERE start_date <= ?
+            WHERE user_id = ?
+              AND start_date <= ?
               AND (end_date IS NULL OR end_date >= ?)
             ORDER BY drug_name ASC
-        """, (as_of, as_of)).fetchall()
+        """, (user_id, as_of, as_of)).fetchall()
     return [dict(row) for row in rows]
 
 
-def get_all_medications() -> list[dict]:
-    """Return full medication history ordered by start date."""
+def get_all_medications(user_id: int) -> list[dict]:
+    """Return full medication history for a user ordered by start date."""
     with get_db() as conn:
         rows = conn.execute(
-            "SELECT * FROM medications ORDER BY start_date ASC"
+            "SELECT * FROM medications WHERE user_id = ? ORDER BY start_date ASC",
+            (user_id,)
         ).fetchall()
     return [dict(row) for row in rows]
 
@@ -556,9 +610,9 @@ def get_all_medications() -> list[dict]:
 # Full text search across note fields
 # ============================================================
 
-def search_notes(query: str) -> list[dict]:
-    """Search across all note fields in daily_observations.
-    
+def search_notes(user_id: int, query: str) -> list[dict]:
+    """Search across all note fields in daily_observations for a user.
+
     Returns matching rows with date, source field, and matching text.
     Uses SQLite LIKE for broad compatibility.
     """
@@ -582,9 +636,9 @@ def search_notes(query: str) -> list[dict]:
             rows = conn.execute(
                 f"""SELECT date, '{label}' as category, {field} as matched_text
                     FROM daily_observations
-                    WHERE {field} LIKE ?
+                    WHERE user_id = ? AND {field} LIKE ?
                     ORDER BY date ASC""",
-                (patterns,)
+                (user_id, patterns)
             ).fetchall()
             results.extend([dict(row) for row in rows])
 
@@ -592,9 +646,9 @@ def search_notes(query: str) -> list[dict]:
         rows = conn.execute(
             """SELECT date, event_type as category, notes as matched_text
                FROM clinical_events
-               WHERE notes LIKE ?
+               WHERE user_id = ? AND notes LIKE ?
                ORDER BY date ASC""",
-            (patterns,)
+            (user_id, patterns)
         ).fetchall()
         results.extend([dict(row) for row in rows])
 
@@ -607,9 +661,10 @@ def search_notes(query: str) -> list[dict]:
 # Timeline query - joins everything for the timeline view
 # ============================================================
 
-def get_timeline_data(start_date: str, end_date: str) -> dict:
+def get_timeline_data(user_id: int, location_key: str,
+                      start_date: str, end_date: str) -> dict:
     """Fetch all data needed for the timeline view in one call.
-    
+
     Returns a dict with keys:
         - daily: list of daily_observations
         - uv: list of uv_data
@@ -619,17 +674,15 @@ def get_timeline_data(start_date: str, end_date: str) -> dict:
         - medications: list of medications active during this period
     """
     return {
-        "daily": get_daily_observations_range(start_date, end_date),
-        "uv": get_uv_data_range(start_date, end_date),
-        "labs": get_lab_results(start_date=start_date, end_date=end_date),
-        "ana": get_ana_results(start_date=start_date, end_date=end_date),
-        "events": get_clinical_events(start_date=start_date, end_date=end_date),
-        "medications": get_all_medications(),  # filtered in frontend by date
+        "daily": get_daily_observations_range(user_id, start_date, end_date),
+        "uv": get_uv_data_range(location_key, start_date, end_date),
+        "labs": get_lab_results(user_id, start_date=start_date, end_date=end_date),
+        "ana": get_ana_results(user_id, start_date=start_date, end_date=end_date),
+        "events": get_clinical_events(user_id, start_date=start_date, end_date=end_date),
+        "medications": get_all_medications(user_id),  # filtered in frontend by date
     }
-    
-    # Add these functions to db.py
 
-def update_lab_result(lab_id: int, date: str, test_name: str,
+def update_lab_result(user_id: int, lab_id: int, date: str, test_name: str,
                       numeric_value: Optional[float] = None,
                       unit: Optional[str] = None,
                       qualitative_result: Optional[str] = None,
@@ -638,7 +691,7 @@ def update_lab_result(lab_id: int, date: str, test_name: str,
                       provider: Optional[str] = None,
                       lab_facility: Optional[str] = None,
                       notes: Optional[str] = None) -> bool:
-    """Update an existing lab result."""
+    """Update an existing lab result, scoped to user."""
     with get_db() as conn:
         conn.execute("""
             UPDATE lab_results
@@ -652,19 +705,19 @@ def update_lab_result(lab_id: int, date: str, test_name: str,
                 provider = ?,
                 lab_facility = ?,
                 notes = ?
-            WHERE id = ?
+            WHERE id = ? AND user_id = ?
         """, (date, test_name, numeric_value, unit, qualitative_result,
-              reference_range, flag, provider, lab_facility, notes, lab_id))
+              reference_range, flag, provider, lab_facility, notes, lab_id, user_id))
     return True
 
 
-def update_ana_result(ana_id: int, date: str,
+def update_ana_result(user_id: int, ana_id: int, date: str,
                       titer: Optional[str] = None,
                       patterns: Optional[str] = None,
                       screen_result: Optional[str] = None,
                       provider: Optional[str] = None,
                       notes: Optional[str] = None) -> bool:
-    """Update an existing ANA result."""
+    """Update an existing ANA result, scoped to user."""
     with get_db() as conn:
         conn.execute("""
             UPDATE ana_results
@@ -674,23 +727,24 @@ def update_ana_result(ana_id: int, date: str,
                 screen_result = ?,
                 provider = ?,
                 notes = ?
-            WHERE id = ?
-        """, (date, titer, patterns, screen_result, provider, notes, ana_id))
+            WHERE id = ? AND user_id = ?
+        """, (date, titer, patterns, screen_result, provider, notes, ana_id, user_id))
     return True
 
 
-def delete_ana_result(ana_id: int) -> bool:
-    """Delete an ANA result."""
+def delete_ana_result(user_id: int, ana_id: int) -> bool:
+    """Delete an ANA result, scoped to user."""
     with get_db() as conn:
-        conn.execute("DELETE FROM ana_results WHERE id = ?", (ana_id,))
+        conn.execute("DELETE FROM ana_results WHERE id = ? AND user_id = ?",
+                     (ana_id, user_id))
     return True
 
 
-def update_clinical_event(event_id: int, date: str, event_type: str,
+def update_clinical_event(user_id: int, event_id: int, date: str, event_type: str,
                           provider: Optional[str] = None,
                           facility: Optional[str] = None,
                           notes: Optional[str] = None) -> bool:
-    """Update an existing clinical event."""
+    """Update an existing clinical event, scoped to user."""
     with get_db() as conn:
         conn.execute("""
             UPDATE clinical_events
@@ -699,15 +753,16 @@ def update_clinical_event(event_id: int, date: str, event_type: str,
                 provider = ?,
                 facility = ?,
                 notes = ?
-            WHERE id = ?
-        """, (date, event_type, provider, facility, notes, event_id))
+            WHERE id = ? AND user_id = ?
+        """, (date, event_type, provider, facility, notes, event_id, user_id))
     return True
 
 
-def delete_clinical_event(event_id: int) -> bool:
-    """Delete a clinical event."""
+def delete_clinical_event(user_id: int, event_id: int) -> bool:
+    """Delete a clinical event, scoped to user."""
     with get_db() as conn:
-        conn.execute("DELETE FROM clinical_events WHERE id = ?", (event_id,))
+        conn.execute("DELETE FROM clinical_events WHERE id = ? AND user_id = ?",
+                     (event_id, user_id))
     return True
 
 
@@ -715,17 +770,18 @@ def delete_clinical_event(event_id: int) -> bool:
 # clinicians
 # ============================================================
 
-def add_clinician(data: dict) -> int:
-    """Add a new clinician/provider."""
+def add_clinician(user_id: int, data: dict) -> int:
+    """Add a new clinician/provider for a user."""
     with get_db() as conn:
         c = conn.cursor()
         c.execute("""
             INSERT INTO clinicians (
-                name, specialty, clinic_name, address, 
+                user_id, name, specialty, clinic_name, address,
                 phone, email, network, notes
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
+            user_id,
             data.get("name"),
             data.get("specialty"),
             data.get("clinic_name"),
@@ -738,25 +794,26 @@ def add_clinician(data: dict) -> int:
         return c.lastrowid
 
 
-def get_all_clinicians() -> list[dict]:
-    """Get all clinicians ordered by name."""
+def get_all_clinicians(user_id: int) -> list[dict]:
+    """Get all clinicians for a user ordered by name."""
     with get_db() as conn:
         c = conn.cursor()
         c.execute("""
-            SELECT * FROM clinicians 
+            SELECT * FROM clinicians
+            WHERE user_id = ?
             ORDER BY name ASC
-        """)
+        """, (user_id,))
         return [dict(row) for row in c.fetchall()]
 
 
-def update_clinician(clinician_id: int, name: str, specialty: str,
+def update_clinician(user_id: int, clinician_id: int, name: str, specialty: str,
                      clinic_name: Optional[str] = None,
                      address: Optional[str] = None,
                      phone: Optional[str] = None,
                      email: Optional[str] = None,
                      network: Optional[str] = None,
                      notes: Optional[str] = None) -> bool:
-    """Update an existing clinician."""
+    """Update an existing clinician, scoped to user."""
     with get_db() as conn:
         conn.execute("""
             UPDATE clinicians
@@ -768,19 +825,21 @@ def update_clinician(clinician_id: int, name: str, specialty: str,
                 email = ?,
                 network = ?,
                 notes = ?
-            WHERE id = ?
-        """, (name, specialty, clinic_name, address, phone, email, network, notes, clinician_id))
+            WHERE id = ? AND user_id = ?
+        """, (name, specialty, clinic_name, address, phone, email, network, notes,
+              clinician_id, user_id))
     return True
 
 
-def delete_clinician(clinician_id: int) -> bool:
-    """Delete a clinician."""
+def delete_clinician(user_id: int, clinician_id: int) -> bool:
+    """Delete a clinician, scoped to user."""
     with get_db() as conn:
-        conn.execute("DELETE FROM clinicians WHERE id = ?", (clinician_id,))
+        conn.execute("DELETE FROM clinicians WHERE id = ? AND user_id = ?",
+                     (clinician_id, user_id))
     return True
 
 
-def update_medication(med_id: int, drug_name: str, start_date: str,
+def update_medication(user_id: int, med_id: int, drug_name: str, start_date: str,
                      dose: Optional[float] = None,
                      unit: Optional[str] = None,
                      frequency: Optional[str] = None,
@@ -790,7 +849,7 @@ def update_medication(med_id: int, drug_name: str, start_date: str,
                      notes: Optional[str] = None,
                      is_primary_intervention: bool = False,
                      is_secondary_intervention: bool = False) -> bool:
-    """Update an existing medication."""
+    """Update an existing medication, scoped to user."""
     with get_db() as conn:
         conn.execute("""
             UPDATE medications
@@ -805,25 +864,43 @@ def update_medication(med_id: int, drug_name: str, start_date: str,
                 notes = ?,
                 is_primary_intervention = ?,
                 is_secondary_intervention = ?
-            WHERE id = ?
+            WHERE id = ? AND user_id = ?
         """, (drug_name, dose, unit, frequency, category, indication,
               start_date, end_date, notes,
               1 if is_primary_intervention else 0,
               1 if is_secondary_intervention else 0,
-              med_id))
+              med_id, user_id))
     return True
 
 
-def delete_medication(med_id: int) -> bool:
-    """Delete a medication."""
+def delete_medication(user_id: int, med_id: int) -> bool:
+    """Delete a medication, scoped to user."""
     with get_db() as conn:
-        conn.execute("DELETE FROM medications WHERE id = ?", (med_id,))
+        conn.execute("DELETE FROM medications WHERE id = ? AND user_id = ?",
+                     (med_id, user_id))
     return True
+
+def get_all_pending_doses_with_ntfy(window_start: str, window_end: str) -> list:
+    """Return pending doses across ALL users, joined with each user's ntfy settings.
+    Used by the scheduler for multi-user notifications."""
+    with get_db() as conn:
+        rows = conn.execute(
+            """SELECT sd.*, m.drug_name, up.ntfy_topic, up.ntfy_server
+               FROM scheduled_doses sd
+               JOIN medications m ON m.id = sd.medication_id
+               LEFT JOIN user_preferences up ON up.user_id = sd.user_id
+               WHERE sd.scheduled_datetime >= ?
+                 AND sd.scheduled_datetime < ?
+                 AND sd.notified = 0
+                 AND sd.taken = 0
+               ORDER BY sd.scheduled_datetime""",
+            (window_start, window_end)
+        ).fetchall()
+    return [dict(r) for r in rows]
+
 
 def close_all_connections():
     """Close any open database connections."""
-    # If you're using connection pooling, close the pool here
-    # For basic sqlite3, this may not be necessary
     pass
 
 
@@ -831,83 +908,88 @@ def close_all_connections():
 # Contraceptive history functions
 # ============================================================
 
-def get_bc_history() -> list[dict]:
-    """All BC history records ordered by start_date ASC."""
+def get_bc_history(user_id: int) -> list[dict]:
+    """All BC history records for a user ordered by start_date ASC."""
     with get_db() as conn:
         rows = conn.execute(
-            "SELECT * FROM bc_history ORDER BY start_date ASC"
+            "SELECT * FROM bc_history WHERE user_id = ? ORDER BY start_date ASC",
+            (user_id,)
         ).fetchall()
     return [dict(r) for r in rows]
 
 
-def add_bc_regime(data: dict) -> int:  # type: ignore[return]
-    """Insert a new BC record. Returns new id."""
+def add_bc_regime(user_id: int, data: dict) -> int:  # type: ignore[return]
+    """Insert a new BC record for a user. Returns new id."""
     with get_db() as conn:
         cursor = conn.execute(
-            """INSERT INTO bc_history (bc_type, name, start_date, end_date, notes)
-               VALUES (?, ?, ?, ?, ?)""",
-            (data["bc_type"], data.get("name"), data["start_date"],
+            """INSERT INTO bc_history (user_id, bc_type, name, start_date, end_date, notes)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (user_id, data["bc_type"], data.get("name"), data["start_date"],
              data.get("end_date"), data.get("notes")),
         )
     return cursor.lastrowid
 
 
-def update_bc_regime(bc_id: int, data: dict) -> None:
-    """Update an existing BC record."""
+def update_bc_regime(user_id: int, bc_id: int, data: dict) -> None:
+    """Update an existing BC record, scoped to user."""
     with get_db() as conn:
         conn.execute(
             """UPDATE bc_history
                SET bc_type=?, name=?, start_date=?, end_date=?, notes=?
-               WHERE id=?""",
+               WHERE id=? AND user_id=?""",
             (data["bc_type"], data.get("name"), data["start_date"],
-             data.get("end_date"), data.get("notes"), bc_id),
+             data.get("end_date"), data.get("notes"), bc_id, user_id),
         )
 
 
-def delete_bc_regime(bc_id: int) -> None:
-    """Delete a BC record."""
+def delete_bc_regime(user_id: int, bc_id: int) -> None:
+    """Delete a BC record, scoped to user."""
     with get_db() as conn:
-        conn.execute("DELETE FROM bc_history WHERE id = ?", (bc_id,))
+        conn.execute("DELETE FROM bc_history WHERE id = ? AND user_id = ?",
+                     (bc_id, user_id))
 
 
 # ============================================================
 # Taper schedule and dose reminder functions
 # ============================================================
 
-def create_taper_schedule(medication_id: int, start_date: str) -> int:
+def create_taper_schedule(user_id: int, medication_id: int, start_date: str) -> int:
     """Create a new taper schedule for a medication. Returns the new schedule ID."""
     with get_db() as conn:
         cursor = conn.execute(
-            "INSERT INTO taper_schedules (medication_id, start_date, active) VALUES (?, ?, 1)",
-            (medication_id, start_date)
+            "INSERT INTO taper_schedules (user_id, medication_id, start_date, active) VALUES (?, ?, ?, 1)",
+            (user_id, medication_id, start_date)
         )
         return cursor.lastrowid
 
 
-def insert_scheduled_doses(doses: list) -> None:
-    """Bulk insert scheduled dose rows."""
+def insert_scheduled_doses(user_id: int, doses: list) -> None:
+    """Bulk insert scheduled dose rows for a user."""
+    for d in doses:
+        d["user_id"] = user_id
     with get_db() as conn:
         conn.executemany(
             """INSERT INTO scheduled_doses
-               (taper_schedule_id, medication_id, scheduled_datetime, dose_label, dose_amount, dose_unit)
-               VALUES (:taper_schedule_id, :medication_id, :scheduled_datetime, :dose_label, :dose_amount, :dose_unit)""",
+               (user_id, taper_schedule_id, medication_id, scheduled_datetime, dose_label, dose_amount, dose_unit)
+               VALUES (:user_id, :taper_schedule_id, :medication_id, :scheduled_datetime, :dose_label, :dose_amount, :dose_unit)""",
             doses
         )
 
 
-def get_pending_doses(window_start: str, window_end: str) -> list:
+def get_pending_doses(user_id: int, window_start: str, window_end: str) -> list:
     """Return doses scheduled between window_start and window_end that haven't been notified or taken."""
     with get_db() as conn:
         rows = conn.execute(
             """SELECT sd.*, m.drug_name
                FROM scheduled_doses sd
                JOIN medications m ON m.id = sd.medication_id
-               WHERE sd.scheduled_datetime >= ?
+               WHERE sd.user_id = ?
+                 AND sd.scheduled_datetime >= ?
                  AND sd.scheduled_datetime < ?
                  AND sd.notified = 0
                  AND sd.taken = 0
                ORDER BY sd.scheduled_datetime""",
-            (window_start, window_end)
+            (user_id, window_start, window_end)
         ).fetchall()
     return [dict(r) for r in rows]
 
@@ -927,38 +1009,39 @@ def mark_dose_taken(dose_id: int, taken_at: str) -> None:
         )
 
 
-def get_todays_doses(date_str: str) -> list:
-    """Return all scheduled doses for a given date, with taken status."""
+def get_todays_doses(user_id: int, date_str: str) -> list:
+    """Return all scheduled doses for a user on a given date, with taken status."""
     with get_db() as conn:
         rows = conn.execute(
             """SELECT sd.*, m.drug_name
                FROM scheduled_doses sd
                JOIN medications m ON m.id = sd.medication_id
-               WHERE sd.scheduled_datetime LIKE ?
+               WHERE sd.user_id = ?
+                 AND sd.scheduled_datetime LIKE ?
                ORDER BY sd.scheduled_datetime""",
-            (date_str + "%",)
+            (user_id, date_str + "%")
         ).fetchall()
     return [dict(r) for r in rows]
 
 
-def get_active_taper_for_medication(medication_id: int) -> Optional[dict]:
-    """Return the active taper schedule for a medication, or None."""
+def get_active_taper_for_medication(user_id: int, medication_id: int) -> Optional[dict]:
+    """Return the active taper schedule for a user's medication, or None."""
     with get_db() as conn:
         row = conn.execute(
             """SELECT ts.*, COUNT(sd.id) as dose_count
                FROM taper_schedules ts
                LEFT JOIN scheduled_doses sd ON sd.taper_schedule_id = ts.id
-               WHERE ts.medication_id = ? AND ts.active = 1
+               WHERE ts.user_id = ? AND ts.medication_id = ? AND ts.active = 1
                GROUP BY ts.id
                ORDER BY ts.created_at DESC
                LIMIT 1""",
-            (medication_id,)
+            (user_id, medication_id)
         ).fetchone()
     return dict(row) if row else None
 
 
-def get_active_tapers_with_doses(date_str: str) -> list:
-    """Return all active taper schedules with dose summary for a date (for templates)."""
+def get_active_tapers_with_doses(user_id: int, date_str: str) -> list:
+    """Return all active taper schedules with dose summary for a user on a date."""
     with get_db() as conn:
         rows = conn.execute(
             """SELECT ts.id as schedule_id, ts.medication_id, ts.start_date,
@@ -969,14 +1052,15 @@ def get_active_tapers_with_doses(date_str: str) -> list:
                JOIN medications m ON m.id = ts.medication_id
                LEFT JOIN scheduled_doses sd ON sd.taper_schedule_id = ts.id
                                             AND sd.scheduled_datetime LIKE ?
-               WHERE ts.active = 1
+               WHERE ts.user_id = ? AND ts.active = 1
                GROUP BY ts.id""",
-            (date_str + "%",)
+            (date_str + "%", user_id)
         ).fetchall()
     return [dict(r) for r in rows]
 
 
-def delete_taper_schedule(schedule_id: int) -> None:
-    """Delete a taper schedule and all its doses (cascade)."""
+def delete_taper_schedule(user_id: int, schedule_id: int) -> None:
+    """Delete a taper schedule and all its doses (cascade), scoped to user."""
     with get_db() as conn:
-        conn.execute("DELETE FROM taper_schedules WHERE id = ?", (schedule_id,))
+        conn.execute("DELETE FROM taper_schedules WHERE id = ? AND user_id = ?",
+                     (schedule_id, user_id))

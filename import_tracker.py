@@ -18,6 +18,9 @@ Usage:
 
     # Preview first 5 rows only:
     python import_tracker.py path/to/your_tracker.csv --preview 5
+
+    # Import for a specific user:
+    python import_tracker.py path/to/your_tracker.csv --user-id 2
 """
 
 import argparse
@@ -256,7 +259,7 @@ def process_row(raw_row: dict, temp_baseline: float) -> Optional[dict]:
 # Main import
 # ============================================================
 
-def run_import(csv_path: str, dry_run: bool = False,
+def run_import(csv_path: str, user_id: int = 1, dry_run: bool = False,
                preview: Optional[int] = None) -> None:
     """Run the import from CSV to database.
 
@@ -281,6 +284,7 @@ def run_import(csv_path: str, dry_run: bool = False,
     print(f"==================")
     print(f"File:      {csv_path}")
     print(f"Baseline:  {temp_baseline}°F")
+    print(f"User ID:   {user_id}")
     print(f"Dry run:   {dry_run}")
     if preview:
         print(f"Preview:   first {preview} rows only")
@@ -331,7 +335,7 @@ def run_import(csv_path: str, dry_run: bool = False,
                           f"temp_delta={record.get('basal_temp_delta', '—')}")
                     imported += 1
                 else:
-                    db.upsert_daily_observation(record)
+                    db.upsert_daily_observations(user_id, record)
                     imported += 1
 
             except Exception as e:
@@ -362,6 +366,18 @@ def run_import(csv_path: str, dry_run: bool = False,
 # Entry point
 # ============================================================
 
+def _resolve_user_id(args) -> int:
+    """Resolve user_id from --user (username) or --user-id (int)."""
+    if args.user:
+        import db
+        user = db.get_user_by_username(args.user)
+        if not user:
+            print(f"ERROR: no user with username '{args.user}'")
+            sys.exit(1)
+        return user["id"]
+    return args.user_id
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Import historical symptom tracker CSV into biotracking database"
@@ -381,6 +397,20 @@ if __name__ == "__main__":
         metavar="N",
         help="Preview first N rows only (implies dry run display)"
     )
+    user_group = parser.add_mutually_exclusive_group()
+    user_group.add_argument(
+        "--user",
+        type=str,
+        help="Username to import data for"
+    )
+    user_group.add_argument(
+        "--user-id",
+        type=int,
+        default=1,
+        help="User ID to import data for (default: 1)"
+    )
 
     args = parser.parse_args()
-    run_import(args.csv_file, dry_run=args.dry_run, preview=args.preview)
+    user_id = _resolve_user_id(args)
+    run_import(args.csv_file, user_id=user_id,
+              dry_run=args.dry_run, preview=args.preview)

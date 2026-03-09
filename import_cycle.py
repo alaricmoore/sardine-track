@@ -3,6 +3,7 @@
 
 Usage:
     python import_cycle.py [--dry-run] [--csv cycle_2024_2026.csv]
+    python import_cycle.py [--dry-run] [--csv cycle_2024_2026.csv] --user-id 2
 
 Flow value priority (when multiple rows exist for the same date):
     heavy > medium > light > spotting
@@ -70,7 +71,7 @@ def build_import_map(csv_path: str) -> dict[str, dict]:
     return day_map
 
 
-def run(csv_path: str, dry_run: bool) -> None:
+def run(csv_path: str, user_id: int, dry_run: bool) -> None:
     import_map = build_import_map(csv_path)
 
     if not import_map:
@@ -80,10 +81,11 @@ def run(csv_path: str, dry_run: bool) -> None:
     dates = sorted(import_map)
     print(f"Found cycle data for {len(dates)} days ({dates[0]} → {dates[-1]})")
 
-    # Check which dates already have rows
+    # Check which dates already have rows for this user
     with db.get_db() as conn:
         existing_rows = conn.execute(
-            "SELECT date, period_flow FROM daily_observations"
+            "SELECT date, period_flow FROM daily_observations WHERE user_id = ?",
+            (user_id,)
         ).fetchall()
     existing_by_date = {r["date"]: r["period_flow"] for r in existing_rows}
 
@@ -106,7 +108,7 @@ def run(csv_path: str, dry_run: bool) -> None:
         print(f"  {'[DRY RUN] ' if dry_run else ''}{action}")
 
         if not dry_run:
-            db.upsert_daily_observations({"date": date_str, "period_flow": flow})
+            db.upsert_daily_observations(user_id, {"date": date_str, "period_flow": flow})
 
     print()
     if dry_run:
@@ -115,14 +117,31 @@ def run(csv_path: str, dry_run: bool) -> None:
         print(f"Done. Created {created}, updated {updated}, skipped {skipped} days.")
 
 
+def _resolve_user_id(args) -> int:
+    """Resolve user_id from --user (username) or --user-id (int)."""
+    if args.user:
+        user = db.get_user_by_username(args.user)
+        if not user:
+            print(f"ERROR: no user with username '{args.user}'")
+            sys.exit(1)
+        return user["id"]
+    return args.user_id
+
+
 def main():
     parser = argparse.ArgumentParser(description="Import Apple Health cycle CSV into biotracking.")
     parser.add_argument("--csv", default="cycle_2024_2026.csv", help="Path to exported CSV file")
     parser.add_argument("--dry-run", action="store_true", help="Preview changes without writing")
+    user_group = parser.add_mutually_exclusive_group()
+    user_group.add_argument("--user", type=str,
+                            help="Username to import data for")
+    user_group.add_argument("--user-id", type=int, default=1,
+                            help="User ID to import data for (default: 1)")
     args = parser.parse_args()
+    user_id = _resolve_user_id(args)
 
     try:
-        run(args.csv, args.dry_run)
+        run(args.csv, user_id, args.dry_run)
     except FileNotFoundError:
         print(f"Error: CSV file not found: {args.csv}", file=sys.stderr)
         sys.exit(1)

@@ -210,18 +210,24 @@ def fetch_uv_range(start_date: str, end_date: str) -> list[dict]:
         return []
 
 
-def fetch_and_store_uv_for_date(target_date: str) -> Optional[dict]:
+def fetch_and_store_uv_for_date(target_date: str,
+                                location_key: Optional[str] = None) -> Optional[dict]:
     """Fetch UV for a date and store it in the database immediately.
     Returns the UV dict on success, None on failure.
 
     This is the function Flask routes should call - it handles
     both the API call and the database write in one step.
     """
-    # Import here to avoid circular imports
     import db
 
+    config = load_config()
+    if location_key is None:
+        location_key = db.make_location_key(
+            config["location_lat"], config["location_lon"]
+        )
+
     # Check if we already have it stored
-    existing = db.get_uv_data(target_date)
+    existing = db.get_uv_data(location_key, target_date)
     if existing and existing.get("source") == "api":
         return existing
 
@@ -229,6 +235,7 @@ def fetch_and_store_uv_for_date(target_date: str) -> Optional[dict]:
     uv = fetch_uv_for_date(target_date)
     if uv:
         db.upsert_uv_data(
+            location_key=location_key,
             date_str=uv["date"],
             uv_morning=uv["uv_morning"],
             uv_noon=uv["uv_noon"],
@@ -240,21 +247,29 @@ def fetch_and_store_uv_for_date(target_date: str) -> Optional[dict]:
     return None
 
 
-def fetch_and_store_uv_range(start_date: str, end_date: str) -> int:
+def fetch_and_store_uv_range(start_date: str, end_date: str,
+                             location_key: Optional[str] = None) -> int:
     """Fetch and store UV data for a date range.
     Skips dates already stored from the API.
     Returns count of dates successfully stored.
     """
     import db
 
+    config = load_config()
+    if location_key is None:
+        location_key = db.make_location_key(
+            config["location_lat"], config["location_lon"]
+        )
+
     results = fetch_uv_range(start_date, end_date)
     stored = 0
 
     for uv in results:
-        existing = db.get_uv_data(uv["date"])
+        existing = db.get_uv_data(location_key, uv["date"])
         if existing and existing.get("source") == "api":
-            continue  # already have it, skip
+            continue
         db.upsert_uv_data(
+            location_key=location_key,
             date_str=uv["date"],
             uv_morning=uv["uv_morning"],
             uv_noon=uv["uv_noon"],
@@ -266,25 +281,27 @@ def fetch_and_store_uv_range(start_date: str, end_date: str) -> int:
     return stored
 
 
-def backfill_uv_from_tracker_start() -> int:
+def backfill_uv_from_tracker_start(user_id: int = 1) -> int:
     """Backfill UV data for all dates in daily_observations
     that don't yet have UV data stored.
-
-    Call this once after importing your historical symptom data
-    to populate UV for the entire tracking period.
 
     Returns count of dates successfully backfilled.
     """
     import db
 
-    observations = db.get_all_daily_observations()
+    config = load_config()
+    location_key = db.make_location_key(
+        config["location_lat"], config["location_lon"]
+    )
+
+    observations = db.get_all_daily_observations(user_id)
     if not observations:
         print("No daily observations found to backfill.")
         return 0
 
     dates_needing_uv = []
     for obs in observations:
-        existing = db.get_uv_data(obs["date"])
+        existing = db.get_uv_data(location_key, obs["date"])
         if not existing:
             dates_needing_uv.append(obs["date"])
 
@@ -292,15 +309,13 @@ def backfill_uv_from_tracker_start() -> int:
         print("UV data already present for all observation dates.")
         return 0
 
-    # Fetch in one range call if dates are contiguous,
-    # otherwise batch by month to keep API requests reasonable
     start = min(dates_needing_uv)
     end = max(dates_needing_uv)
 
     print(f"Backfilling UV data for {len(dates_needing_uv)} dates "
           f"({start} to {end})...")
 
-    stored = fetch_and_store_uv_range(start, end)
+    stored = fetch_and_store_uv_range(start, end, location_key)
     print(f"Backfill complete. Stored UV data for {stored} dates.")
     return stored
 
@@ -310,12 +325,21 @@ def backfill_uv_from_tracker_start() -> int:
 # ============================================================
 
 def store_manual_uv(date_str: str, uv_morning: float,
-                    uv_noon: float, uv_evening: float) -> bool:
+                    uv_noon: float, uv_evening: float,
+                    location_key: Optional[str] = None) -> bool:
     """Store manually entered UV values when API is unavailable.
     Marks source as 'manual' so it's distinguishable in analysis.
     """
     import db
+
+    if location_key is None:
+        config = load_config()
+        location_key = db.make_location_key(
+            config["location_lat"], config["location_lon"]
+        )
+
     db.upsert_uv_data(
+        location_key=location_key,
         date_str=date_str,
         uv_morning=uv_morning,
         uv_noon=uv_noon,
