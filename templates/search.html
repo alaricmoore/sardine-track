@@ -23,15 +23,15 @@
             </p>
         </div>
         <div style="display:flex; gap:var(--space-sm);">
-            <button onclick="downloadAllData(event)"
-                    class="btn btn-primary"
-                    style="display:flex; align-items:center; gap:0.5rem;">
+            <a href="/export/all-data"
+               class="btn btn-primary"
+               style="display:flex; align-items:center; gap:0.5rem; text-decoration:none;">
                 <span>⏚</span>
                 <span>Download All Data</span>
-            </button>
-            <button onclick="showDeleteModal()" 
+            </a>
+            <button onclick="showDeleteModal()"
                     class="btn"
-                    style="background:transparent; border:1px solid var(--color-danger); 
+                    style="background:transparent; border:1px solid var(--color-danger);
                            color:var(--color-danger); font-size:0.85rem; padding:0.5rem 1rem;">
                 Delete
             </button>
