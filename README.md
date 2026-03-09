@@ -6,6 +6,8 @@ Built for people who need to see patterns in their own data when the medical sys
 
 (Well, built for one person who needed to see patterns, but she figured she couldn't be the only nut out there.)
 
+> **Note:** This readme is for the public, self-hosted version of biotracker. The source code is available on GitHub at [github.com/alaricmoore/biotracking](https://github.com/alaricmoore/biotracking). What you're using here is a private family instance — same app, hosted on Alaric's server.
+
 ---
 
 ## What It Does
