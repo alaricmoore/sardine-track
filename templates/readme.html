@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+
+{% block title %}readme — biotracking{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>readme</h1>
+    <p class="page-subtitle">technical documentation and project details</p>
+</div>
+
+<div class="card" id="readmeContent">
+    <noscript><pre style="white-space: pre-wrap; font-size: 0.85rem;">{{ content }}</pre></noscript>
+</div>
+
+<p style="color: var(--text-muted); font-size: 0.8rem; text-align: center; margin: var(--space-lg) 0 var(--space-2xl) 0;">
+    <a href="{{ url_for('help_page') }}" style="color: var(--color-accent);">&larr; back to help</a>
+</p>
+
+<style>
+#readmeContent h1 { font-size: 1.4rem; margin-top: var(--space-lg); margin-bottom: var(--space-sm); border-bottom: 1px solid var(--border-subtle); padding-bottom: var(--space-xs); }
+#readmeContent h2 { font-size: 1.2rem; margin-top: var(--space-lg); margin-bottom: var(--space-sm); }
+#readmeContent h3 { font-size: 1.05rem; margin-top: var(--space-md); margin-bottom: var(--space-xs); }
+#readmeContent p, #readmeContent li { font-size: 0.9rem; line-height: 1.7; color: var(--text-secondary); }
+#readmeContent strong { color: var(--text-primary); }
+#readmeContent a { color: var(--color-accent); }
+#readmeContent code { background: var(--bg-elevated); padding: 1px 5px; border-radius: 3px; font-size: 0.85em; }
+#readmeContent pre { background: var(--bg-elevated); padding: var(--space-md); border-radius: 6px; overflow-x: auto; margin: var(--space-sm) 0; }
+#readmeContent pre code { background: none; padding: 0; }
+#readmeContent blockquote { border-left: 3px solid var(--color-accent); margin: var(--space-sm) 0; padding: var(--space-xs) var(--space-md); color: var(--text-muted); }
+#readmeContent table { width: 100%; border-collapse: collapse; margin: var(--space-sm) 0; font-size: 0.85rem; }
+#readmeContent th, #readmeContent td { padding: var(--space-xs) var(--space-sm); border: 1px solid var(--border-subtle); text-align: left; }
+#readmeContent th { background: var(--bg-elevated); color: var(--text-primary); }
+#readmeContent hr { border: none; border-top: 1px solid var(--border-subtle); margin: var(--space-lg) 0; }
+#readmeContent img { max-width: 100%; }
+</style>
+
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script>
+const raw = {{ content|tojson }};
+const container = document.getElementById('readmeContent');
+container.innerHTML = marked.parse(raw);
+</script>
+{% endblock %}

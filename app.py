@@ -4192,6 +4192,19 @@ def help_page():
     return render_template("help.html")
 
 
+@app.route("/readme")
+@login_required
+def readme_page():
+    """Render the project README as a styled page (no nav link)."""
+    readme_path = os.path.join(os.path.dirname(__file__), "README.md")
+    try:
+        with open(readme_path, "r") as f:
+            readme_content = f.read()
+    except FileNotFoundError:
+        readme_content = "README.md not found."
+    return render_template("readme.html", content=readme_content)
+
+
 # ============================================================
 # Admin
 # ============================================================
