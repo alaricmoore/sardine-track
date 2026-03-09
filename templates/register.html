@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+
+{% block title %}create account — biotracking{% endblock %}
+
+{% block content %}
+<div style="max-width:360px; margin:var(--space-2xl) auto;">
+    <div class="card">
+        <div style="margin-bottom:var(--space-lg);">
+            <div class="app-wordmark" style="font-size:1.3rem; margin-bottom:var(--space-xs);">
+                bio<span style="color:var(--color-accent);">tracking</span>
+            </div>
+            <p style="color:var(--text-muted); font-size:0.875rem; margin:0;">
+                create your account
+            </p>
+        </div>
+
+        {% if error %}
+        <p style="color:var(--color-danger); margin-bottom:var(--space-md); font-size:0.9rem;">
+            {{ error }}
+        </p>
+        {% endif %}
+
+        <form method="POST" action="{{ url_for('register') }}">
+            <div class="form-group">
+                <label for="invite_code">invite code</label>
+                <input type="text" id="invite_code" name="invite_code"
+                       placeholder="from your family member"
+                       autocomplete="off"
+                       required>
+            </div>
+            <div class="form-group">
+                <label for="display_name">your name</label>
+                <input type="text" id="display_name" name="display_name"
+                       placeholder="e.g. Dad, Cousin Jamie"
+                       autocomplete="name"
+                       required>
+            </div>
+            <div class="form-group">
+                <label for="username">username</label>
+                <input type="text" id="username" name="username"
+                       placeholder="lowercase, no spaces"
+                       autocomplete="username"
+                       required>
+            </div>
+            <div class="form-group">
+                <label for="password">password</label>
+                <input type="password" id="password" name="password"
+                       autocomplete="new-password"
+                       required>
+            </div>
+            <div class="form-group">
+                <label for="confirm_password">confirm password</label>
+                <input type="password" id="confirm_password" name="confirm_password"
+                       autocomplete="new-password"
+                       required>
+            </div>
+            <button type="submit" class="btn btn-primary btn-full">
+                create account
+            </button>
+        </form>
+
+        <p style="text-align:center; margin-top:var(--space-md); font-size:0.85rem;">
+            <a href="{{ url_for('login') }}" style="color:var(--text-muted);">
+                already have an account? sign in
+            </a>
+        </p>
+    </div>
+</div>
+{% endblock %}

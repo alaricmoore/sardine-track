@@ -793,6 +793,48 @@ def login():
     return render_template("login.html", error=error)
 
 
+@app.route("/register", methods=["GET", "POST"])
+def register():
+    """Self-registration with invite code."""
+    if current_user.is_authenticated:
+        return redirect(url_for('index'))
+
+    invite_code = CONFIG.get("registration_invite_code")
+    if not invite_code:
+        return "Registration is disabled.", 403
+
+    error = None
+    if request.method == "POST":
+        code = request.form.get("invite_code", "").strip()
+        username = request.form.get("username", "").strip().lower()
+        display_name = request.form.get("display_name", "").strip()
+        password = request.form.get("password", "")
+        confirm = request.form.get("confirm_password", "")
+
+        # Validate
+        if code != invite_code:
+            error = "Invalid invite code."
+        elif not display_name:
+            error = "Display name is required."
+        elif len(username) < 3 or " " in username:
+            error = "Username must be at least 3 characters, no spaces."
+        elif db.get_user_by_username(username):
+            error = "That username is already taken."
+        elif len(password) < 4:
+            error = "Password must be at least 4 characters."
+        elif password != confirm:
+            error = "Passwords don't match."
+        else:
+            pw_hash = bcrypt.hashpw(password.encode('utf-8'),
+                                     bcrypt.gensalt()).decode('utf-8')
+            user_id = db.create_user(username, display_name, pw_hash)
+            user_dict = db.get_user_by_id(user_id)
+            login_user(User(user_dict))
+            return redirect(url_for("index"))
+
+    return render_template("register.html", error=error)
+
+
 @app.route("/logout")
 def logout():
     logout_user()
