@@ -8,6 +8,26 @@
     <p class="page-subtitle">{{ current_user.display_name }} ({{ current_user.username }})</p>
 </div>
 
+{% if welcome %}
+<div class="card" style="border-color: var(--color-accent); margin-bottom: var(--space-lg);">
+    <div style="font-weight: 600; margin-bottom: var(--space-sm); color: var(--color-accent);">
+        welcome to biotracking!
+    </div>
+    <p style="color: var(--text-secondary); font-size: 0.9rem; margin: 0 0 var(--space-sm) 0;">
+        Before you start logging, take a moment to fill in your settings below.
+        The important ones:
+    </p>
+    <ul style="color: var(--text-secondary); font-size: 0.875rem; margin: 0 0 var(--space-sm) 0; padding-left: var(--space-lg);">
+        <li><strong>Location</strong> &mdash; needed for UV index data (just your city-level lat/lon, biotracking doesn't pull your devices location)</li>
+        <li><strong>Cycle tracking</strong> &mdash; enable if you want to track menstrual cycles</li>
+        <li><strong>Notifications</strong> &mdash; set up free push alerts on your phone via ntfy (details below)</li>
+    </ul>
+    <p style="color: var(--text-muted); font-size: 0.8rem; margin: 0;">
+        You can always change these later.
+    </p>
+</div>
+{% endif %}
+
 {% if saved %}
 <div class="card" style="border-color: var(--color-success); margin-bottom: var(--space-lg);">
     <p style="color: var(--color-success); margin: 0; font-size: 0.9rem;">
@@ -39,7 +59,8 @@
         <div class="card-title">location</div>
         <p style="color: var(--text-muted); font-size: 0.8rem; margin-top: 0; margin-bottom: var(--space-md);">
             Used only to pull UV index data from a weather API.
-            Never sent with any health data.
+            Never sent with any health data. 
+            Your data lives on a raspberry pi behind a VPN and reverse DNS, ensuring maximum privacy.
         </p>
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-md);">
             <div class="form-group">
@@ -114,11 +135,27 @@
     <!-- Notifications -->
     <div class="card">
         <div class="card-title">notifications</div>
-        <p style="color: var(--text-muted); font-size: 0.8rem; margin-top: 0; margin-bottom: var(--space-md);">
-            Push notifications via <a href="https://ntfy.sh" target="_blank"
-            style="color: var(--color-accent);">ntfy.sh</a> for medication reminders
-            and flare risk alerts. Create a free topic and subscribe in the ntfy app.
+        <p style="color: var(--text-muted); font-size: 0.8rem; margin-top: 0; margin-bottom: var(--space-sm);">
+            Get free push notifications for flare risk alerts and medication reminders
+            via <a href="https://ntfy.sh" target="_blank"
+            style="color: var(--color-accent);">ntfy.sh</a> &mdash; no account required.
         </p>
+        <details style="margin-bottom: var(--space-md); font-size: 0.8rem; color: var(--text-muted);">
+            <summary style="cursor: pointer; color: var(--color-accent); font-weight: 500;">
+                how to set up ntfy (2 minutes)
+            </summary>
+            <ol style="margin: var(--space-sm) 0 0 0; padding-left: var(--space-lg); line-height: 1.6;">
+                <li>Install the <strong>ntfy</strong> app on your phone
+                    (<a href="https://apps.apple.com/app/ntfy/id1625396347" target="_blank"
+                    style="color: var(--color-accent);">iOS</a> /
+                    <a href="https://play.google.com/store/apps/details?id=io.heckel.ntfy" target="_blank"
+                    style="color: var(--color-accent);">Android</a>)</li>
+                <li>Open the app and tap <strong>+</strong> to subscribe to a topic</li>
+                <li>Pick a unique name (e.g. <code>something-random</code>) &mdash; this is your topic</li>
+                <li>Enter that same name in the <strong>ntfy topic</strong> field below</li>
+                <li>Save settings &mdash; you'll start getting alerts!</li>
+            </ol>
+        </details>
         <div class="form-group">
             <label for="ntfy_topic">ntfy topic</label>
             <input type="text" id="ntfy_topic" name="ntfy_topic"

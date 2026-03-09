@@ -755,7 +755,7 @@ def inject_globals():
         "patient_dob": prefs.get("patient_dob") or CONFIG.get("patient_dob", ""),
         "today": date.today().isoformat(),
         "app_version": CONFIG.get("app_version", "2.0.0"),
-        "track_cycle": prefs.get("track_cycle", CONFIG.get("track_cycle", False)),
+        "track_cycle": bool(prefs.get("track_cycle")) if prefs.get("track_cycle") is not None else False,
         "config": CONFIG,
         "current_user": current_user,
     }
@@ -830,7 +830,7 @@ def register():
             user_id = db.create_user(username, display_name, pw_hash)
             user_dict = db.get_user_by_id(user_id)
             login_user(User(user_dict))
-            return redirect(url_for("index"))
+            return redirect(url_for("settings", welcome=1))
 
     return render_template("register.html", error=error)
 
@@ -4178,7 +4178,8 @@ def settings():
         if hasattr(g, '_user_prefs'):
             del g._user_prefs
 
-    return render_template("settings.html", prefs=prefs, saved=saved, pw_error=pw_error)
+    welcome = request.args.get("welcome") == "1" and request.method == "GET"
+    return render_template("settings.html", prefs=prefs, saved=saved, pw_error=pw_error, welcome=welcome)
 
 
 # ============================================================

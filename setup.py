@@ -241,6 +241,36 @@ def create_database():
     except:
         pass  # Column already exists
 
+    try:
+        c.execute("ALTER TABLE daily_observations ADD COLUMN pulmonary INTEGER DEFAULT 0")
+    except:
+        pass  # Column already exists
+
+    try:
+        c.execute("ALTER TABLE daily_observations ADD COLUMN pulmonary_notes TEXT")
+    except:
+        pass  # Column already exists
+
+    try:
+        c.execute("ALTER TABLE daily_observations ADD COLUMN mucosal INTEGER DEFAULT 0")
+    except:
+        pass  # Column already exists
+
+    try:
+        c.execute("ALTER TABLE daily_observations ADD COLUMN mucosal_notes TEXT")
+    except:
+        pass  # Column already exists
+
+    try:
+        c.execute("ALTER TABLE daily_observations ADD COLUMN gastro INTEGER DEFAULT 0")
+    except:
+        pass  # Column already exists
+
+    try:
+        c.execute("ALTER TABLE daily_observations ADD COLUMN gastro_notes TEXT")
+    except:
+        pass  # Column already exists
+
     # --------------------------------------------------------
     # uv_data
     # UV index by location+date, pulled from API or entered manually
