@@ -677,12 +677,13 @@ function confirmDelete() {
         
         // Execute deletion
         csrfFetch('/delete/all-data', { method: 'POST' })
-            .then(response => {
+            .then(async response => {
                 if (response.ok) {
                     alert('All data has been deleted. Redirecting to home page...');
                     window.location.href = '/';
                 } else {
-                    alert('Error deleting data: ' + (await response.text()) + '\n\nCheck the Flask console for details.');
+                    const text = await response.text();
+                    alert('Error deleting data: ' + text + '\n\nCheck the Flask console for details.');
                     hideDeleteModal();
                 }
             })
