@@ -23,7 +23,7 @@
             </p>
         </div>
         <div style="display:flex; gap:var(--space-sm);">
-            <button onclick="downloadAllData()" 
+            <button onclick="downloadAllData(event)"
                     class="btn btn-primary"
                     style="display:flex; align-items:center; gap:0.5rem;">
                 <span>⏚</span>
@@ -606,9 +606,9 @@ function toggleSnippet(id) {
     }
 }
 
-function downloadAllData() {
+function downloadAllData(event) {
     // Show loading state
-    const btn = event.target.closest('button');
+    const btn = event.currentTarget;
     const originalHTML = btn.innerHTML;
     btn.innerHTML = '<span>⨋</span><span>Preparing download...</span>';
     btn.disabled = true;
