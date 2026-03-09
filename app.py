@@ -4205,6 +4205,19 @@ def readme_page():
     return render_template("readme.html", content=readme_content)
 
 
+@app.route("/remote-access")
+@login_required
+def remote_access_page():
+    """Render REMOTE_ACCESS.md as a styled page (no nav link)."""
+    ra_path = os.path.join(os.path.dirname(__file__), "REMOTE_ACCESS.md")
+    try:
+        with open(ra_path, "r") as f:
+            ra_content = f.read()
+    except FileNotFoundError:
+        ra_content = "REMOTE_ACCESS.md not found."
+    return render_template("remote_access.html", content=ra_content)
+
+
 # ============================================================
 # Admin
 # ============================================================
