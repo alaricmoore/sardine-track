@@ -34,3 +34,4 @@ Thumbs.db
 
 # Images (user-uploaded)
 images/
+.venv/

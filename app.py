@@ -481,7 +481,7 @@ def load_user(user_id):
 @app.before_request
 def require_login():
     """Redirect unauthenticated users to login page."""
-    if request.endpoint in ('login', 'static'):
+    if request.endpoint in ('login', 'register', 'static'):
         return
     if not current_user.is_authenticated:
         return redirect(url_for('login'))
