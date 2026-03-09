@@ -4183,6 +4183,28 @@ def settings():
 
 
 # ============================================================
+# Help
+# ============================================================
+
+@app.route("/help")
+def help_page():
+    """Render help.md as a searchable HTML page."""
+    import markdown
+    help_path = os.path.join(os.path.dirname(__file__), "help.md")
+    try:
+        with open(help_path, encoding="utf-8") as f:
+            md_content = f.read()
+        html_content = markdown.markdown(md_content, extensions=["tables", "fenced_code"])
+    except FileNotFoundError:
+        html_content = "<p>Help file not found.</p>"
+    except ImportError:
+        # Fallback: render as preformatted text if markdown not installed
+        with open(help_path, encoding="utf-8") as f:
+            html_content = f"<pre style='white-space:pre-wrap;'>{f.read()}</pre>"
+    return render_template("help.html", content=html_content)
+
+
+# ============================================================
 # Admin
 # ============================================================
 

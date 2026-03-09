@@ -1,0 +1,112 @@
+{% extends "base.html" %}
+
+{% block title %}help — biotracking{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>help</h1>
+</div>
+
+<div class="card" style="margin-bottom: var(--space-lg);">
+    <input type="text" id="helpSearch" placeholder="search help..."
+           autofocus autocomplete="off"
+           style="width: 100%; font-size: 0.95rem;">
+    <p id="searchStatus" style="color: var(--text-muted); font-size: 0.8rem; margin: var(--space-xs) 0 0 0; display: none;"></p>
+</div>
+
+<div id="helpContent" class="card help-content">
+    {{ content | safe }}
+</div>
+
+<style>
+.help-content h1 { font-size: 1.4rem; margin-top: 0; }
+.help-content h2 { font-size: 1.15rem; margin-top: var(--space-xl); padding-top: var(--space-md); border-top: 1px solid var(--border-subtle); }
+.help-content h3 { font-size: 1rem; margin-top: var(--space-lg); }
+.help-content p, .help-content li { font-size: 0.9rem; line-height: 1.7; color: var(--text-secondary); }
+.help-content strong { color: var(--text-primary); }
+.help-content table { width: 100%; border-collapse: collapse; margin: var(--space-md) 0; font-size: 0.85rem; }
+.help-content th, .help-content td { padding: var(--space-xs) var(--space-sm); border: 1px solid var(--border-subtle); text-align: left; }
+.help-content th { background: var(--bg-elevated); color: var(--text-primary); }
+.help-content code { background: var(--bg-elevated); padding: 1px 4px; border-radius: 3px; font-size: 0.85em; }
+.help-content hr { border: none; border-top: 1px solid var(--border-subtle); margin: var(--space-lg) 0; }
+.help-content em { color: var(--text-muted); }
+mark { background: color-mix(in srgb, var(--color-accent) 30%, transparent); color: inherit; border-radius: 2px; padding: 0 1px; }
+.help-section.hidden { display: none; }
+</style>
+
+<script>
+const searchInput = document.getElementById('helpSearch');
+const content = document.getElementById('helpContent');
+const status = document.getElementById('searchStatus');
+let originalHTML = content.innerHTML;
+
+searchInput.addEventListener('input', function() {
+    const query = this.value.trim().toLowerCase();
+    if (!query) {
+        content.innerHTML = originalHTML;
+        status.style.display = 'none';
+        return;
+    }
+
+    // Restore original then highlight and filter
+    content.innerHTML = originalHTML;
+
+    // Get all sections (split by h2)
+    const sections = [];
+    let current = null;
+    for (const node of [...content.children]) {
+        if (node.tagName === 'H2') {
+            if (current) sections.push(current);
+            current = { heading: node, elements: [node] };
+        } else if (node.tagName === 'H1') {
+            // Skip h1, always show
+        } else if (current) {
+            current.elements.push(node);
+        }
+    }
+    if (current) sections.push(current);
+
+    let matchCount = 0;
+    for (const section of sections) {
+        const text = section.elements.map(el => el.textContent).join(' ').toLowerCase();
+        if (text.includes(query)) {
+            matchCount++;
+            // Highlight matches
+            for (const el of section.elements) {
+                highlightText(el, query);
+            }
+        } else {
+            for (const el of section.elements) {
+                el.style.display = 'none';
+            }
+        }
+    }
+
+    status.style.display = 'block';
+    status.textContent = matchCount === 0
+        ? 'no matching sections'
+        : matchCount + ' section' + (matchCount === 1 ? '' : 's') + ' found';
+});
+
+function highlightText(el, query) {
+    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    const matches = [];
+    while (walker.nextNode()) {
+        const node = walker.currentNode;
+        const idx = node.textContent.toLowerCase().indexOf(query);
+        if (idx >= 0) {
+            matches.push({ node, idx });
+        }
+    }
+    // Apply highlights in reverse to not mess up indices
+    for (let i = matches.length - 1; i >= 0; i--) {
+        const { node, idx } = matches[i];
+        const mark = document.createElement('mark');
+        const range = document.createRange();
+        range.setStart(node, idx);
+        range.setEnd(node, idx + query.length);
+        range.surroundContents(mark);
+    }
+}
+</script>
+{% endblock %}
