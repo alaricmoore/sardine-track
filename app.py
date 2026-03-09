@@ -4183,6 +4183,44 @@ def settings():
 
 
 # ============================================================
+# Admin
+# ============================================================
+
+@app.route("/admin", methods=["GET"])
+def admin_panel():
+    """Admin panel for managing users."""
+    if not current_user.is_admin:
+        return redirect(url_for("index"))
+    users = db.get_all_users()
+    return render_template("admin.html", users=users)
+
+
+@app.route("/admin/reset-password/<int:user_id>", methods=["POST"])
+def admin_reset_password(user_id):
+    """Reset a user's password (admin only)."""
+    if not current_user.is_admin:
+        return redirect(url_for("index"))
+    new_pw = request.form.get("new_password", "")
+    if len(new_pw) < 4:
+        return redirect(url_for("admin_panel"))
+    pw_hash = bcrypt.hashpw(new_pw.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+    db.update_user_password(user_id, pw_hash)
+    return redirect(url_for("admin_panel"))
+
+
+@app.route("/admin/delete-user/<int:user_id>", methods=["POST"])
+def admin_delete_user(user_id):
+    """Delete a user and all their data (admin only)."""
+    if not current_user.is_admin:
+        return redirect(url_for("index"))
+    # Prevent self-deletion
+    if user_id == current_user.id:
+        return redirect(url_for("admin_panel"))
+    db.delete_user(user_id)
+    return redirect(url_for("admin_panel"))
+
+
+# ============================================================
 # Run
 # ============================================================
 

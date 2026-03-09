@@ -100,6 +100,20 @@ def update_user_password(user_id: int, password_hash: str) -> None:
         )
 
 
+def delete_user(user_id: int) -> None:
+    """Delete a user and all their data across all tables."""
+    with get_db() as conn:
+        # Delete from all user-scoped tables
+        for table in [
+            "daily_observations", "lab_results", "ana_results",
+            "clinical_events", "medications", "clinicians",
+            "bc_history", "taper_schedules", "scheduled_doses",
+            "user_preferences",
+        ]:
+            conn.execute(f"DELETE FROM {table} WHERE user_id = ?", (user_id,))
+        conn.execute("DELETE FROM users WHERE id = ?", (user_id,))
+
+
 # ============================================================
 # User preferences
 # ============================================================

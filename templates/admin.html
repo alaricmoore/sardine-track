@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+
+{% block title %}admin — biotracking{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>admin</h1>
+    <p class="page-subtitle">manage user accounts</p>
+</div>
+
+{% for user in users %}
+<div class="card" style="margin-bottom: var(--space-md);">
+    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--space-sm);">
+        <div>
+            <strong>{{ user.display_name }}</strong>
+            <span style="color: var(--text-muted); font-size: 0.85rem;">
+                ({{ user.username }})
+                {% if user.is_admin %} &mdash; admin{% endif %}
+            </span>
+            <div style="color: var(--text-muted); font-size: 0.8rem;">
+                id {{ user.id }} &middot; joined {{ user.created_at[:10] if user.created_at else 'unknown' }}
+            </div>
+        </div>
+    </div>
+
+    <div style="margin-top: var(--space-md); display: flex; gap: var(--space-md); flex-wrap: wrap; align-items: flex-end;">
+        <!-- Reset password -->
+        <form method="POST" action="{{ url_for('admin_reset_password', user_id=user.id) }}"
+              style="display: flex; gap: var(--space-sm); align-items: flex-end;">
+            <div class="form-group" style="margin: 0;">
+                <label for="pw_{{ user.id }}" style="font-size: 0.8rem;">new password</label>
+                <input type="text" id="pw_{{ user.id }}" name="new_password"
+                       placeholder="4+ characters" autocomplete="off"
+                       style="width: 160px; font-size: 0.85rem;">
+            </div>
+            <button type="submit" class="btn" style="font-size: 0.8rem; padding: 0.4rem 0.8rem;">
+                reset password
+            </button>
+        </form>
+
+        <!-- Delete user -->
+        {% if user.id != current_user.id %}
+        <form method="POST" action="{{ url_for('admin_delete_user', user_id=user.id) }}"
+              onsubmit="return confirm('Delete {{ user.display_name }} ({{ user.username }}) and ALL their data? This cannot be undone.');">
+            <button type="submit" class="btn"
+                    style="font-size: 0.8rem; padding: 0.4rem 0.8rem; color: var(--color-danger); border-color: var(--color-danger);">
+                delete user
+            </button>
+        </form>
+        {% endif %}
+    </div>
+</div>
+{% endfor %}
+{% endblock %}
