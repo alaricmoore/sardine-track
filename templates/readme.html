@@ -8,7 +8,14 @@
     <p class="page-subtitle">technical documentation and project details</p>
 </div>
 
-<div class="card" id="readmeContent">
+<div class="card" style="margin-bottom: var(--space-lg);">
+    <input type="text" id="readmeSearch" placeholder="search readme..."
+           autofocus autocomplete="off"
+           style="width: 100%; font-size: 0.95rem;">
+    <p id="searchStatus" style="color: var(--text-muted); font-size: 0.8rem; margin: var(--space-xs) 0 0 0; display: none;"></p>
+</div>
+
+<div id="readmeContent" class="readme-body">
     <noscript><pre style="white-space: pre-wrap; font-size: 0.85rem;">{{ content }}</pre></noscript>
 </div>
 
@@ -17,27 +24,109 @@
 </p>
 
 <style>
-#readmeContent h1 { font-size: 1.4rem; margin-top: var(--space-lg); margin-bottom: var(--space-sm); border-bottom: 1px solid var(--border-subtle); padding-bottom: var(--space-xs); }
-#readmeContent h2 { font-size: 1.2rem; margin-top: var(--space-lg); margin-bottom: var(--space-sm); }
-#readmeContent h3 { font-size: 1.05rem; margin-top: var(--space-md); margin-bottom: var(--space-xs); }
-#readmeContent p, #readmeContent li { font-size: 0.9rem; line-height: 1.7; color: var(--text-secondary); }
-#readmeContent strong { color: var(--text-primary); }
-#readmeContent a { color: var(--color-accent); }
-#readmeContent code { background: var(--bg-elevated); padding: 1px 5px; border-radius: 3px; font-size: 0.85em; }
-#readmeContent pre { background: var(--bg-elevated); padding: var(--space-md); border-radius: 6px; overflow-x: auto; margin: var(--space-sm) 0; }
-#readmeContent pre code { background: none; padding: 0; }
-#readmeContent blockquote { border-left: 3px solid var(--color-accent); margin: var(--space-sm) 0; padding: var(--space-xs) var(--space-md); color: var(--text-muted); }
-#readmeContent table { width: 100%; border-collapse: collapse; margin: var(--space-sm) 0; font-size: 0.85rem; }
-#readmeContent th, #readmeContent td { padding: var(--space-xs) var(--space-sm); border: 1px solid var(--border-subtle); text-align: left; }
-#readmeContent th { background: var(--bg-elevated); color: var(--text-primary); }
-#readmeContent hr { border: none; border-top: 1px solid var(--border-subtle); margin: var(--space-lg) 0; }
-#readmeContent img { max-width: 100%; }
+.readme-body h1 { font-size: 1.4rem; margin-top: var(--space-lg); margin-bottom: var(--space-sm); border-bottom: 1px solid var(--border-subtle); padding-bottom: var(--space-xs); }
+.readme-body h2 { font-size: 1.2rem; margin-top: var(--space-lg); margin-bottom: var(--space-sm); }
+.readme-body h3 { font-size: 1.05rem; margin-top: var(--space-md); margin-bottom: var(--space-xs); }
+.readme-body p, .readme-body li { font-size: 0.9rem; line-height: 1.7; color: var(--text-secondary); }
+.readme-body strong { color: var(--text-primary); }
+.readme-body a { color: var(--color-accent); }
+.readme-body code { background: var(--bg-elevated); padding: 1px 5px; border-radius: 3px; font-size: 0.85em; }
+.readme-body pre { background: var(--bg-elevated); padding: var(--space-md); border-radius: 6px; overflow-x: auto; margin: var(--space-sm) 0; }
+.readme-body pre code { background: none; padding: 0; }
+.readme-body blockquote { border-left: 3px solid var(--color-accent); margin: var(--space-sm) 0; padding: var(--space-xs) var(--space-md); color: var(--text-muted); }
+.readme-body table { width: 100%; border-collapse: collapse; margin: var(--space-sm) 0; font-size: 0.85rem; }
+.readme-body th, .readme-body td { padding: var(--space-xs) var(--space-sm); border: 1px solid var(--border-subtle); text-align: left; }
+.readme-body th { background: var(--bg-elevated); color: var(--text-primary); }
+.readme-body hr { border: none; border-top: 1px solid var(--border-subtle); margin: var(--space-lg) 0; }
+.readme-body img { max-width: 100%; }
+.readme-section { margin-bottom: var(--space-md); }
+mark { background: color-mix(in srgb, var(--color-accent) 30%, transparent); color: inherit; border-radius: 2px; padding: 0 1px; }
 </style>
 
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <script>
+// Render markdown
 const raw = {{ content|tojson }};
 const container = document.getElementById('readmeContent');
 container.innerHTML = marked.parse(raw);
+
+// Wrap each h2-delimited section in a .readme-section div for filtering
+const nodes = [...container.childNodes];
+let sections = [];
+let current = null;
+
+for (const node of nodes) {
+    if (node.nodeType === 1 && (node.tagName === 'H1' || node.tagName === 'H2')) {
+        if (current) sections.push(current);
+        current = document.createElement('div');
+        current.className = 'readme-section';
+        current.appendChild(node);
+    } else if (current) {
+        current.appendChild(node);
+    } else {
+        // Nodes before the first heading — wrap them too
+        current = document.createElement('div');
+        current.className = 'readme-section';
+        current.appendChild(node);
+    }
+}
+if (current) sections.push(current);
+
+container.innerHTML = '';
+sections.forEach(s => container.appendChild(s));
+
+// Search
+const searchInput = document.getElementById('readmeSearch');
+const status = document.getElementById('searchStatus');
+const sectionEls = container.querySelectorAll('.readme-section');
+const originals = [...sectionEls].map(s => s.innerHTML);
+
+searchInput.addEventListener('input', function() {
+    const query = this.value.trim().toLowerCase();
+
+    if (!query) {
+        sectionEls.forEach((s, i) => { s.innerHTML = originals[i]; s.style.display = ''; });
+        status.style.display = 'none';
+        return;
+    }
+
+    let matchCount = 0;
+    sectionEls.forEach((section, i) => {
+        section.innerHTML = originals[i];
+        const text = section.textContent.toLowerCase();
+        if (text.includes(query)) {
+            matchCount++;
+            section.style.display = '';
+            highlightText(section, query);
+        } else {
+            section.style.display = 'none';
+        }
+    });
+
+    status.style.display = 'block';
+    status.textContent = matchCount === 0
+        ? 'no matching sections'
+        : matchCount + ' section' + (matchCount === 1 ? '' : 's') + ' found';
+});
+
+function highlightText(el, query) {
+    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    const matches = [];
+    while (walker.nextNode()) {
+        const node = walker.currentNode;
+        // Skip code blocks
+        if (node.parentElement.closest('pre')) continue;
+        const idx = node.textContent.toLowerCase().indexOf(query);
+        if (idx >= 0) matches.push({ node, idx });
+    }
+    for (let i = matches.length - 1; i >= 0; i--) {
+        const { node, idx } = matches[i];
+        const mark = document.createElement('mark');
+        const range = document.createRange();
+        range.setStart(node, idx);
+        range.setEnd(node, idx + query.length);
+        range.surroundContents(mark);
+    }
+}
 </script>
 {% endblock %}
