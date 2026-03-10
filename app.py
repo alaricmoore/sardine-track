@@ -428,7 +428,7 @@ def _auto_migrate():
     """Add columns that may be missing from older databases.
     Each ALTER TABLE is wrapped in try/except so it's safe to run repeatedly."""
     import sqlite3
-    db_path = db.DB_PATH
+    db_path = db.DB_FILE
     if not os.path.exists(db_path):
         return
     conn = sqlite3.connect(db_path)
