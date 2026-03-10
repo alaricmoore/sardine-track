@@ -2710,22 +2710,9 @@ def forecast_lab():
             'description': 'Elevated risk during luteal and PMS phases of cycle'
         })
     
-    # Model code snippet
-    model_code = '''def calculate_flare_prime_score(obs):
-    """Calculate flare risk score."""
-    score = 0.0
-    weights = get_current_weights()  # Loads from config
-    
-    # Symptoms (using custom weights)
-    if obs.get('neurological'):
-        score += weights['neurological']
-    if obs.get('cognitive'):
-        score += weights['cognitive']
-    if obs.get('musculature'):
-        score += weights['musculature']
-    # ... (see full code in app.py)
-    
-    return round(score, 1)'''
+    # Model code — pull live source from the actual function
+    import inspect
+    model_code = inspect.getsource(calculate_flare_prime_score)
     
     # Achievements (check localStorage or session for unlocked ones)
     achievements = [
