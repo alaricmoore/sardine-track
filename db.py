@@ -178,7 +178,8 @@ def get_users_with_ntfy() -> list[dict]:
         rows = conn.execute("""
             SELECT u.id AS user_id, u.username, u.display_name,
                    p.ntfy_topic, p.ntfy_server, p.location_lat, p.location_lon,
-                   p.timezone, p.last_flare_alert_date, p.last_uv_alert_date
+                   p.timezone, p.last_flare_alert_date, p.last_uv_alert_date,
+                   p.reminder_hours, p.last_logged_at, p.last_reminder_date
             FROM users u
             JOIN user_preferences p ON u.id = p.user_id
             WHERE p.ntfy_topic IS NOT NULL AND p.ntfy_topic != ''

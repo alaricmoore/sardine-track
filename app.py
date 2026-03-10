@@ -730,6 +730,71 @@ def _check_and_send_reminders() -> None:
         print(f"[reminder] scheduler error: {e}")
 
 
+def _check_daily_reminders() -> None:
+    """Hourly job: send a 'log your day' ntfy reminder to users who haven't
+    logged within their configured reminder_hours window (e.g. 16 hours).
+    Rate-limited to one reminder per calendar day per user."""
+    try:
+        users = db.get_users_with_ntfy()
+        if not users:
+            return
+
+        for user in users:
+            reminder_hours = user.get("reminder_hours")
+            if not reminder_hours:
+                continue  # Not enabled
+
+            # Determine user's current time
+            tz_name = user.get("timezone") or CONFIG.get("timezone", "UTC")
+            try:
+                from zoneinfo import ZoneInfo
+                tz = ZoneInfo(tz_name)
+                user_now = datetime.now(tz)
+            except Exception:
+                user_now = datetime.now()
+
+            today_str = user_now.strftime("%Y-%m-%d")
+
+            # Rate limit: one reminder per calendar day
+            if user.get("last_reminder_date") == today_str:
+                continue
+
+            # Check time since last log
+            last_logged = user.get("last_logged_at")
+            if last_logged:
+                try:
+                    logged_dt = datetime.fromisoformat(last_logged)
+                    # Make naive for comparison if needed
+                    if logged_dt.tzinfo is None and user_now.tzinfo is not None:
+                        logged_dt = logged_dt.replace(tzinfo=user_now.tzinfo)
+                    hours_since = (user_now - logged_dt).total_seconds() / 3600
+                    if hours_since < reminder_hours:
+                        continue  # Logged recently enough
+                except Exception:
+                    pass  # Bad timestamp, proceed with reminder
+            # If last_logged_at is None, they've never logged — remind them
+
+            topic = user["ntfy_topic"]
+            server = user.get("ntfy_server") or "https://ntfy.sh"
+            display = user.get("display_name") or user.get("username", "")
+            _send_ntfy_alert(
+                f"Hey {display} — it's been a while since your last log. Even a quick entry helps.",
+                title="Daily log reminder",
+                priority="low",
+                tags="memo",
+                server=server,
+                topic=topic,
+            )
+
+            # Mark reminder sent for today
+            try:
+                db.upsert_user_preferences(user["user_id"], {"last_reminder_date": today_str})
+            except Exception as e:
+                print(f"[daily-reminder] state save failed for user {user['user_id']}: {e}")
+    except Exception as e:
+        print(f"[daily-reminder] error: {e}")
+
+
 # Start scheduler — guard against Flask debug-mode double-start
 if not app.debug or os.environ.get("WERKZEUG_RUN_MAIN") == "true":
     _tz = CONFIG.get("timezone", "UTC")
@@ -739,6 +804,7 @@ if not app.debug or os.environ.get("WERKZEUG_RUN_MAIN") == "true":
     _scheduler.add_job(_check_flare_risk_alert, "cron", hour=_alert_hour, minute=0)
     _uv_alert_hour = CONFIG.get("uv_alert_hour", 9)
     _scheduler.add_job(_check_uv_fetch, "cron", hour=_uv_alert_hour, minute=0)
+    _scheduler.add_job(_check_daily_reminders, "cron", minute=0)  # Runs every hour on the hour
     _scheduler.start()
 
 
@@ -947,6 +1013,7 @@ def daily_entry_submit():
     }
 
     db.upsert_daily_observations(uid(), data)
+    db.upsert_user_preferences(uid(), {"last_logged_at": datetime.now().isoformat()})
     return redirect(url_for("daily_confirm", entry_date=data["date"]))
 
 
@@ -4119,6 +4186,16 @@ def settings():
             'ntfy_topic': request.form.get('ntfy_topic', '').strip() or None,
             'ntfy_server': request.form.get('ntfy_server', '').strip() or 'https://ntfy.sh',
         }
+
+        # Daily reminder (hours since last log, None = disabled)
+        reminder_val = request.form.get('reminder_hours', '').strip()
+        if reminder_val == '':
+            new_prefs['reminder_hours'] = None
+        else:
+            try:
+                new_prefs['reminder_hours'] = int(reminder_val)
+            except ValueError:
+                new_prefs['reminder_hours'] = None
 
         # Numeric fields
         try:

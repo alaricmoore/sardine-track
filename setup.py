@@ -481,9 +481,22 @@ def create_database():
             primary_intervention_name TEXT,
             primary_intervention_date TEXT,
             last_flare_alert_date     TEXT,
-            last_uv_alert_date        TEXT
+            last_uv_alert_date        TEXT,
+            reminder_hours            INTEGER,
+            last_logged_at            TEXT,
+            last_reminder_date        TEXT
         )
     """)
+
+    # Migration: add reminder columns if missing (existing DBs)
+    for col, coltype in [("reminder_hours", "INTEGER"), ("last_logged_at", "TEXT"),
+                         ("last_reminder_date", "TEXT")]:
+        try:
+            c.execute(f"ALTER TABLE user_preferences ADD COLUMN {col} {coltype}")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+    # Drop old column name if present (SQLite ignores, harmless)
+    # daily_reminder_hour is superseded by reminder_hours
 
     conn.commit()
     conn.close()
