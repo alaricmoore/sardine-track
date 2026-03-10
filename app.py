@@ -420,6 +420,40 @@ def load_config() -> dict:
 
 CONFIG = load_config()
 
+
+# ============================================================
+# Auto-migrate: add any missing columns to existing databases
+# ============================================================
+def _auto_migrate():
+    """Add columns that may be missing from older databases.
+    Each ALTER TABLE is wrapped in try/except so it's safe to run repeatedly."""
+    import sqlite3
+    db_path = db.DB_PATH
+    if not os.path.exists(db_path):
+        return
+    conn = sqlite3.connect(db_path)
+    migrations = [
+        ("user_preferences", "reminder_hours", "INTEGER"),
+        ("user_preferences", "last_logged_at", "TEXT"),
+        ("user_preferences", "last_reminder_date", "TEXT"),
+        ("daily_observations", "pulmonary", "INTEGER DEFAULT 0"),
+        ("daily_observations", "pulmonary_notes", "TEXT"),
+        ("daily_observations", "mucosal", "INTEGER DEFAULT 0"),
+        ("daily_observations", "mucosal_notes", "TEXT"),
+        ("daily_observations", "gastro", "INTEGER DEFAULT 0"),
+        ("daily_observations", "gastro_notes", "TEXT"),
+    ]
+    for table, col, coltype in migrations:
+        try:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {coltype}")
+        except sqlite3.OperationalError:
+            pass
+    conn.commit()
+    conn.close()
+
+_auto_migrate()
+
+
 # ============================================================
 # Security: SECRET_KEY, CSRF, optional passcode
 # ============================================================
