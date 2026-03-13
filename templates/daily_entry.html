@@ -157,6 +157,13 @@
             <input type="number" name="basal_temp_delta" step="0.01"
                 placeholder="e.g. +0.6 or -0.3"
                 value="{{ existing.basal_temp_delta if existing and existing.basal_temp_delta else '' }}">
+            {% if bbt_hint %}
+            <div style="font-size: 0.7rem; color: var(--text-muted); margin-top: 2px;">
+                follicular avg: {{ bbt_hint.follicular_avg }}°
+                {% if bbt_hint.luteal_avg is not none %} · luteal avg: {{ bbt_hint.luteal_avg }}°{% endif %}
+                <span style="opacity: 0.6">({{ bbt_hint.n_readings }} readings, 6 wk)</span>
+            </div>
+            {% endif %}
         </div>
 
         <div class="form-group">

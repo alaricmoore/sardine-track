@@ -242,31 +242,61 @@
             {% else %}{% set bbt_border = none %}{% endif %}
         {% else %}{% set bbt_border = none %}{% endif %}
 
-        <a href="{{ url_for('daily_entry', date=day_str) }}"
-           style="min-height: 80px; border-radius: var(--radius-sm);
-                  border: 1px solid var(--border-subtle);
-                  padding: var(--space-xs);
-                  text-decoration: none;
-                  display: flex; flex-direction: column;
-                  position: relative;
-                  {{ cell_bg }}
-                  {% if flow_color %}border-top: 3px solid {{ flow_color }};{% endif %}
-                  {% if bbt_border %}border-bottom: 3px solid {{ bbt_border }};{% endif %}">
+        <div class="cycle-cell" data-date="{{ day_str }}"
+             style="min-height: 80px; border-radius: var(--radius-sm);
+                    border: 1px solid var(--border-subtle);
+                    padding: var(--space-xs);
+                    display: flex; flex-direction: column;
+                    position: relative; cursor: pointer;
+                    {{ cell_bg }}
+                    {% if flow_color %}border-top: 3px solid {{ flow_color }};{% endif %}
+                    {% if bbt_border %}border-bottom: 3px solid {{ bbt_border }};{% endif %}">
 
-            {# Day number #}
-            <div style="font-size: 0.75rem;
-                        font-family: var(--font-mono);
-                        color: {% if day_str == today %}var(--color-accent){% else %}var(--text-muted){% endif %};
-                        font-weight: {% if day_str == today %}700{% else %}400{% endif %};">
+            {# Day number — links to daily entry #}
+            <a href="{{ url_for('daily_entry', date=day_str) }}"
+               style="font-size: 0.75rem; font-family: var(--font-mono);
+                      text-decoration: none;
+                      color: {% if day_str == today %}var(--color-accent){% else %}var(--text-muted){% endif %};
+                      font-weight: {% if day_str == today %}700{% else %}400{% endif %};">
                 {{ day_num }}
+            </a>
+
+            {# Flow label — tap to open picker #}
+            <div class="flow-tap" data-date="{{ day_str }}"
+                 style="font-size: 0.65rem; margin-top: 2px; font-weight: 600; min-height: 14px;
+                        color: {{ flow_color if flow_color else 'var(--text-muted)' }};">
+                {{ flow if flow else '+flow' }}
             </div>
 
-            {# Flow label #}
-            {% if flow %}
-            <div style="font-size: 0.65rem; color: {{ flow_color }}; margin-top: 2px; font-weight: 600;">
-                {{ flow }}
+            {# Flow picker overlay #}
+            <div class="flow-picker" data-date="{{ day_str }}"
+                 style="display:none; position:absolute; top:0; left:0; right:0;
+                        z-index:10; background: var(--bg-elevated);
+                        border: 1px solid var(--border-subtle);
+                        border-radius: var(--radius-sm); padding: 4px;">
+                <div style="display:flex; gap:2px; flex-wrap:wrap; justify-content:center;">
+                    <button data-flow="" class="flow-btn"
+                            style="font-size:0.6rem; padding:2px 5px; border:1px solid var(--border-subtle);
+                                   border-radius:3px; background:var(--bg-surface); color:var(--text-muted); cursor:pointer;">
+                        none</button>
+                    <button data-flow="spotting" class="flow-btn"
+                            style="font-size:0.6rem; padding:2px 5px; border:1px solid var(--cycle-flow-spotting);
+                                   border-radius:3px; background:var(--bg-surface); color:var(--cycle-flow-spotting); cursor:pointer;">
+                        spot</button>
+                    <button data-flow="light" class="flow-btn"
+                            style="font-size:0.6rem; padding:2px 5px; border:1px solid var(--cycle-flow-light);
+                                   border-radius:3px; background:var(--bg-surface); color:var(--cycle-flow-light); cursor:pointer;">
+                        light</button>
+                    <button data-flow="medium" class="flow-btn"
+                            style="font-size:0.6rem; padding:2px 5px; border:1px solid var(--cycle-flow-medium);
+                                   border-radius:3px; background:var(--bg-surface); color:var(--cycle-flow-medium); cursor:pointer;">
+                        med</button>
+                    <button data-flow="heavy" class="flow-btn"
+                            style="font-size:0.6rem; padding:2px 5px; border:1px solid var(--cycle-flow-heavy);
+                                   border-radius:3px; background:var(--bg-surface); color:var(--cycle-flow-heavy); cursor:pointer;">
+                        heavy</button>
+                </div>
             </div>
-            {% endif %}
 
             {# Cramping indicator #}
             {% if obs and obs.cramping and obs.cramping != 'none' %}
@@ -305,7 +335,7 @@
                 </span>
                 {% endif %}
             </div>
-        </a>
+        </div>
         {% endfor %}
 
     </div><!-- /grid -->
@@ -748,4 +778,71 @@
 })();
 </script>
 {% endif %}
+
+<script>
+/* Flow picker for quick-logging period flow on calendar cells */
+(function() {
+    const CSRF = '{{ csrf_token() }}';
+    const FLOW_COLORS = {
+        'heavy':    'var(--cycle-flow-heavy)',
+        'medium':   'var(--cycle-flow-medium)',
+        'light':    'var(--cycle-flow-light)',
+        'spotting': 'var(--cycle-flow-spotting)',
+    };
+
+    function hideAllPickers() {
+        document.querySelectorAll('.flow-picker').forEach(p => p.style.display = 'none');
+    }
+
+    /* Tap on flow label → show picker */
+    document.querySelectorAll('.flow-tap').forEach(tap => {
+        tap.addEventListener('click', function(e) {
+            e.stopPropagation();
+            e.preventDefault();
+            const dt = this.dataset.date;
+            hideAllPickers();
+            const picker = document.querySelector('.flow-picker[data-date="'+dt+'"]');
+            if (picker) picker.style.display = 'block';
+        });
+    });
+
+    /* Picker button → save flow */
+    document.querySelectorAll('.flow-btn').forEach(btn => {
+        btn.addEventListener('click', function(e) {
+            e.stopPropagation();
+            e.preventDefault();
+            const picker = this.closest('.flow-picker');
+            const dt = picker.dataset.date;
+            const flow = this.dataset.flow;
+
+            fetch('/cycle/flow', {
+                method: 'POST',
+                headers: {'Content-Type':'application/json', 'X-CSRFToken': CSRF},
+                body: JSON.stringify({date: dt, flow_level: flow})
+            }).then(r => r.json()).then(data => {
+                if (!data.ok) return;
+                const cell = document.querySelector('.cycle-cell[data-date="'+dt+'"]');
+                const label = cell.querySelector('.flow-tap');
+                if (flow && FLOW_COLORS[flow]) {
+                    label.textContent = flow;
+                    label.style.color = FLOW_COLORS[flow];
+                    cell.style.borderTop = '3px solid ' + FLOW_COLORS[flow];
+                } else {
+                    label.textContent = '+flow';
+                    label.style.color = 'var(--text-muted)';
+                    cell.style.borderTop = '1px solid var(--border-subtle)';
+                }
+                hideAllPickers();
+            }).catch(err => console.error('flow save failed:', err));
+        });
+    });
+
+    /* Click outside → close pickers */
+    document.addEventListener('click', function(e) {
+        if (!e.target.closest('.flow-picker') && !e.target.closest('.flow-tap')) {
+            hideAllPickers();
+        }
+    });
+})();
+</script>
 {% endblock %}

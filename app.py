@@ -466,6 +466,7 @@ def _auto_migrate():
         ("uv_data", "cloud_cover_pct", "REAL"),
         ("uv_data", "temperature_high", "REAL"),
         ("uv_data", "weather_summary", "TEXT"),
+        ("user_preferences", "last_period_nudge_date", "TEXT"),
     ]
     for table, col, coltype in migrations:
         try:
@@ -861,6 +862,81 @@ def _check_daily_reminders() -> None:
         print(f"[daily-reminder] error: {e}")
 
 
+def _check_period_nudge() -> None:
+    """Hourly job: nudge users who logged period flow 4 days ago but nothing since.
+    Helps keep cycle tracking accurate by prompting continued flow logging."""
+    try:
+        users = db.get_users_with_ntfy()
+        if not users:
+            return
+
+        for user in users:
+            if not user.get("track_cycle"):
+                continue
+
+            user_id = user["user_id"]
+            topic = user["ntfy_topic"]
+            server = user.get("ntfy_server") or "https://ntfy.sh"
+
+            tz_name = user.get("timezone") or CONFIG.get("timezone", "UTC")
+            try:
+                from zoneinfo import ZoneInfo
+                user_now = datetime.now(ZoneInfo(tz_name))
+            except Exception:
+                user_now = datetime.now()
+
+            today_str = user_now.strftime("%Y-%m-%d")
+
+            if user.get("last_period_nudge_date") == today_str:
+                continue
+
+            # Find recent flow entries
+            all_obs = db.get_all_daily_observations(user_id)
+            if not all_obs:
+                continue
+
+            # Look for most recent day with any flow
+            last_flow_date = None
+            for obs in reversed(all_obs):
+                if obs.get("period_flow") and obs["period_flow"] != "":
+                    last_flow_date = obs["date"]
+                    break
+
+            if not last_flow_date:
+                continue
+
+            days_since = (date.fromisoformat(today_str) - date.fromisoformat(last_flow_date)).days
+            if days_since != 4:
+                continue
+
+            # Check no flow logged between last_flow_date and today
+            gap_has_flow = False
+            for obs in all_obs:
+                if last_flow_date < obs["date"] <= today_str:
+                    if obs.get("period_flow") and obs["period_flow"] != "":
+                        gap_has_flow = True
+                        break
+            if gap_has_flow:
+                continue
+
+            display = user.get("display_name") or user.get("username", "")
+            _send_ntfy_alert(
+                f"Hey {display} — still on your period? Log today's flow to keep cycle tracking accurate.",
+                title="Period tracking reminder",
+                priority="low",
+                tags="drop_of_blood",
+                server=server,
+                topic=topic,
+            )
+
+            try:
+                db.upsert_user_preferences(user_id, {"last_period_nudge_date": today_str})
+            except Exception as e:
+                print(f"[period-nudge] state save failed for user {user_id}: {e}")
+    except Exception as e:
+        print(f"[period-nudge] error: {e}")
+
+
 # Start scheduler — guard against Flask debug-mode double-start
 if not app.debug or os.environ.get("WERKZEUG_RUN_MAIN") == "true":
     _tz = CONFIG.get("timezone", "UTC")
@@ -871,6 +947,7 @@ if not app.debug or os.environ.get("WERKZEUG_RUN_MAIN") == "true":
     _uv_alert_hour = CONFIG.get("uv_alert_hour", 9)
     _scheduler.add_job(_check_uv_fetch, "cron", hour=_uv_alert_hour, minute=0)
     _scheduler.add_job(_check_daily_reminders, "cron", minute=0)  # Runs every hour on the hour
+    _scheduler.add_job(_check_period_nudge, "cron", minute=30)   # Every hour at :30
     _scheduler.start()
 
 
@@ -1014,6 +1091,14 @@ def daily_entry():
 
     quick_mode = request.args.get("mode") == "quick"
 
+    # BBT baseline hint for cycle trackers
+    bbt_hint = None
+    if prefs.get('track_cycle', CONFIG.get('track_cycle')):
+        try:
+            bbt_hint = _compute_bbt_hint(uid())
+        except Exception:
+            pass
+
     return render_template(
         "daily_entry.html",
         entry_date=entry_date_str,
@@ -1026,6 +1111,7 @@ def daily_entry():
         next_date=next_date,
         is_today=is_today,
         quick_mode=quick_mode,
+        bbt_hint=bbt_hint,
     )
 
 
@@ -1514,6 +1600,59 @@ def bc_update(bc_id):
     return redirect(url_for("cycle_view"))
 
 
+def _detect_period_starts(sorted_obs: list) -> list[str]:
+    """Detect period start dates from sorted observations.
+
+    Rules:
+    - Period starts on first day of non-spotting flow (or spotting that
+      escalates to non-spotting within 2 days — retroactive start).
+    - Period stays open for a minimum of 3 days after start.
+    - Period closes only when 3 consecutive days have no flow logged
+      (missing days count as "unknown", not "no flow").
+    """
+    period_starts = []
+    period_start_date = None
+    last_flow_date = None
+
+    obs_by_date = {r['date']: r for r in sorted_obs}
+
+    for row in sorted_obs:
+        d = date.fromisoformat(row['date'])
+        flow = row.get('period_flow') or ''
+        has_real_flow = flow in ('light', 'medium', 'heavy')
+        has_spotting = flow == 'spotting'
+        has_any_flow = has_real_flow or has_spotting
+
+        if period_start_date is None:
+            if has_real_flow:
+                period_start_date = d
+                last_flow_date = d
+                # Retroactive: check if preceding days were spotting
+                for lookback in (1, 2):
+                    prev = (d - timedelta(days=lookback)).isoformat()
+                    prev_obs = obs_by_date.get(prev)
+                    if prev_obs and prev_obs.get('period_flow') == 'spotting':
+                        period_start_date = d - timedelta(days=lookback)
+                    else:
+                        break
+                period_starts.append(period_start_date.isoformat())
+        else:
+            if has_any_flow:
+                last_flow_date = d
+
+            days_since_start = (d - period_start_date).days
+            days_since_flow = (d - last_flow_date).days
+            if days_since_start >= 3 and days_since_flow >= 3:
+                period_start_date = None
+                last_flow_date = None
+                if has_real_flow:
+                    period_start_date = d
+                    last_flow_date = d
+                    period_starts.append(d.isoformat())
+
+    return period_starts
+
+
 @app.route("/cycle")
 def cycle_view():
     """Menstrual cycle calendar — opt-in via user preferences."""
@@ -1537,14 +1676,8 @@ def cycle_view():
         if row.get("basal_temp_delta") is not None
     }
 
-    # Detect period start days (first day of non-spotting flow after a gap)
-    period_starts = []
-    prev_had_period = False
-    for row in all_data:
-        has_period = bool(row.get("period_flow") and row.get("period_flow") != "spotting")
-        if has_period and not prev_had_period:
-            period_starts.append(row["date"])
-        prev_had_period = has_period
+    # Detect period start days (3-day min, spotting retroactive, 3-day gap to close)
+    period_starts = _detect_period_starts(all_data)
 
     # Average cycle length — use last 6 cycles, discard gaps > 90 days (data holes, not cycles)
     lengths_raw: list[int] = []
@@ -1831,6 +1964,26 @@ def cycle_view():
         next_year=next_year, next_month=next_month,
         cal=calendar,
     )
+
+
+@app.route("/cycle/flow", methods=["POST"])
+@login_required
+def cycle_flow_log():
+    """Quick-log period flow from the cycle calendar."""
+    data = request.get_json(force=True)
+    date_str = data.get("date")
+    flow_level = data.get("flow_level", "")
+
+    if not date_str:
+        return jsonify({"error": "date required"}), 400
+    if flow_level not in ("", "spotting", "light", "medium", "heavy"):
+        return jsonify({"error": "invalid flow_level"}), 400
+
+    db.upsert_daily_observations(uid(), {
+        "date": date_str,
+        "period_flow": flow_level if flow_level else None,
+    })
+    return jsonify({"ok": True})
 
 
 @app.route("/hrv")
@@ -2570,16 +2723,8 @@ def _compute_phase_by_date_from_obs(all_obs: list) -> dict:
         if r.get('basal_temp_delta') is not None
     }
 
-    # Detect period starts (exclude spotting, same as cycle_view)
-    period_starts: list = []
-    in_period = False
-    for row in sorted_obs:
-        has_flow = bool(row.get('period_flow') and row['period_flow'] != 'spotting')
-        if has_flow and not in_period:
-            period_starts.append(row['date'])
-            in_period = True
-        elif not has_flow:
-            in_period = False
+    # Detect period starts (3-day min, spotting retroactive, 3-day gap to close)
+    period_starts: list = _detect_period_starts(sorted_obs)
 
     if len(period_starts) < 2:
         return {}
@@ -2621,6 +2766,42 @@ def _inject_cycle_phase(obs_list: list) -> None:
         phase = phase_by_date.get(obs['date'])
         obs['cycle_in_high_risk_phase'] = phase in ('pms', 'luteal')
         obs['cycle_phase_name'] = phase
+
+
+def _compute_bbt_hint(user_id: int) -> Optional[dict]:
+    """Return recent BBT stats for display near the BBT entry field.
+    Shows 6-week rolling follicular and luteal averages so users can calibrate.
+    Returns {follicular_avg, luteal_avg, n_readings} or None if < 3 follicular readings.
+    """
+    all_obs = db.get_all_daily_observations(user_id)
+    if not all_obs:
+        return None
+    all_obs.sort(key=lambda r: r['date'])
+    phase_by_date = _compute_phase_by_date_from_obs(all_obs)
+
+    cutoff = (date.today() - timedelta(days=42)).isoformat()
+    foll_vals = []
+    lut_vals = []
+    for obs in all_obs:
+        if obs['date'] < cutoff:
+            continue
+        bbt = obs.get('basal_temp_delta')
+        if bbt is None:
+            continue
+        phase = phase_by_date.get(obs['date'])
+        if phase in ('pms', 'luteal'):
+            lut_vals.append(bbt)
+        else:
+            foll_vals.append(bbt)
+
+    if len(foll_vals) < 3:
+        return None
+
+    return {
+        'follicular_avg': round(sum(foll_vals) / len(foll_vals), 2),
+        'luteal_avg': round(sum(lut_vals) / len(lut_vals), 2) if lut_vals else None,
+        'n_readings': len(foll_vals) + len(lut_vals),
+    }
 
 
 def calculate_flare_prime_score(obs):

@@ -491,7 +491,8 @@ def create_database():
             last_uv_alert_date        TEXT,
             reminder_hours            INTEGER,
             last_logged_at            TEXT,
-            last_reminder_date        TEXT
+            last_reminder_date        TEXT,
+            last_period_nudge_date    TEXT
         )
     """)
 

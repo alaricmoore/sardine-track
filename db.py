@@ -179,7 +179,8 @@ def get_users_with_ntfy() -> list[dict]:
             SELECT u.id AS user_id, u.username, u.display_name,
                    p.ntfy_topic, p.ntfy_server, p.location_lat, p.location_lon,
                    p.timezone, p.last_flare_alert_date, p.last_uv_alert_date,
-                   p.reminder_hours, p.last_logged_at, p.last_reminder_date
+                   p.reminder_hours, p.last_logged_at, p.last_reminder_date,
+                   p.last_period_nudge_date, p.track_cycle
             FROM users u
             JOIN user_preferences p ON u.id = p.user_id
             WHERE p.ntfy_topic IS NOT NULL AND p.ntfy_topic != ''
@@ -240,6 +241,7 @@ def upsert_daily_observations(user_id: int, data: dict) -> bool:
         "strike_physical", "strike_environmental", "flare_occurred",
         "notes",
         "period_flow", "cramping", "cycle_notes",
+        "stayed_indoors", "uv_protection_level",
     ]
 
     # Only include fields present in data, plus user_id
