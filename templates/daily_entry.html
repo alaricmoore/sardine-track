@@ -467,9 +467,24 @@
 
             <div class="toggle-item migraine">
                 <input type="checkbox" name="flare_occurred" id="tog-flare"
-                    {% if existing and existing.flare_occurred %}checked{% endif %}>
+                    {% if existing and existing.flare_occurred %}checked{% endif %}
+                    onchange="document.getElementById('flare-severity-row').style.display = this.checked ? 'flex' : 'none';">
                 <label class="toggle-label" for="tog-flare">
                     flare occurred
+                </label>
+            </div>
+            <div id="flare-severity-row"
+                 style="display:{% if existing and existing.flare_occurred %}flex{% else %}none{% endif %};
+                        margin-left:2rem; gap:0.75rem; margin-top:4px;">
+                <label style="font-size:0.8rem; color:var(--text-secondary);">
+                    <input type="radio" name="flare_severity" value="minor"
+                        {% if existing and existing.flare_severity == 'minor' %}checked{% endif %}>
+                    minor (rough day)
+                </label>
+                <label style="font-size:0.8rem; color:var(--text-secondary);">
+                    <input type="radio" name="flare_severity" value="major"
+                        {% if not existing or not existing.flare_severity or existing.flare_severity == 'major' %}checked{% endif %}>
+                    major (significant flare)
                 </label>
             </div>
         </div>

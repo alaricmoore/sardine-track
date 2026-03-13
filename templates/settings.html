@@ -94,6 +94,15 @@
             <input type="number" id="temp_baseline_f" name="temp_baseline_f"
                    step="0.1" value="{{ prefs.temp_baseline_f or 97.4 }}">
         </div>
+        <div class="form-group">
+            <label for="steps_baseline">daily steps baseline <span style="color:var(--text-muted)">(your typical daily count)</span></label>
+            <input type="number" id="steps_baseline" name="steps_baseline"
+                   min="0" step="500" placeholder="e.g. 12000"
+                   value="{{ prefs.steps_baseline or '' }}">
+            <div style="font-size:0.7rem; color:var(--text-muted); margin-top:2px;">
+                Leave blank to use default overexertion thresholds. Set this if you have a physically demanding job.
+            </div>
+        </div>
     </div>
 
     <!-- Features -->

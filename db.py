@@ -242,6 +242,7 @@ def upsert_daily_observations(user_id: int, data: dict) -> bool:
         "notes",
         "period_flow", "cramping", "cycle_notes",
         "stayed_indoors", "uv_protection_level",
+        "flare_severity",
     ]
 
     # Only include fields present in data, plus user_id

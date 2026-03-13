@@ -164,10 +164,29 @@
     
     <!-- Hidden panels for different modes -->
     <div id="weights-panel" style="display:none; margin-top:2rem;">
-        <div class="terminal-line" style="font-size:1.2rem; margin-bottom:1rem;">
-            ⚖️ SYMPTOM WEIGHT ADJUSTMENT
+        <!-- Flare Threshold -->
+        <div style="margin-bottom:var(--space-xl); padding-bottom:var(--space-lg); border-bottom:1px solid var(--border-subtle);">
+            <div class="terminal-line" style="font-size:1.2rem; margin-bottom:1rem;">
+                FLARE THRESHOLD
+            </div>
+            <div style="display:flex; align-items:center; gap:var(--space-md);">
+                <input type="range" class="weight-slider" id="weight-flare_threshold"
+                       min="4" max="20" step="0.5"
+                       value="{{ current_weights.flare_threshold }}"
+                       oninput="updateWeight('flare_threshold', this.value)"
+                       style="flex:1;">
+                <span id="weight-flare_threshold-value" class="terminal-line"
+                      style="min-width:3ch; text-align:right;">{{ current_weights.flare_threshold }}</span>
+            </div>
+            <div style="font-size:0.75rem; color:#666; margin-top:0.25rem;">
+                Score ≥ this value = predicted flare. Lower = more sensitive (catches more, more false alarms).
+            </div>
         </div>
-        
+
+        <div class="terminal-line" style="font-size:1.2rem; margin-bottom:1rem;">
+            SYMPTOM WEIGHTS
+        </div>
+
         <div style="display:grid; grid-template-columns:1fr 1fr; gap:var(--space-lg);">
             {% for symptom in symptoms %}
             <div style="margin-bottom:var(--space-md);">
@@ -259,9 +278,58 @@
         </div>
     </div>
     
+    {% if lag_summary %}
+    <div style="margin-top:2rem; padding-top:var(--space-lg); border-top:1px solid var(--border-subtle);">
+        <div class="terminal-line" style="font-size:1.2rem; margin-bottom:1rem;">
+            YOUR LAG SIGNATURE
+        </div>
+        <div style="font-size:0.75rem; color:#666; margin-bottom:var(--space-md);">
+            Average UV-symptom correlation strength by lag day. Higher = stronger link between UV on day X and symptoms X+N days later.
+        </div>
+        {% set lag_labels = ['Same day', '+1 day', '+2 days', '+3 days'] %}
+        {% set max_r = [lag_summary.lag_0, lag_summary.lag_1, lag_summary.lag_2, lag_summary.lag_3] | max %}
+        {% for i in range(4) %}
+        {% set lag_key = 'lag_' ~ i %}
+        {% set r_val = lag_summary[lag_key] %}
+        {% set is_best = i == lag_summary.best_lag %}
+        <div style="display:flex; align-items:center; gap:var(--space-sm); margin-bottom:6px;">
+            <div style="width:70px; font-size:0.8rem; color:{% if is_best %}#4ade80{% else %}var(--text-muted){% endif %}; font-weight:{% if is_best %}700{% else %}400{% endif %};">
+                {{ lag_labels[i] }}
+            </div>
+            <div style="flex:1; height:20px; background:var(--bg-elevated); border-radius:3px; overflow:hidden;">
+                <div style="height:100%; width:{{ (r_val / max_r * 100) if max_r > 0 else 0 }}%;
+                            background:{% if is_best %}#4ade80{% else %}#4ade8066{% endif %};
+                            border-radius:3px; transition:width 0.3s;"></div>
+            </div>
+            <div style="width:50px; text-align:right; font-size:0.8rem; font-family:var(--font-mono);
+                        color:{% if is_best %}#4ade80{% else %}var(--text-muted){% endif %};">
+                {{ '%.3f' | format(r_val) }}
+            </div>
+        </div>
+        {% endfor %}
+        {% if lag_summary.best_lag == 1 %}
+        <div style="font-size:0.75rem; color:#4ade80; margin-top:var(--space-sm);">
+            Your strongest UV-symptom link is at +1 day lag — consistent with 24h delayed photosensitivity.
+        </div>
+        {% elif lag_summary.best_lag == 0 %}
+        <div style="font-size:0.75rem; color:#4ade80; margin-top:var(--space-sm);">
+            Your strongest link is same-day — UV effects may be hitting you fast.
+        </div>
+        {% elif lag_summary.best_lag == 2 %}
+        <div style="font-size:0.75rem; color:#4ade80; margin-top:var(--space-sm);">
+            Your strongest link is +2 days — you may have a slower UV response pattern.
+        </div>
+        {% else %}
+        <div style="font-size:0.75rem; color:#4ade80; margin-top:var(--space-sm);">
+            Your strongest link is +3 days — a longer-tail UV response.
+        </div>
+        {% endif %}
+    </div>
+    {% endif %}
+
     <div id="code-view" style="display:none; margin-top:2rem;">
         <div class="terminal-line" style="font-size:1.2rem; margin-bottom:1rem;">
-            📝 MODEL CODE
+            MODEL CODE
         </div>
         <pre style="background:#1a1a1a; padding:var(--space-md); border-radius:4px; 
                     overflow-x:auto; font-size:0.85rem; line-height:1.6;">{{ model_code }}</pre>

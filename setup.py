@@ -203,6 +203,7 @@ def create_database():
             strike_physical     INTEGER DEFAULT 0, -- boolean
             strike_environmental INTEGER DEFAULT 0,
             flare_occurred      INTEGER DEFAULT 0,
+            flare_severity      TEXT,
 
             -- Catch-all
             notes               TEXT,
@@ -492,7 +493,8 @@ def create_database():
             reminder_hours            INTEGER,
             last_logged_at            TEXT,
             last_reminder_date        TEXT,
-            last_period_nudge_date    TEXT
+            last_period_nudge_date    TEXT,
+            steps_baseline            INTEGER
         )
     """)
 

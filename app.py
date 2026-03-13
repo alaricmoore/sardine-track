@@ -63,6 +63,30 @@ def weighted_uv(uv_row):
     return m * 0.2 + n * 0.6 + e * 0.2
 
 
+def _compute_cumulative_uv(obs_date: str, obs_by_date: dict, location_key: str) -> float:
+    """Compute prior-2-day cumulative UV dose (yesterday + day-before).
+    Decay: yesterday 0.7×, day-before 0.4×.
+    Same-day UV is already handled by the main scoring block.
+    """
+    decay = [(1, 0.7), (2, 0.4)]
+    total = 0.0
+    target = datetime.strptime(obs_date, "%Y-%m-%d").date()
+
+    for offset, w in decay:
+        d = (target - timedelta(days=offset)).isoformat()
+        uv_row = db.get_uv_data(location_key, d)
+        if not uv_row:
+            continue
+        w_uv = weighted_uv(uv_row)
+        prior_obs = obs_by_date.get(d, {})
+        sun_min = float(prior_obs.get('sun_exposure_min') or 0)
+        protection = UV_PROTECTION_MULTIPLIERS.get(
+            prior_obs.get('uv_protection_level') or 'none', 1.0)
+        total += (w_uv ** 1.5) * sun_min * protection * w
+
+    return total
+
+
 # Default symptom weights (factory settings)
 DEFAULT_WEIGHTS = {
     'neurological': 1.5,
@@ -74,6 +98,7 @@ DEFAULT_WEIGHTS = {
     'mucosal': 0.25,
     'rheumatic': 0.5,
     'cycle_phase': 1.0,
+    'flare_threshold': 8.0,
 }
 
 # Path to custom weights config
@@ -138,25 +163,8 @@ def reset_to_default_weights(user_id=None):
         os.remove(CUSTOM_WEIGHTS_PATH)
         
 def calculate_flare_score_with_weights(obs, weights):
-    """Calculate score using custom symptom weights."""
-    score = 0.0
-
-    # UV, overexertion, temp - unchanged from calculate_flare_prime_score
-    sun_min = obs.get('sun_exposure_min') or 0
-    if sun_min >= 100:
-        score += 3
-    elif sun_min >= 70:
-        score += 1.25
-
-    # Apply custom weights
-    for symptom, weight in weights.items():
-        if symptom == 'cycle_phase':
-            if obs.get('cycle_in_high_risk_phase'):
-                score += weight
-        else:
-            score += obs.get(symptom, 0) * weight
-
-    return score
+    """Calculate score using custom weights — delegates to full scoring function."""
+    return calculate_flare_prime_score(obs, weights_override=weights)
     
 
 # ============================================================
@@ -467,6 +475,8 @@ def _auto_migrate():
         ("uv_data", "temperature_high", "REAL"),
         ("uv_data", "weather_summary", "TEXT"),
         ("user_preferences", "last_period_nudge_date", "TEXT"),
+        ("daily_observations", "flare_severity", "TEXT"),
+        ("user_preferences", "steps_baseline", "INTEGER"),
     ]
     for table, col, coltype in migrations:
         try:
@@ -677,8 +687,14 @@ def _check_flare_risk_alert() -> None:
             user.get("location_lat") or CONFIG.get("location_lat", 0),
             user.get("location_lon") or CONFIG.get("location_lon", 0),
         )
+        obs_by_date = {o["date"]: o for o in all_obs}
         for obs in all_obs[:3]:
             obs["_uv_row"] = db.get_uv_data(loc_key, obs["date"])
+            obs["_cumulative_uv_dose"] = _compute_cumulative_uv(obs["date"], obs_by_date, loc_key)
+
+        # Load user's flare threshold
+        user_weights = get_current_weights(user_id)
+        user_threshold = user_weights.get('flare_threshold', 8.0)
 
         # 3-day weighted average score
         scores = [calculate_flare_prime_score(obs) for obs in all_obs[:3]]
@@ -697,7 +713,7 @@ def _check_flare_risk_alert() -> None:
             continue
 
         # Build message body
-        risk_info = get_risk_level(weighted_score)
+        risk_info = get_risk_level(weighted_score, user_threshold)
         risk_label = risk_info["level"]
 
         factors = get_contributing_factors(all_obs[0])
@@ -1162,6 +1178,7 @@ def daily_entry_submit():
         "strike_physical": get_bool("strike_physical"),
         "strike_environmental": get_bool("strike_environmental"),
         "flare_occurred": get_bool("flare_occurred"),
+        "flare_severity": form.get("flare_severity") if form.get("flare_occurred") else None,
         "notes": form.get("notes", "").strip() or None,
         "period_flow": form.get("period_flow") or None,
         "cramping": form.get("cramping") or None,
@@ -1388,6 +1405,39 @@ def compute_lag_correlations(observations: list, uv_data: list) -> dict:
             }
 
     return results
+
+
+def _compute_personal_lag_summary(user_id: int) -> Optional[dict]:
+    """Compute average |r| across all symptoms for each lag day.
+    Returns {lag_0: avg_r, lag_1: ..., lag_2: ..., lag_3: ..., best_lag: int} or None.
+    """
+    observations = db.get_all_daily_observations(user_id)
+    if not observations or len(observations) < 10:
+        return None
+
+    start_date = observations[0]["date"]
+    end_date = observations[-1]["date"]
+    location_key = get_location_key()
+    uv_data = db.get_uv_data_range(location_key, start_date, end_date)
+
+    correlations = compute_lag_correlations(observations, uv_data)
+    if not correlations:
+        return None
+
+    lag_avgs = {}
+    for lag_idx in range(4):
+        lag_key = f"lag_{lag_idx}"
+        r_values = []
+        for symptom, lags in correlations.items():
+            entry = lags.get(lag_key)
+            if entry and entry.get('r') is not None:
+                r_values.append(abs(entry['r']))
+        lag_avgs[lag_key] = round(sum(r_values) / len(r_values), 3) if r_values else 0
+
+    best_lag = max(range(4), key=lambda i: lag_avgs[f"lag_{i}"])
+    lag_avgs['best_lag'] = best_lag
+    return lag_avgs
+
 
 @app.route("/uv-lag")
 def uv_lag():
@@ -2804,23 +2854,25 @@ def _compute_bbt_hint(user_id: int) -> Optional[dict]:
     }
 
 
-def calculate_flare_prime_score(obs):
+def calculate_flare_prime_score(obs, weights_override=None):
     """
     Calculate flare prime score for a single observation.
     Based on refined logic with exponential UV weighting.
-    
-    UPDATED 2026-03-05: Weights adjusted based on accuracy analysis
-    - Lowered threshold from 10 → 8 (improve recall from 20.9%)
-    - Increased neurological: 0.5 → 1.5 (appeared in 51 missed flares)
-    - Increased cognitive: 0.5 → 1.0 (appeared in 34 missed flares)
-    - Increased musculature: 1.0 → 1.5 (appeared in 44 missed flares)
-    
+
+    Args:
+        obs: daily observation dict
+        weights_override: optional dict to override stored weights (used by simulation)
+
     Weights can be customized via Forecast Lab (/forecast/lab)
     """
     score = 0.0
 
-    # Load current weights (from user prefs or defaults)
-    weights = get_current_weights(current_user.id if current_user.is_authenticated else None)
+    # Load current weights (from user prefs or defaults), apply overrides
+    if weights_override:
+        weights = DEFAULT_WEIGHTS.copy()
+        weights.update(weights_override)
+    else:
+        weights = get_current_weights(current_user.id if current_user.is_authenticated else None)
 
     # 1. UV Dose (weighted UV × sun minutes × protection factor)
     sun_min = obs.get('sun_exposure_min') or 0
@@ -2845,11 +2897,34 @@ def calculate_flare_prime_score(obs):
         score += 3
     elif uv_dose >= 400:
         score += 1.25
-    
+
+    # Cumulative UV load bonus (prior 2 days)
+    cum_uv = obs.get('_cumulative_uv_dose')
+    if cum_uv is not None and cum_uv >= 1500:
+        score += 1.5
+    elif cum_uv is not None and cum_uv >= 1000:
+        score += 0.75
+
     # 2. Physical Overexertion (steps / hours slept)
     steps = obs.get('steps') or 0
     hours_slept = obs.get('hours_slept') or 8
-    if hours_slept > 0:
+    steps_baseline = obs.get('_steps_baseline')
+    if steps_baseline is None:
+        try:
+            _uid = current_user.id if current_user.is_authenticated else None
+            _p = db.get_user_preferences(_uid) if _uid else {}
+            steps_baseline = _p.get('steps_baseline') if _p else None
+        except Exception:
+            steps_baseline = None
+
+    if steps_baseline and steps_baseline > 0 and steps > 0:
+        # Personalized: ratio of actual to baseline, scaled by sleep deficit
+        overexertion = (steps / steps_baseline) * (8.0 / max(hours_slept, 1))
+        if overexertion >= 1.8:
+            score += 2.0
+        elif overexertion >= 1.4:
+            score += 1.5
+    elif hours_slept > 0:
         exertion_ratio = steps / hours_slept
         if exertion_ratio >= 2000:
             score += 2.0
@@ -2928,15 +3003,21 @@ def calculate_model_stats(observations, custom_weights=None):
     false_pos = 0
     false_neg = 0
     
+    # Resolve threshold from custom weights or user prefs
+    if custom_weights:
+        threshold = custom_weights.get('flare_threshold', 8.0)
+    else:
+        threshold = get_current_weights(
+            current_user.id if current_user.is_authenticated else None
+        ).get('flare_threshold', 8.0)
+
     for obs in observations:
         if custom_weights:
-            # Use custom weights for simulation
             score = calculate_flare_score_with_weights(obs, custom_weights)
         else:
-            # Use current weights (from config or defaults)
             score = calculate_flare_prime_score(obs)
-        
-        predicted_flare = score >= 8
+
+        predicted_flare = score >= threshold
         actual_flare = obs.get('flare_occurred') == 1
         
         if predicted_flare and actual_flare:
@@ -2973,13 +3054,18 @@ def analyze_prediction_flips(observations, custom_weights):
     """Identify which predictions would change with new weights."""
     flips_to_positive = []
     flips_to_negative = []
-    
+
+    old_threshold = get_current_weights(
+        current_user.id if current_user.is_authenticated else None
+    ).get('flare_threshold', 8.0)
+    new_threshold = custom_weights.get('flare_threshold', old_threshold)
+
     for obs in observations[:10]:
         old_score = calculate_flare_prime_score(obs)
         new_score = calculate_flare_score_with_weights(obs, custom_weights)
-        
-        old_pred = old_score >= 8
-        new_pred = new_score >= 8
+
+        old_pred = old_score >= old_threshold
+        new_pred = new_score >= new_threshold
         
         if not old_pred and new_pred:
             flips_to_positive.append(obs['date'])
@@ -3093,6 +3179,12 @@ def forecast_lab():
          'description': 'Achieved 80%+ accuracy, recall, and precision'},
     ]
     
+    # Personal lag correlation summary
+    try:
+        lag_summary = _compute_personal_lag_summary(current_user.id)
+    except Exception:
+        lag_summary = None
+
     return render_template(
         "forecast_lab.html",
         current_accuracy=model_stats['accuracy'],
@@ -3105,7 +3197,8 @@ def forecast_lab():
         model_code=model_code,
         achievements=achievements,
         manual_text=FORECAST_LAB_MANUAL,
-        using_custom=using_custom  
+        using_custom=using_custom,
+        lag_summary=lag_summary,
     )
     
     
@@ -3262,9 +3355,11 @@ def forecast():
     else:
         weighted_score = today_score
     
-    # Determine risk level and color
-    risk_info = get_risk_level(weighted_score)
-    
+    # Determine risk level and color (using user's threshold)
+    _fw = get_current_weights(uid())
+    _threshold = _fw.get('flare_threshold', 8.0)
+    risk_info = get_risk_level(weighted_score, _threshold)
+
     # Get contributing factors (what's adding to score today)
     factors = get_contributing_factors(today_obs)
     
@@ -3279,7 +3374,10 @@ def forecast():
     
     # Build score breakdown by category
     breakdown = get_score_breakdown(today_obs)
-    
+
+    # Score trend delta vs yesterday
+    score_delta = round(weighted_score - scores_7day[1]['score'], 1) if len(scores_7day) >= 2 else None
+
     return render_template(
         "forecast.html",
         has_data=True,
@@ -3293,43 +3391,42 @@ def forecast():
         factors=factors,
         recommendations=recommendations,
         trend_data=trend_data,
-        breakdown=breakdown
+        breakdown=breakdown,
+        score_delta=score_delta
     )
 
-def get_risk_level(score):
+def get_risk_level(score, threshold=8.0):
+    """Determine risk level based on score.
+    Breakpoints scale proportionally with the flare threshold.
     """
-    Determine risk level based on score.
-    
-    UPDATED 2026-03-05: Lowered thresholds to improve recall
-    - Low: 0-5 (unchanged)
-    - Moderate: 5-8 (was 5-10)
-    - High: 8-12 (was 10-15)
-    - Critical: 12+ (was 15+)
-    """
-    if score < 5:
+    moderate = threshold * 0.625   # default 5.0
+    high = threshold               # default 8.0
+    critical = threshold * 1.5     # default 12.0
+
+    if score < moderate:
         return {
             'level': 'Low Risk',
             'color': '#4a9e6e',
             'description': 'Your flare risk is low. Keep up your current routine and rest patterns.'
         }
-    elif score < 8:  # CHANGED from 10
+    elif score < high:
         return {
             'level': 'Moderate Risk',
             'color': '#d4b84a',
             'description': 'Elevated risk detected. Consider reducing physical demands and UV exposure.'
         }
-    elif score < 12:  # CHANGED from 15
+    elif score < critical:
         return {
             'level': 'High Risk',
             'color': '#d4784a',
             'description': 'High flare risk. Prioritize rest, avoid sun exposure, and monitor symptoms closely.'
         }
-    else:  # 12+, was 15+
-            return {
-                'level': 'Critical Risk',
-                'color': '#c94040',
-                'description': 'Critical flare risk. Consider a rest day and avoid all triggering activities.'
-            }
+    else:
+        return {
+            'level': 'Critical Risk',
+            'color': '#c94040',
+            'description': 'Critical flare risk. Consider a rest day and avoid all triggering activities.'
+        }
 
 
 def get_contributing_factors(obs: dict) -> list:
@@ -3606,20 +3703,23 @@ def forecast_history():
     _inject_cycle_phase(all_obs)
     last_30 = all_obs[:30]
 
+    _hist_weights = get_current_weights(uid())
+    _hist_threshold = _hist_weights.get('flare_threshold', 8.0)
+
     history = []
     correct = 0
     false_pos = 0
     false_neg = 0
-    
+
     for obs in last_30:
         score = calculate_flare_prime_score(obs)
-        risk_info = get_risk_level(score)
-        
+        risk_info = get_risk_level(score, _hist_threshold)
+
         # Did a flare occur?
         flare_occurred = obs.get('flare_occurred') == 1
-        
-        # Did we predict high risk? (score >= 8)
-        predicted_high = score >= 8 #Changed from 10 to catch more actual flares. 
+
+        # Did we predict high risk?
+        predicted_high = score >= _hist_threshold
 
         # Check if prediction was correct
         if predicted_high and flare_occurred:
@@ -3704,13 +3804,15 @@ def forecast_accuracy():
     false_negatives = 0  # Predicted no flare, but flare occurred (missed)
     
     # Track which factors appear in false predictions
+    _acc_weights = get_current_weights(uid())
+    _acc_threshold = _acc_weights.get('flare_threshold', 8.0)
     false_pos_factors = Counter()
     false_neg_factors = Counter()
     problem_cases = []
-    
+
     for obs in analysis_set:
         score = calculate_flare_prime_score(obs)
-        predicted_flare = score >= 8  # CHANGED from 10 
+        predicted_flare = score >= _acc_threshold
         actual_flare = obs.get('flare_occurred') == 1
         
         if predicted_flare and actual_flare:

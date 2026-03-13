@@ -70,8 +70,16 @@
                 </div>
             </div>
         </div>
+
+        {% if score_delta is not none %}
+        <div style="font-size: 0.85rem; margin-top: var(--space-xs);
+                    color: {% if score_delta > 0 %}#c94040{% elif score_delta < 0 %}#4a9e6e{% else %}var(--text-muted){% endif %};">
+            {% if score_delta > 0 %}&#9650; +{{ score_delta }}{% elif score_delta < 0 %}&#9660; {{ score_delta }}{% else %}&mdash; unchanged{% endif %}
+            from yesterday
+        </div>
+        {% endif %}
     </div>
-    
+
     <!-- Risk Level Label -->
     <div style="font-size:1.5rem; font-weight:600; color:var(--risk-color); 
                 margin-bottom:var(--space-sm);">
