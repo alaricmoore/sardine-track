@@ -3255,9 +3255,14 @@ def forecast_lab_apply():
     try:
         custom_weights = request.json.get('weights', {})
         
-        # Validate weights (all must be numbers between 0 and 3)
+        # Validate weights
         for key, value in custom_weights.items():
-            if not isinstance(value, (int, float)) or value < 0 or value > 3:
+            if not isinstance(value, (int, float)):
+                return jsonify({'success': False, 'error': f'Invalid weight for {key}'}), 400
+            if key == 'flare_threshold':
+                if value < 4 or value > 20:
+                    return jsonify({'success': False, 'error': f'Invalid weight for {key}'}), 400
+            elif value < 0 or value > 3:
                 return jsonify({'success': False, 'error': f'Invalid weight for {key}'}), 400
         
         # Save to user preferences
