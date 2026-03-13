@@ -329,18 +329,26 @@ def make_location_key(lat: float, lon: float) -> str:
 
 def upsert_uv_data(location_key: str, date_str: str, uv_morning: float,
                    uv_noon: float, uv_evening: float,
-                   source: str = "api") -> bool:
+                   source: str = "api",
+                   cloud_cover_pct: float = None,
+                   temperature_high: float = None,
+                   weather_summary: str = None) -> bool:
     """Insert or update UV data for a given location + date."""
     with get_db() as conn:
         conn.execute("""
-            INSERT INTO uv_data (location_key, date, uv_morning, uv_noon, uv_evening, source)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO uv_data (location_key, date, uv_morning, uv_noon, uv_evening,
+                                 source, cloud_cover_pct, temperature_high, weather_summary)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(location_key, date) DO UPDATE SET
                 uv_morning=excluded.uv_morning,
                 uv_noon=excluded.uv_noon,
                 uv_evening=excluded.uv_evening,
-                source=excluded.source
-        """, (location_key, date_str, uv_morning, uv_noon, uv_evening, source))
+                source=excluded.source,
+                cloud_cover_pct=excluded.cloud_cover_pct,
+                temperature_high=excluded.temperature_high,
+                weather_summary=excluded.weather_summary
+        """, (location_key, date_str, uv_morning, uv_noon, uv_evening, source,
+              cloud_cover_pct, temperature_high, weather_summary))
     return True
 
 

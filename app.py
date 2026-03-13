@@ -44,6 +44,25 @@ import json
 # LAB ADJUSTMENTS
 # ============================================================
 
+# UV protection multipliers — applied to UV dose in scoring
+UV_PROTECTION_MULTIPLIERS = {
+    "none": 1.0,
+    "spf_hat": 0.3,
+    "full_cover": 0.1,
+    "indoors_only": 0.0,
+}
+
+
+def weighted_uv(uv_row):
+    """Compute weighted daily UV from morning/noon/evening readings."""
+    if not uv_row:
+        return 0.0
+    m = float(uv_row.get("uv_morning") or 0)
+    n = float(uv_row.get("uv_noon") or 0)
+    e = float(uv_row.get("uv_evening") or 0)
+    return m * 0.2 + n * 0.6 + e * 0.2
+
+
 # Default symptom weights (factory settings)
 DEFAULT_WEIGHTS = {
     'neurological': 1.5,
@@ -442,6 +461,11 @@ def _auto_migrate():
         ("daily_observations", "mucosal_notes", "TEXT"),
         ("daily_observations", "gastro", "INTEGER DEFAULT 0"),
         ("daily_observations", "gastro_notes", "TEXT"),
+        ("daily_observations", "stayed_indoors", "INTEGER DEFAULT 0"),
+        ("daily_observations", "uv_protection_level", "TEXT"),
+        ("uv_data", "cloud_cover_pct", "REAL"),
+        ("uv_data", "temperature_high", "REAL"),
+        ("uv_data", "weather_summary", "TEXT"),
     ]
     for table, col, coltype in migrations:
         try:
@@ -646,6 +670,14 @@ def _check_flare_risk_alert() -> None:
             continue
         all_obs.sort(key=lambda x: x["date"], reverse=True)
         _inject_cycle_phase(all_obs)
+
+        # Inject UV data for scoring
+        loc_key = db.make_location_key(
+            user.get("location_lat") or CONFIG.get("location_lat", 0),
+            user.get("location_lon") or CONFIG.get("location_lon", 0),
+        )
+        for obs in all_obs[:3]:
+            obs["_uv_row"] = db.get_uv_data(loc_key, obs["date"])
 
         # 3-day weighted average score
         scores = [calculate_flare_prime_score(obs) for obs in all_obs[:3]]
@@ -965,8 +997,11 @@ def daily_entry():
     next_date = (entry_date + timedelta(days=1)).isoformat()
     is_today = (entry_date == date.today())
     
-    # Auto-fetch and store UV for this date if not already present
-    uv = uv_fetcher.fetch_and_store_uv_for_date(entry_date_str, get_location_key())
+    # Smart UV fetch — handles today's unresolved zeros gracefully
+    prefs = db.get_user_preferences(uid()) or {}
+    tz = prefs.get("timezone") or CONFIG.get("timezone", "America/Chicago")
+    uv = uv_fetcher.smart_fetch_uv_for_date(entry_date_str, get_location_key(), tz)
+    forecast = uv.get("forecast") if uv else None
 
     # Load any existing entry for this date
     existing = db.get_daily_observations(uid(), entry_date_str)
@@ -984,6 +1019,7 @@ def daily_entry():
         entry_date=entry_date_str,
         existing=existing,
         uv=uv,
+        forecast=forecast,
         active_meds=active_meds,
         todays_doses=todays_doses,
         prev_date=prev_date,
@@ -1044,11 +1080,34 @@ def daily_entry_submit():
         "period_flow": form.get("period_flow") or None,
         "cramping": form.get("cramping") or None,
         "cycle_notes": form.get("cycle_notes", "").strip() or None,
+        "stayed_indoors": 1 if form.get("stayed_indoors") else 0,
+        "uv_protection_level": form.get("uv_protection_level") or None,
     }
+
+    # If stayed indoors, force consistent values
+    if data["stayed_indoors"]:
+        data["sun_exposure_min"] = 0
+        data["uv_protection_level"] = "indoors_only"
 
     db.upsert_daily_observations(uid(), data)
     db.upsert_user_preferences(uid(), {"last_logged_at": datetime.now().isoformat()})
     return redirect(url_for("daily_confirm", entry_date=data["date"]))
+
+
+@app.route("/uv/manual", methods=["POST"])
+@login_required
+def uv_manual():
+    """Save manually entered UV values."""
+    data = request.get_json(force=True)
+    date_str = data.get("date", date.today().isoformat())
+    uv_fetcher.store_manual_uv(
+        date_str=date_str,
+        uv_morning=float(data.get("uv_morning", 0)),
+        uv_noon=float(data.get("uv_noon", 0)),
+        uv_evening=float(data.get("uv_evening", 0)),
+        location_key=get_location_key(),
+    )
+    return jsonify({"ok": True})
 
 
 @app.route("/daily/confirm/<entry_date>")
@@ -1129,7 +1188,7 @@ def compute_lag_correlations(observations: list, uv_data: list) -> dict:
     """Compute Pearson correlation between UV dose and each symptom
     at lag windows of 0, 1, 2, and 3 days.
 
-    UV dose = (UV index^1.5) × sun exposure minutes
+    UV dose = (weighted_UV^1.5) × sun exposure minutes × protection multiplier
     UV dose on day D is correlated against symptom on day D+lag.
     Exponential weighting reflects that high UV is disproportionately more damaging.
     
@@ -1138,7 +1197,7 @@ def compute_lag_correlations(observations: list, uv_data: list) -> dict:
 
     Args:
         observations: list of daily_observation dicts (must include sun_exposure_min)
-        uv_data: list of uv_data dicts (includes uv_noon)
+        uv_data: list of uv_data dicts (includes uv_morning, uv_noon, uv_evening)
 
     Returns:
         dict of {symptom_name: {lag_0: {...}, lag_1: {...}, ...}}
@@ -1154,8 +1213,8 @@ def compute_lag_correlations(observations: list, uv_data: list) -> dict:
     # Sorted date list that has UV, observation, AND sun exposure data
     dates_with_all = sorted([
         d for d in obs_by_date
-        if d in uv_by_date 
-        and uv_by_date[d].get("uv_noon") is not None
+        if d in uv_by_date
+        and weighted_uv(uv_by_date[d]) > 0
         and obs_by_date[d].get("sun_exposure_min") is not None
     ])
 
@@ -1189,14 +1248,17 @@ def compute_lag_correlations(observations: list, uv_data: list) -> dict:
             sym_vals = []
 
             for i, date_str in enumerate(dates_with_all):
-                # UV dose on this date = UV index × minutes exposed
-                uv_noon = uv_by_date[date_str].get("uv_noon")
-                sun_min = obs_by_date[date_str].get("sun_exposure_min")
-                
-                if uv_noon is None or sun_min is None:
+                # UV dose = weighted UV × minutes × protection multiplier
+                obs = obs_by_date[date_str]
+                sun_min = obs.get("sun_exposure_min")
+
+                if sun_min is None:
                     continue
-                
-                uv_dose = (float(uv_noon) ** 1.5) * float(sun_min)
+
+                w_uv = weighted_uv(uv_by_date[date_str])
+                protection = UV_PROTECTION_MULTIPLIERS.get(
+                    obs.get("uv_protection_level", "none"), 1.0)
+                uv_dose = (w_uv ** 1.5) * float(sun_min) * protection
 
                 # Find the date lag days later
                 lag_date = (
@@ -1321,8 +1383,8 @@ def compute_hrv_data(observations: list, intervention_date: str = None) -> dict:
 def compute_sleep_bbt_uv(observations: list, location_key: str = 'default') -> dict:
     """Build sleep/BBT dataset paired with UV from the previous day (lag 1).
 
-    For each observation that has sleep or BBT data, look up UV noon
-    from the day before. Returns aligned arrays for charting.
+    For each observation that has sleep or BBT data, look up weighted UV
+    (morning/noon/evening) from the day before. Returns aligned arrays for charting.
     """
     import db as _db
 
@@ -1342,16 +1404,16 @@ def compute_sleep_bbt_uv(observations: list, location_key: str = 'default') -> d
         if sleep is None and bbt is None:
             continue
 
-        # Get UV from the previous day
+        # Get weighted UV from the previous day
         prev_date = (datetime.strptime(date_str, "%Y-%m-%d") -
                      timedelta(days=1)).strftime("%Y-%m-%d")
         uv_row = _db.get_uv_data(location_key, prev_date)
-        uv_noon = uv_row.get("uv_noon") if uv_row else None
+        w_uv = weighted_uv(uv_row) if uv_row else None
 
         dates.append(date_str)
         sleep_vals.append(float(sleep) if sleep is not None else None)
         bbt_vals.append(float(bbt) if bbt is not None else None)
-        uv_lag1.append(float(uv_noon) if uv_noon is not None else None)
+        uv_lag1.append(w_uv)
 
     return {
         "dates":      dates,
@@ -2575,15 +2637,32 @@ def calculate_flare_prime_score(obs):
     Weights can be customized via Forecast Lab (/forecast/lab)
     """
     score = 0.0
-    
+
     # Load current weights (from user prefs or defaults)
     weights = get_current_weights(current_user.id if current_user.is_authenticated else None)
-    
-    # 1. UV Exposure (exponential weighting: UV^1.5 × minutes)
+
+    # 1. UV Dose (weighted UV × sun minutes × protection factor)
     sun_min = obs.get('sun_exposure_min') or 0
-    if sun_min >= 100:
+    uv_row = obs.get('_uv_row')
+    if uv_row is None and obs.get('date'):
+        # Auto-lookup UV data if not pre-injected
+        try:
+            user_id = current_user.id if current_user.is_authenticated else None
+            _prefs = db.get_user_preferences(user_id) if user_id else {}
+            _loc = db.make_location_key(
+                _prefs.get('location_lat') or CONFIG.get('location_lat', 0),
+                _prefs.get('location_lon') or CONFIG.get('location_lon', 0),
+            ) if _prefs else 'default'
+            uv_row = db.get_uv_data(_loc, obs['date'])
+        except Exception:
+            uv_row = None
+    protection = UV_PROTECTION_MULTIPLIERS.get(
+        obs.get('uv_protection_level') or 'none', 1.0)
+    w_uv = weighted_uv(uv_row)
+    uv_dose = (w_uv ** 1.5) * sun_min * protection
+    if uv_dose >= 800:
         score += 3
-    elif sun_min >= 70:
+    elif uv_dose >= 400:
         score += 1.25
     
     # 2. Physical Overexertion (steps / hours slept)
@@ -2652,7 +2731,11 @@ def calculate_flare_prime_score(obs):
     emotional = obs.get('emotional_state') or 5
     if emotional <= 4:
         score += 2
-    
+
+    # 9. Cycle phase (PMS/luteal risk elevation)
+    if obs.get('cycle_in_high_risk_phase'):
+        score += weights.get('cycle_phase', 1.0)
+
     return round(score, 1)
 
 def calculate_model_stats(observations, custom_weights=None):
@@ -3032,103 +3115,6 @@ def forecast():
         breakdown=breakdown
     )
 
-def calculate_flare_prime_score(obs):
-    """
-    Calculate flare prime score for a single observation.
-    Based on refined logic with exponential UV weighting.
-    
-    UPDATED 2026-03-05: Weights adjusted based on accuracy analysis
-    - Lowered threshold from 10 → 8 (improve recall from 20.9%)
-    - Increased neurological: 0.5 → 1.5 (appeared in 51 missed flares)
-    - Increased cognitive: 0.5 → 1.0 (appeared in 34 missed flares)
-    - Increased musculature: 1.0 → 1.5 (appeared in 44 missed flares)
-    """
-    score = 0.0
-    
-    # 1. UV Exposure (exponential weighting: UV^1.5 × minutes)
-    sun_min = obs.get('sun_exposure_min') or 0
-    if sun_min >= 100:
-        score += 3
-    elif sun_min >= 70:
-        score += 1.25
-    
-    # 2. Physical Overexertion (steps / hours slept)
-    steps = obs.get('steps') or 0
-    hours_slept = obs.get('hours_slept') or 8
-    if hours_slept > 0:
-        exertion_ratio = steps / hours_slept
-        if exertion_ratio >= 2000:
-            score += 2.0
-        elif exertion_ratio >= 1500:
-            score += 1.5
-    
-    # 3. Basal Temperature (simplified, non-overlapping)
-    basal_temp = obs.get('basal_temp_delta') or 0
-    if basal_temp >= 0.8:
-        score += 3
-    elif basal_temp >= 0.5:
-        score += 2
-    elif basal_temp >= 0.3:
-        score += 1
-    
-    # 4. Symptoms (UPDATED WEIGHTS)
-    if obs.get('neurological'):
-        score += 1.5  # CHANGED from 0.5
-    if obs.get('cognitive'):
-        score += 1.0  # CHANGED from 0.5
-    if obs.get('musculature'):
-        score += 1.5  # CHANGED from 1.0
-    if obs.get('migraine'):
-        score += 1    # unchanged
-    if obs.get('pulmonary'):
-        score += 1    # unchanged
-    if obs.get('dermatological'):
-        score += 0.75  # unchanged
-    if obs.get('mucosal'):
-        score += 0.25  # unchanged
-    # gastro: +0 (waiting for 3 months of data)
-    
-    # 5. Rheumatic (parse notes for joint type)
-    if obs.get('rheumatic'):
-        rheum_notes = (obs.get('rheumatic_notes') or '').lower()
-        major_joints = ['hip', 'knee', 'shoulder', 'elbow', 'ankle', 'wrist', 'jaw']
-        minor_joints = ['finger', 'toe', 'hand']
-        
-        if any(joint in rheum_notes for joint in major_joints):
-            score += 2.0
-        elif any(joint in rheum_notes for joint in minor_joints):
-            score += 1.0
-        else:
-            score += 0.5
-    
-    # 6. Pain Scale
-    pain = obs.get('pain_scale') or 0
-    if pain >= 7:
-        score += 1
-    
-    # 7. Fatigue Scale
-    fatigue = obs.get('fatigue_scale') or 0
-    if fatigue >= 7:
-        score += 3
-    elif fatigue > 5:
-        score += 1
-    elif fatigue > 3:
-        score += 0.5
-    
-    # 8. Emotional State
-    emotional = obs.get('emotional_state') or 5
-    if emotional <= 4:
-        score += 2
-
-    # 9. Cycle phase (PMS/luteal risk elevation)
-    if obs.get('cycle_in_high_risk_phase'):
-        uid = current_user.id if current_user and current_user.is_authenticated else None
-        score += get_current_weights(uid).get('cycle_phase', 1.0)
-
-    return round(score, 1)
-
-
-
 def get_risk_level(score):
     """
     Determine risk level based on score.
@@ -3169,12 +3155,29 @@ def get_contributing_factors(obs: dict) -> list:
         """Identify what's contributing to today's risk score."""
         factors = []
         
-        # UV exposure
+        # UV exposure (weighted dose with protection)
         sun_min = obs.get('sun_exposure_min') or 0
-        if sun_min >= 100:
-            factors.append({'name': 'High UV exposure', 'points': 3, 'color': '#d4b84a'})
-        elif sun_min >= 70:
-            factors.append({'name': 'Moderate UV exposure', 'points': 1.25, 'color': '#d4b84a'})
+        uv_row = obs.get('_uv_row')
+        if uv_row is None and obs.get('date'):
+            try:
+                _uid = current_user.id if current_user and current_user.is_authenticated else None
+                _prefs = db.get_user_preferences(_uid) if _uid else {}
+                _loc = db.make_location_key(
+                    _prefs.get('location_lat') or CONFIG.get('location_lat', 0),
+                    _prefs.get('location_lon') or CONFIG.get('location_lon', 0),
+                ) if _prefs else 'default'
+                uv_row = db.get_uv_data(_loc, obs['date'])
+            except Exception:
+                uv_row = None
+        protection = UV_PROTECTION_MULTIPLIERS.get(
+            obs.get('uv_protection_level', 'none'), 1.0)
+        w_uv = weighted_uv(uv_row)
+        uv_dose = (w_uv ** 1.5) * sun_min * protection
+        prot_label = obs.get('uv_protection_level') or 'none'
+        if uv_dose >= 800:
+            factors.append({'name': f'High UV dose ({prot_label})', 'points': 3, 'color': '#d4b84a'})
+        elif uv_dose >= 400:
+            factors.append({'name': f'Moderate UV dose ({prot_label})', 'points': 1.25, 'color': '#d4b84a'})
         
         # Overexertion
         steps = obs.get('steps') or 0

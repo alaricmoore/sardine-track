@@ -49,34 +49,80 @@
 
 <!-- UV strip - auto-fetched on page load -->
 {% if uv %}
-<div class="uv-strip">
+<div class="uv-strip" id="uv-strip">
     <div class="uv-value">
         <span class="label">morning</span>
-        <span class="number">{{ uv.uv_morning }}</span>
+        <span class="number" id="uv-morning-val">{{ uv.uv_morning }}</span>
     </div>
     <div class="uv-value">
         <span class="label">noon</span>
-        <span class="number">{{ uv.uv_noon }}</span>
+        <span class="number" id="uv-noon-val">{{ uv.uv_noon }}</span>
     </div>
     <div class="uv-value">
         <span class="label">evening</span>
-        <span class="number">{{ uv.uv_evening }}</span>
+        <span class="number" id="uv-evening-val">{{ uv.uv_evening }}</span>
     </div>
     <div class="uv-value">
         <span class="label">source</span>
-        <span class="number" style="font-size:0.85rem; color: var(--text-muted);">
+        <span class="number" id="uv-source-val" style="font-size:0.85rem; color: var(--text-muted);">
             {{ uv.source }}
         </span>
     </div>
 </div>
+{% if uv.source == "yesterday" %}
+<div class="card" style="border-color: var(--color-accent); background: var(--bg-elevated); margin-top: var(--space-xs);">
+    <p style="font-size:0.8rem; margin:0; color: var(--text-muted);">
+        showing <strong>yesterday's UV</strong> — today's data resolves after sundown
+    </p>
+    {% if forecast %}
+    <p style="font-size:0.85rem; margin: var(--space-xs) 0 0 0; color: var(--text-secondary);">
+        today's forecast:
+        <strong>{{ forecast.weather_summary or 'unknown' }}</strong>
+        {% if forecast.cloud_cover_pct is not none %} ({{ forecast.cloud_cover_pct }}% cloud cover){% endif %}
+        {% if forecast.temperature_high is not none %} — high {{ forecast.temperature_high }}°F{% endif %}
+    </p>
+    {% endif %}
+</div>
+{% endif %}
 {% else %}
 <div class="card" style="border-color: var(--color-accent); background: var(--bg-elevated);">
     <p style="font-size:0.875rem; margin:0;">
         <strong style="color:var(--text-primary);">UV data unavailable</strong>
-        <span style="color:var(--text-muted);"> — API unreachable or no internet.
-        Enter UV values manually below if known.</span>
+        <span style="color:var(--text-muted);"> — API unreachable or no internet.</span>
     </p>
 </div>
+{% endif %}
+
+<!-- Manual UV entry (collapsible) -->
+{% if not uv or uv.source in ("yesterday", "unavailable") %}
+<details style="margin-bottom: var(--space-sm);">
+    <summary style="cursor: pointer; font-size: 0.85rem; color: var(--color-accent); padding: var(--space-xs) 0;">
+        enter UV manually
+    </summary>
+    <div class="card" style="margin-top: var(--space-xs);">
+        <div style="display: flex; gap: var(--space-sm); flex-wrap: wrap;">
+            <div class="form-group" style="flex:1; min-width: 80px;">
+                <label style="font-size:0.8rem;">morning</label>
+                <input type="number" id="manual-uv-morning" step="0.1" min="0" max="15" placeholder="0.0">
+            </div>
+            <div class="form-group" style="flex:1; min-width: 80px;">
+                <label style="font-size:0.8rem;">noon</label>
+                <input type="number" id="manual-uv-noon" step="0.1" min="0" max="15" placeholder="0.0">
+            </div>
+            <div class="form-group" style="flex:1; min-width: 80px;">
+                <label style="font-size:0.8rem;">evening</label>
+                <input type="number" id="manual-uv-evening" step="0.1" min="0" max="15" placeholder="0.0">
+            </div>
+        </div>
+        <button type="button" id="save-manual-uv"
+                style="background: var(--color-accent); color: #fff; border: none;
+                       padding: var(--space-xs) var(--space-md); border-radius: 4px;
+                       font-size: 0.85rem; cursor: pointer;">
+            save UV
+        </button>
+        <span id="manual-uv-status" style="font-size: 0.8rem; color: var(--text-muted); margin-left: var(--space-sm);"></span>
+    </div>
+</details>
 {% endif %}
 
 <form method="POST" action="{{ url_for('daily_entry_submit') }}">
@@ -121,10 +167,30 @@
         </div>
 
         <div class="form-group">
-            <label>sun exposure <span style="color:var(--text-muted)">(minutes — override API if needed)</span></label>
-            <input type="number" name="sun_exposure_min" min="0"
-                placeholder="estimated minutes outdoors"
-                value="{{ existing.sun_exposure_min if existing and existing.sun_exposure_min else '' }}">
+            <label style="display: flex; align-items: center; gap: var(--space-sm);">
+                <input type="checkbox" name="stayed_indoors" id="stayed-indoors" value="1"
+                    {{ 'checked' if existing and existing.stayed_indoors else '' }}>
+                stayed indoors all day
+            </label>
+        </div>
+
+        <div id="sun-fields">
+            <div class="form-group">
+                <label>sun exposure <span style="color:var(--text-muted)">(minutes outdoors)</span></label>
+                <input type="number" name="sun_exposure_min" id="sun-exposure-min" min="0"
+                    placeholder="estimated minutes outdoors"
+                    value="{{ existing.sun_exposure_min if existing and existing.sun_exposure_min else '' }}">
+            </div>
+
+            <div class="form-group">
+                <label>UV protection</label>
+                <select name="uv_protection_level" id="uv-protection-level" style="font-size: 0.9rem;">
+                    <option value="none" {{ 'selected' if not existing or not existing.uv_protection_level or existing.uv_protection_level == 'none' else '' }}>no protection</option>
+                    <option value="spf_hat" {{ 'selected' if existing and existing.uv_protection_level == 'spf_hat' else '' }}>SPF + hat</option>
+                    <option value="full_cover" {{ 'selected' if existing and existing.uv_protection_level == 'full_cover' else '' }}>full cover (long sleeves, umbrella)</option>
+                    <option value="indoors_only" {{ 'selected' if existing and existing.uv_protection_level == 'indoors_only' else '' }}>indoors only (windows, car)</option>
+                </select>
+            </div>
         </div>
     </div>
     {% else %}
@@ -138,6 +204,10 @@
         value="{{ existing.steps if existing and existing.steps is not none else '' }}">
     <input type="hidden" name="sun_exposure_min"
         value="{{ existing.sun_exposure_min if existing and existing.sun_exposure_min is not none else '' }}">
+    <input type="hidden" name="stayed_indoors"
+        value="{{ '1' if existing and existing.stayed_indoors else '' }}">
+    <input type="hidden" name="uv_protection_level"
+        value="{{ existing.uv_protection_level if existing and existing.uv_protection_level else '' }}">
     {% endif %}
 
     <!-- Symptom flags -->
@@ -546,6 +616,75 @@
         const display = input.nextElementSibling;
         if (display) display.textContent = input.value;
     });
+
+    // Stayed indoors toggle
+    const indoorsBox = document.getElementById('stayed-indoors');
+    const sunFields = document.getElementById('sun-fields');
+    const sunInput = document.getElementById('sun-exposure-min');
+    const protSelect = document.getElementById('uv-protection-level');
+
+    function updateIndoors() {
+        if (!indoorsBox || !sunFields) return;
+        if (indoorsBox.checked) {
+            sunFields.style.opacity = '0.4';
+            sunFields.style.pointerEvents = 'none';
+            if (sunInput) sunInput.value = '0';
+            if (protSelect) protSelect.value = 'indoors_only';
+        } else {
+            sunFields.style.opacity = '1';
+            sunFields.style.pointerEvents = 'auto';
+        }
+    }
+    if (indoorsBox) {
+        indoorsBox.addEventListener('change', updateIndoors);
+        updateIndoors();
+    }
+
+    // Manual UV save
+    const saveBtn = document.getElementById('save-manual-uv');
+    if (saveBtn) {
+        saveBtn.addEventListener('click', async function() {
+            const m = parseFloat(document.getElementById('manual-uv-morning').value) || 0;
+            const n = parseFloat(document.getElementById('manual-uv-noon').value) || 0;
+            const e = parseFloat(document.getElementById('manual-uv-evening').value) || 0;
+            const status = document.getElementById('manual-uv-status');
+
+            try {
+                const resp = await fetch('{{ url_for("uv_manual") }}', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': '{{ csrf_token() }}'
+                    },
+                    body: JSON.stringify({
+                        date: '{{ entry_date }}',
+                        uv_morning: m,
+                        uv_noon: n,
+                        uv_evening: e
+                    })
+                });
+                if (resp.ok) {
+                    status.textContent = 'saved';
+                    status.style.color = 'var(--color-accent)';
+                    // Update UV strip if it exists
+                    const mv = document.getElementById('uv-morning-val');
+                    const nv = document.getElementById('uv-noon-val');
+                    const ev = document.getElementById('uv-evening-val');
+                    const sv = document.getElementById('uv-source-val');
+                    if (mv) mv.textContent = m.toFixed(1);
+                    if (nv) nv.textContent = n.toFixed(1);
+                    if (ev) ev.textContent = e.toFixed(1);
+                    if (sv) sv.textContent = 'manual';
+                } else {
+                    status.textContent = 'error saving';
+                    status.style.color = 'var(--color-danger)';
+                }
+            } catch (err) {
+                status.textContent = 'network error';
+                status.style.color = 'var(--color-danger)';
+            }
+        });
+    }
 </script>
 
 <style>

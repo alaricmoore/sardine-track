@@ -350,6 +350,153 @@ def store_manual_uv(date_str: str, uv_morning: float,
 
 
 # ============================================================
+# Weather forecast (cloud cover + high temp for today)
+# ============================================================
+
+WEATHER_URL = "https://api.open-meteo.com/v1/forecast"
+
+
+def fetch_weather_for_today(lat: float, lon: float,
+                            timezone: str = "America/Chicago") -> Optional[dict]:
+    """Fetch today's cloud cover and high temperature from Open-Meteo.
+    Returns {cloud_cover_pct, temperature_high, weather_summary} or None.
+    """
+    try:
+        today_str = date.today().isoformat()
+        response = requests.get(WEATHER_URL, params={
+            "latitude": lat,
+            "longitude": lon,
+            "hourly": "cloud_cover",
+            "daily": "temperature_2m_max",
+            "temperature_unit": "fahrenheit",
+            "timezone": timezone,
+            "start_date": today_str,
+            "end_date": today_str,
+        }, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+
+        # Daytime average cloud cover (8am-6pm = hours 8-17)
+        hourly_cc = data.get("hourly", {}).get("cloud_cover", [])
+        daytime = hourly_cc[8:18] if len(hourly_cc) >= 18 else hourly_cc
+        avg_cc = sum(daytime) / len(daytime) if daytime else None
+
+        # High temp
+        daily_max = data.get("daily", {}).get("temperature_2m_max", [])
+        high_temp = daily_max[0] if daily_max else None
+
+        # Derive summary
+        if avg_cc is not None:
+            if avg_cc < 25:
+                summary = "sunny"
+            elif avg_cc < 50:
+                summary = "partly cloudy"
+            elif avg_cc < 75:
+                summary = "mostly cloudy"
+            else:
+                summary = "overcast"
+        else:
+            summary = None
+
+        return {
+            "cloud_cover_pct": round(avg_cc, 1) if avg_cc is not None else None,
+            "temperature_high": round(high_temp, 1) if high_temp is not None else None,
+            "weather_summary": summary,
+        }
+    except Exception as e:
+        print(f"[weather] fetch failed: {e}")
+        return None
+
+
+# ============================================================
+# Smart UV fetch — handles today's zeros gracefully
+# ============================================================
+
+def smart_fetch_uv_for_date(target_date: str,
+                            location_key: Optional[str] = None,
+                            timezone: str = "America/Chicago") -> Optional[dict]:
+    """Smart UV fetch that handles today's unresolved data.
+
+    - Past dates: normal API fetch + store
+    - Today before 8pm local: return yesterday's UV as fallback + weather forecast
+    - Today after 8pm local: fetch today's resolved UV normally
+    - Future dates: return None
+    """
+    import db
+
+    config = load_config()
+    if location_key is None:
+        location_key = db.make_location_key(
+            config["location_lat"], config["location_lon"]
+        )
+
+    target = datetime.strptime(target_date, "%Y-%m-%d").date()
+    today = date.today()
+
+    # Future dates — nothing to fetch
+    if target > today:
+        return None
+
+    # Past dates — use existing logic
+    if target < today:
+        return fetch_and_store_uv_for_date(target_date, location_key)
+
+    # Today — check local time
+    try:
+        from zoneinfo import ZoneInfo
+        local_now = datetime.now(ZoneInfo(timezone))
+    except Exception:
+        local_now = datetime.now()
+
+    if local_now.hour >= 20:
+        # After 8pm — today's data should be resolved
+        return fetch_and_store_uv_for_date(target_date, location_key)
+
+    # Before 8pm — today's UV is unreliable. Use yesterday + forecast.
+    # First check if we already have good data stored for today (manual entry)
+    existing_today = db.get_uv_data(location_key, target_date)
+    if existing_today and existing_today.get("source") in ("manual", "api"):
+        # Manual entry or a late-day re-fetch already stored
+        if existing_today.get("uv_noon") and existing_today["uv_noon"] > 0:
+            return existing_today
+
+    # Fall back to yesterday's UV
+    yesterday_str = (today - timedelta(days=1)).isoformat()
+    yesterday_uv = db.get_uv_data(location_key, yesterday_str)
+    if not yesterday_uv:
+        # Try to fetch yesterday if not stored
+        yesterday_uv = fetch_and_store_uv_for_date(yesterday_str, location_key)
+
+    # Fetch today's weather forecast
+    lat = config.get("location_lat")
+    lon = config.get("location_lon")
+    forecast = None
+    if lat and lon:
+        forecast = fetch_weather_for_today(lat, lon, timezone)
+
+    if yesterday_uv:
+        return {
+            "uv_morning": yesterday_uv.get("uv_morning", 0),
+            "uv_noon": yesterday_uv.get("uv_noon", 0),
+            "uv_evening": yesterday_uv.get("uv_evening", 0),
+            "source": "yesterday",
+            "forecast": forecast,
+        }
+
+    # No yesterday data either — return forecast-only stub
+    if forecast:
+        return {
+            "uv_morning": 0,
+            "uv_noon": 0,
+            "uv_evening": 0,
+            "source": "unavailable",
+            "forecast": forecast,
+        }
+
+    return None
+
+
+# ============================================================
 # Quick test - run this file directly to verify API connectivity
 # ============================================================
 

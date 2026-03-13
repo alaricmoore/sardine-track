@@ -207,6 +207,10 @@ def create_database():
             -- Catch-all
             notes               TEXT,
 
+            -- UV context
+            stayed_indoors      INTEGER DEFAULT 0,
+            uv_protection_level TEXT,
+
             UNIQUE(user_id, date)
         )
     """)
@@ -284,7 +288,10 @@ def create_database():
             uv_morning   REAL,
             uv_noon      REAL,
             uv_evening   REAL,
-            source       TEXT DEFAULT 'api',
+            source          TEXT DEFAULT 'api',
+            cloud_cover_pct  REAL,
+            temperature_high REAL,
+            weather_summary  TEXT,
             UNIQUE(location_key, date)
         )
     """)
