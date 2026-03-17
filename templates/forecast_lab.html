@@ -183,6 +183,69 @@
             </div>
         </div>
 
+        <!-- Category Multipliers -->
+        <div class="terminal-line" style="font-size:1.2rem; margin-bottom:1rem;">
+            CATEGORY MULTIPLIERS
+        </div>
+        <div style="font-size:0.75rem; color:#666; margin-bottom:var(--space-md);">
+            Scale entire scoring categories. 0 = disabled, 1 = default, 2 = double weight.
+        </div>
+
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:var(--space-lg); margin-bottom:var(--space-xl); padding-bottom:var(--space-lg); border-bottom:1px solid var(--border-subtle);">
+            <div style="margin-bottom:var(--space-md);">
+                <div class="terminal-line">
+                    UV Sensitivity:
+                    <span id="weight-uv_weight-value">{{ current_weights.uv_weight }}</span>
+                </div>
+                <input type="range" class="weight-slider" id="weight-uv_weight"
+                       min="0" max="2" step="0.25"
+                       value="{{ current_weights.uv_weight }}"
+                       oninput="updateWeight('uv_weight', this.value)">
+                <div style="font-size:0.75rem; color:#666; margin-top:0.25rem;">
+                    UV dose + cumulative UV scoring
+                </div>
+            </div>
+            <div style="margin-bottom:var(--space-md);">
+                <div class="terminal-line">
+                    Exertion:
+                    <span id="weight-exertion_weight-value">{{ current_weights.exertion_weight }}</span>
+                </div>
+                <input type="range" class="weight-slider" id="weight-exertion_weight"
+                       min="0" max="2" step="0.25"
+                       value="{{ current_weights.exertion_weight }}"
+                       oninput="updateWeight('exertion_weight', this.value)">
+                <div style="font-size:0.75rem; color:#666; margin-top:0.25rem;">
+                    Steps / sleep overexertion scoring
+                </div>
+            </div>
+            <div style="margin-bottom:var(--space-md);">
+                <div class="terminal-line">
+                    Temperature:
+                    <span id="weight-temperature_weight-value">{{ current_weights.temperature_weight }}</span>
+                </div>
+                <input type="range" class="weight-slider" id="weight-temperature_weight"
+                       min="0" max="2" step="0.25"
+                       value="{{ current_weights.temperature_weight }}"
+                       oninput="updateWeight('temperature_weight', this.value)">
+                <div style="font-size:0.75rem; color:#666; margin-top:0.25rem;">
+                    Basal temperature delta scoring
+                </div>
+            </div>
+            <div style="margin-bottom:var(--space-md);">
+                <div class="terminal-line">
+                    Pain / Fatigue:
+                    <span id="weight-pain_fatigue_weight-value">{{ current_weights.pain_fatigue_weight }}</span>
+                </div>
+                <input type="range" class="weight-slider" id="weight-pain_fatigue_weight"
+                       min="0" max="2" step="0.25"
+                       value="{{ current_weights.pain_fatigue_weight }}"
+                       oninput="updateWeight('pain_fatigue_weight', this.value)">
+                <div style="font-size:0.75rem; color:#666; margin-top:0.25rem;">
+                    Pain scale, fatigue, emotional state scoring
+                </div>
+            </div>
+        </div>
+
         <div class="terminal-line" style="font-size:1.2rem; margin-bottom:1rem;">
             SYMPTOM WEIGHTS
         </div>

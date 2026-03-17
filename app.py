@@ -87,8 +87,11 @@ def _compute_cumulative_uv(obs_date: str, obs_by_date: dict, location_key: str) 
     return total
 
 
-# Default symptom weights (factory settings)
+# Default weights (factory settings)
+# Symptom weights control points added per symptom checked.
+# Category multipliers scale entire scoring categories (1.0 = default).
 DEFAULT_WEIGHTS = {
+    # Symptom weights
     'neurological': 1.5,
     'cognitive': 1.0,
     'musculature': 1.5,
@@ -98,6 +101,12 @@ DEFAULT_WEIGHTS = {
     'mucosal': 0.25,
     'rheumatic': 0.5,
     'cycle_phase': 1.0,
+    # Category multipliers
+    'uv_weight': 1.0,
+    'exertion_weight': 1.0,
+    'temperature_weight': 1.0,
+    'pain_fatigue_weight': 1.0,
+    # Threshold
     'flare_threshold': 8.0,
 }
 
@@ -2884,6 +2893,12 @@ def calculate_flare_prime_score(obs, weights_override=None):
     else:
         weights = get_current_weights(current_user.id if current_user.is_authenticated else None)
 
+    # Category multipliers (default 1.0 = no change)
+    uv_w = weights.get('uv_weight', 1.0)
+    exertion_w = weights.get('exertion_weight', 1.0)
+    temp_w = weights.get('temperature_weight', 1.0)
+    pf_w = weights.get('pain_fatigue_weight', 1.0)
+
     # 1. UV Dose (weighted UV × sun minutes × protection factor)
     sun_min = obs.get('sun_exposure_min') or 0
     uv_row = obs.get('_uv_row')
@@ -2904,16 +2919,16 @@ def calculate_flare_prime_score(obs, weights_override=None):
     w_uv = weighted_uv(uv_row)
     uv_dose = (w_uv ** 1.5) * sun_min * protection
     if uv_dose >= 800:
-        score += 3
+        score += 3 * uv_w
     elif uv_dose >= 400:
-        score += 1.25
+        score += 1.25 * uv_w
 
     # Cumulative UV load bonus (prior 2 days)
     cum_uv = obs.get('_cumulative_uv_dose')
     if cum_uv is not None and cum_uv >= 1500:
-        score += 1.5
+        score += 1.5 * uv_w
     elif cum_uv is not None and cum_uv >= 1000:
-        score += 0.75
+        score += 0.75 * uv_w
 
     # 2. Physical Overexertion (steps / hours slept)
     steps = obs.get('steps') or 0
@@ -2928,27 +2943,26 @@ def calculate_flare_prime_score(obs, weights_override=None):
             steps_baseline = None
 
     if steps_baseline and steps_baseline > 0 and steps > 0:
-        # Personalized: ratio of actual to baseline, scaled by sleep deficit
         overexertion = (steps / steps_baseline) * (8.0 / max(hours_slept, 1))
         if overexertion >= 1.8:
-            score += 2.0
+            score += 2.0 * exertion_w
         elif overexertion >= 1.4:
-            score += 1.5
+            score += 1.5 * exertion_w
     elif hours_slept > 0:
         exertion_ratio = steps / hours_slept
         if exertion_ratio >= 2000:
-            score += 2.0
+            score += 2.0 * exertion_w
         elif exertion_ratio >= 1500:
-            score += 1.5
-    
+            score += 1.5 * exertion_w
+
     # 3. Basal Temperature (simplified, non-overlapping)
     basal_temp = obs.get('basal_temp_delta') or 0
     if basal_temp >= 0.8:
-        score += 3
+        score += 3 * temp_w
     elif basal_temp >= 0.5:
-        score += 2
+        score += 2 * temp_w
     elif basal_temp >= 0.3:
-        score += 1
+        score += 1 * temp_w
     
     # 4. Symptoms (WEIGHTS FROM CONFIG)
     if obs.get('neurological'):
@@ -2982,21 +2996,21 @@ def calculate_flare_prime_score(obs, weights_override=None):
     # 6. Pain Scale
     pain = obs.get('pain_scale') or 0
     if pain >= 7:
-        score += 1
-    
+        score += 1 * pf_w
+
     # 7. Fatigue Scale
     fatigue = obs.get('fatigue_scale') or 0
     if fatigue >= 7:
-        score += 3
+        score += 3 * pf_w
     elif fatigue > 5:
-        score += 1
+        score += 1 * pf_w
     elif fatigue > 3:
-        score += 0.5
-    
+        score += 0.5 * pf_w
+
     # 8. Emotional State
     emotional = obs.get('emotional_state') or 5
     if emotional <= 4:
-        score += 2
+        score += 2 * pf_w
 
     # 9. Cycle phase (PMS/luteal risk elevation)
     if obs.get('cycle_in_high_risk_phase'):
@@ -3280,33 +3294,42 @@ def forecast_lab_simulate():
 def forecast_lab_apply():
     """
     Apply custom weights to the model.
-    Saves weights to config file.
+    Saves weights to user preferences and recalculates stats.
     """
     from flask import request, jsonify
-    
+
     try:
         custom_weights = request.json.get('weights', {})
-        
+
         # Validate weights
+        _category_keys = ('uv_weight', 'exertion_weight', 'temperature_weight', 'pain_fatigue_weight')
         for key, value in custom_weights.items():
             if not isinstance(value, (int, float)):
                 return jsonify({'success': False, 'error': f'Invalid weight for {key}'}), 400
             if key == 'flare_threshold':
                 if value < 4 or value > 20:
                     return jsonify({'success': False, 'error': f'Invalid weight for {key}'}), 400
+            elif key in _category_keys:
+                if value < 0 or value > 2:
+                    return jsonify({'success': False, 'error': f'Invalid weight for {key}'}), 400
             elif value < 0 or value > 3:
                 return jsonify({'success': False, 'error': f'Invalid weight for {key}'}), 400
-        
+
         # Save to user preferences
         save_custom_weights(custom_weights, user_id=current_user.id)
-        
-        # Recalculate stats with new weights
+
+        # Invalidate cached prefs so get_current_weights reads fresh data
+        from flask import g
+        if hasattr(g, '_user_prefs'):
+            del g._user_prefs
+
+        # Recalculate stats with the just-saved weights
         all_obs = db.get_all_daily_observations(uid())
         all_obs.sort(key=lambda x: x['date'], reverse=True)
         _inject_cycle_phase(all_obs)
         analysis_set = all_obs[:60]
-        new_stats = calculate_model_stats(analysis_set)
-        
+        new_stats = calculate_model_stats(analysis_set, custom_weights)
+
         return jsonify({
             'success': True,
             'message': 'Weights applied successfully!',
