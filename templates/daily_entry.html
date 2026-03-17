@@ -93,25 +93,27 @@
 </div>
 {% endif %}
 
-<!-- Manual UV entry (collapsible) -->
-{% if not uv or uv.source in ("yesterday", "unavailable") %}
+<!-- Manual UV entry (collapsible) - always available -->
 <details style="margin-bottom: var(--space-sm);">
     <summary style="cursor: pointer; font-size: 0.85rem; color: var(--color-accent); padding: var(--space-xs) 0;">
-        enter UV manually
+        {% if uv and uv.source == "api" %}override UV manually{% else %}enter UV manually{% endif %}
     </summary>
     <div class="card" style="margin-top: var(--space-xs);">
         <div style="display: flex; gap: var(--space-sm); flex-wrap: wrap;">
             <div class="form-group" style="flex:1; min-width: 80px;">
                 <label style="font-size:0.8rem;">morning</label>
-                <input type="number" id="manual-uv-morning" step="0.1" min="0" max="15" placeholder="0.0">
+                <input type="number" id="manual-uv-morning" step="0.1" min="0" max="15"
+                       value="{{ uv.uv_morning if uv else '' }}" placeholder="0.0">
             </div>
             <div class="form-group" style="flex:1; min-width: 80px;">
                 <label style="font-size:0.8rem;">noon</label>
-                <input type="number" id="manual-uv-noon" step="0.1" min="0" max="15" placeholder="0.0">
+                <input type="number" id="manual-uv-noon" step="0.1" min="0" max="15"
+                       value="{{ uv.uv_noon if uv else '' }}" placeholder="0.0">
             </div>
             <div class="form-group" style="flex:1; min-width: 80px;">
                 <label style="font-size:0.8rem;">evening</label>
-                <input type="number" id="manual-uv-evening" step="0.1" min="0" max="15" placeholder="0.0">
+                <input type="number" id="manual-uv-evening" step="0.1" min="0" max="15"
+                       value="{{ uv.uv_evening if uv else '' }}" placeholder="0.0">
             </div>
         </div>
         <button type="button" id="save-manual-uv"
@@ -123,7 +125,6 @@
         <span id="manual-uv-status" style="font-size: 0.8rem; color: var(--text-muted); margin-left: var(--space-sm);"></span>
     </div>
 </details>
-{% endif %}
 
 <form method="POST" action="{{ url_for('daily_entry_submit') }}">
     <input type="hidden" name="date" value="{{ entry_date }}">

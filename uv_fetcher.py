@@ -228,7 +228,7 @@ def fetch_and_store_uv_for_date(target_date: str,
 
     # Check if we already have it stored
     existing = db.get_uv_data(location_key, target_date)
-    if existing and existing.get("source") == "api":
+    if existing and existing.get("source") in ("api", "manual"):
         return existing
 
     # Fetch from API
@@ -266,7 +266,7 @@ def fetch_and_store_uv_range(start_date: str, end_date: str,
 
     for uv in results:
         existing = db.get_uv_data(location_key, uv["date"])
-        if existing and existing.get("source") == "api":
+        if existing and existing.get("source") in ("api", "manual"):
             continue
         db.upsert_uv_data(
             location_key=location_key,

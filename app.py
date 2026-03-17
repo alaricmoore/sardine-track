@@ -953,17 +953,27 @@ def _check_period_nudge() -> None:
         print(f"[period-nudge] error: {e}")
 
 
-# Start scheduler — guard against Flask debug-mode double-start
-if not app.debug or os.environ.get("WERKZEUG_RUN_MAIN") == "true":
+# Start scheduler — guard against Flask reloader double-start
+# CONFIG["debug"] is available at import time (unlike app.debug which is set later by app.run).
+_is_reloader_parent = (
+    CONFIG.get("debug", False) and os.environ.get("WERKZEUG_RUN_MAIN") != "true"
+)
+
+if not _is_reloader_parent:
     _tz = CONFIG.get("timezone", "UTC")
     _scheduler = BackgroundScheduler(timezone=_tz)
-    _scheduler.add_job(_check_and_send_reminders, "interval", minutes=1)
+    _scheduler.add_job(_check_and_send_reminders, "interval", minutes=1,
+                       id="reminders", replace_existing=True)
     _alert_hour = CONFIG.get("flare_alert_hour", 8)
-    _scheduler.add_job(_check_flare_risk_alert, "cron", hour=_alert_hour, minute=0)
-    _uv_alert_hour = CONFIG.get("uv_alert_hour", 9)
-    _scheduler.add_job(_check_uv_fetch, "cron", hour=_uv_alert_hour, minute=0)
-    _scheduler.add_job(_check_daily_reminders, "cron", minute=0)  # Runs every hour on the hour
-    _scheduler.add_job(_check_period_nudge, "cron", minute=30)   # Every hour at :30
+    _scheduler.add_job(_check_flare_risk_alert, "cron", hour=_alert_hour, minute=0,
+                       id="flare_alert", replace_existing=True)
+    _uv_alert_hour = CONFIG.get("uv_alert_hour", 13)
+    _scheduler.add_job(_check_uv_fetch, "cron", hour=_uv_alert_hour, minute=0,
+                       id="uv_fetch", replace_existing=True)
+    _scheduler.add_job(_check_daily_reminders, "cron", minute=0,
+                       id="daily_reminders", replace_existing=True)
+    _scheduler.add_job(_check_period_nudge, "cron", minute=30,
+                       id="period_nudge", replace_existing=True)
     _scheduler.start()
 
 
@@ -2995,14 +3005,18 @@ def calculate_flare_prime_score(obs, weights_override=None):
     return round(score, 1)
 
 def calculate_model_stats(observations, custom_weights=None):
-    """Calculate model accuracy metrics."""
-    from collections import Counter
-    
+    """Calculate model accuracy metrics with severity breakdown."""
     true_pos = 0
     true_neg = 0
     false_pos = 0
     false_neg = 0
-    
+
+    # Severity breakdown
+    missed_minor = 0
+    missed_major = 0
+    caught_minor = 0
+    caught_major = 0
+
     # Resolve threshold from custom weights or user prefs
     if custom_weights:
         threshold = custom_weights.get('flare_threshold', 8.0)
@@ -3019,27 +3033,40 @@ def calculate_model_stats(observations, custom_weights=None):
 
         predicted_flare = score >= threshold
         actual_flare = obs.get('flare_occurred') == 1
-        
+        severity = obs.get('flare_severity')  # 'minor', 'major', or None
+
         if predicted_flare and actual_flare:
             true_pos += 1
+            if severity == 'major':
+                caught_major += 1
+            elif severity == 'minor':
+                caught_minor += 1
         elif not predicted_flare and not actual_flare:
             true_neg += 1
         elif predicted_flare and not actual_flare:
             false_pos += 1
-        else:
+        else:  # missed flare
             false_neg += 1
-    
+            if severity == 'major':
+                missed_major += 1
+            elif severity == 'minor':
+                missed_minor += 1
+
     total = len(observations)
     correct = true_pos + true_neg
-    
+
     accuracy = round((correct / total * 100) if total > 0 else 0, 1)
-    
+
     predicted_pos = true_pos + false_pos
     precision = round((true_pos / predicted_pos * 100) if predicted_pos > 0 else 0, 1)
-    
+
     actual_pos = true_pos + false_neg
     recall = round((true_pos / actual_pos * 100) if actual_pos > 0 else 0, 1)
-    
+
+    # Major flare recall (most important safety metric)
+    total_major = caught_major + missed_major
+    major_recall = round((caught_major / total_major * 100) if total_major > 0 else 0, 1)
+
     return {
         'accuracy': accuracy,
         'precision': precision,
@@ -3047,7 +3074,12 @@ def calculate_model_stats(observations, custom_weights=None):
         'true_positives': true_pos,
         'true_negatives': true_neg,
         'false_positives': false_pos,
-        'false_negatives': false_neg
+        'false_negatives': false_neg,
+        'missed_minor': missed_minor,
+        'missed_major': missed_major,
+        'caught_minor': caught_minor,
+        'caught_major': caught_major,
+        'major_recall': major_recall,
     }
 
 def analyze_prediction_flips(observations, custom_weights):
@@ -3383,6 +3415,9 @@ def forecast():
     # Score trend delta vs yesterday
     score_delta = round(weighted_score - scores_7day[1]['score'], 1) if len(scores_7day) >= 2 else None
 
+    # Binary prediction (same logic used in accuracy grading)
+    predicted_flare = weighted_score >= _threshold
+
     return render_template(
         "forecast.html",
         has_data=True,
@@ -3397,7 +3432,9 @@ def forecast():
         recommendations=recommendations,
         trend_data=trend_data,
         breakdown=breakdown,
-        score_delta=score_delta
+        score_delta=score_delta,
+        predicted_flare=predicted_flare,
+        flare_threshold=round(_threshold, 1)
     )
 
 def get_risk_level(score, threshold=8.0):
@@ -3752,6 +3789,7 @@ def forecast_history():
             'risk_level': risk_info['level'],
             'risk_color': risk_info['color'],
             'flare_occurred': flare_occurred,
+            'flare_severity': obs.get('flare_severity') if flare_occurred else None,
             'predicted_high_risk': predicted_high,
             'prediction_correct': prediction_correct,
             'top_factors': top_factors
@@ -3814,12 +3852,15 @@ def forecast_accuracy():
     false_pos_factors = Counter()
     false_neg_factors = Counter()
     problem_cases = []
+    missed_minor = 0
+    missed_major = 0
 
     for obs in analysis_set:
         score = calculate_flare_prime_score(obs)
         predicted_flare = score >= _acc_threshold
         actual_flare = obs.get('flare_occurred') == 1
-        
+        severity = obs.get('flare_severity')
+
         if predicted_flare and actual_flare:
             true_positives += 1
         elif not predicted_flare and not actual_flare:
@@ -3830,7 +3871,7 @@ def forecast_accuracy():
             factors = get_contributing_factors(obs)
             for f in factors:
                 false_pos_factors[f['name']] += 1
-            
+
             # Add to problem cases
             if len(problem_cases) < 10:
                 problem_cases.append({
@@ -3842,11 +3883,15 @@ def forecast_accuracy():
                 })
         elif not predicted_flare and actual_flare:
             false_negatives += 1
+            if severity == 'major':
+                missed_major += 1
+            elif severity == 'minor':
+                missed_minor += 1
             # Track factors present in missed flare
             factors = get_contributing_factors(obs)
             for f in factors:
                 false_neg_factors[f['name']] += 1
-            
+
             # Add to problem cases
             if len(problem_cases) < 10:
                 problem_cases.append({
@@ -3854,7 +3899,8 @@ def forecast_accuracy():
                     'type': 'Missed Flare',
                     'type_color': '#c94040',
                     'score': round(score, 1),
-                    'factors': ', '.join([f['name'] for f in factors[:3]])
+                    'factors': ', '.join([f['name'] for f in factors[:3]]),
+                    'severity': severity or 'unknown'
                 })
     
     # Calculate metrics
@@ -3960,7 +4006,9 @@ def forecast_accuracy():
         false_positives=false_positives,
         false_negatives=false_negatives,
         suggestions=suggestions,
-        problem_cases=problem_cases[:10]
+        problem_cases=problem_cases[:10],
+        missed_minor=missed_minor,
+        missed_major=missed_major
     )
 
 # ============================================================
