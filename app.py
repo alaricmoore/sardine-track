@@ -4514,6 +4514,69 @@ def clinical_report():
         today=date.today().strftime("%B %d, %Y"),
     )
 # ============================================================
+# Health-sync API (iOS Shortcut / programmatic ingest)
+# ============================================================
+
+_HEALTH_SYNC_FIELDS = {"steps", "hrv", "resting_heart_rate", "basal_temp_delta", "sun_exposure_min"}
+
+@app.route("/api/health-sync", methods=["POST"])
+@csrf.exempt
+def api_health_sync():
+    """Accept health data from iOS Shortcut or other programmatic sources.
+
+    Auth: Bearer token from config.json["api_token"].
+    Body: JSON with user_id (required), date (optional, defaults to today),
+          and any subset of: steps, hrv, resting_heart_rate, basal_temp_delta,
+          sun_exposure_min.
+    """
+    # --- auth ---
+    token = CONFIG.get("api_token")
+    if not token:
+        return jsonify({"error": "api_token not configured"}), 500
+    auth = request.headers.get("Authorization", "")
+    if not auth.startswith("Bearer ") or auth[7:] != token:
+        return jsonify({"error": "unauthorized"}), 401
+
+    # --- parse body ---
+    body = request.get_json(silent=True)
+    if not body:
+        return jsonify({"error": "JSON body required"}), 400
+
+    user_id = body.get("user_id")
+    if not user_id:
+        return jsonify({"error": "user_id is required"}), 400
+
+    # Validate user exists
+    try:
+        user_id = int(user_id)
+        with db.get_db() as conn:
+            user = conn.execute("SELECT id FROM users WHERE id = ?", (user_id,)).fetchone()
+        if not user:
+            return jsonify({"error": f"user_id {user_id} not found"}), 404
+    except (ValueError, TypeError):
+        return jsonify({"error": "user_id must be an integer"}), 400
+
+    obs_date = body.get("date", date.today().isoformat())
+
+    # Filter to allowed fields only
+    data = {"date": obs_date}
+    fields_updated = []
+    for field in _HEALTH_SYNC_FIELDS:
+        if field in body and body[field] is not None:
+            try:
+                data[field] = float(body[field])
+                fields_updated.append(field)
+            except (ValueError, TypeError):
+                pass
+
+    if not fields_updated:
+        return jsonify({"error": "no valid health fields provided"}), 400
+
+    db.upsert_daily_observations(user_id, data)
+    return jsonify({"ok": True, "date": obs_date, "fields_updated": fields_updated})
+
+
+# ============================================================
 # API endpoints for Chart.js (JSON only)
 # ============================================================
 

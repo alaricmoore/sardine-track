@@ -117,6 +117,8 @@ def create_config():
     config["debug"] = existing.get("debug", False)
     # Preserve existing secret_key — regenerating it invalidates active sessions
     config["secret_key"] = existing.get("secret_key") or secrets.token_hex(32)
+    # API token for iOS Shortcut / programmatic health-sync endpoint
+    config["api_token"] = existing.get("api_token") or secrets.token_hex(32)
     # Preserve passcode if set
     if existing.get("passcode"):
         config["passcode"] = existing["passcode"]
@@ -125,6 +127,10 @@ def create_config():
         json.dump(config, f, indent=2)
 
     print(f"\nConfig saved to {CONFIG_FILE} (gitignored - stays local)")
+    if not existing.get("api_token"):
+        print(f"\nAPI token generated for health-sync endpoint:")
+        print(f"  {config['api_token']}")
+        print("  (copy this into your iOS Shortcut Authorization header)")
     print("\nOptional: add \"passcode\": \"yourpin\" to config.json to require")
     print("a login passcode to access the app (useful on shared networks).")
     return config
@@ -165,6 +171,7 @@ def create_database():
             steps               INTEGER,
             hours_slept         REAL,
             hrv                 REAL,
+            resting_heart_rate  REAL,              -- resting HR in bpm
             basal_temp_delta    REAL,              -- deviation from personal baseline
             sun_exposure_min    INTEGER,           -- minutes, from Apple Health or manual
             pain_scale          REAL,              -- 0-10
@@ -273,6 +280,11 @@ def create_database():
 
     try:
         c.execute("ALTER TABLE daily_observations ADD COLUMN gastro_notes TEXT")
+    except:
+        pass  # Column already exists
+
+    try:
+        c.execute("ALTER TABLE daily_observations ADD COLUMN resting_heart_rate REAL")
     except:
         pass  # Column already exists
 
