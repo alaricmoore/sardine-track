@@ -17,7 +17,7 @@ import json
 import os
 from datetime import date, datetime, timedelta
 
-from flask import Flask, jsonify, render_template, request, redirect, url_for, Response, session, flash
+from flask import Flask, jsonify, render_template, request, redirect, url_for, Response, session
 
 import bcrypt
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
@@ -2390,14 +2390,15 @@ def backfill_flare():
     notes = form.get("notes", "").strip() or None
 
     if not flare_date or severity not in ("minor", "major", "er_visit"):
-        flash("Date and severity are required.", "error")
-        return redirect(url_for("clinical_record") + "#backfill")
+        return redirect(url_for("clinical_record", msg="Date and severity are required.") + "#backfill")
 
     try:
-        date.fromisoformat(flare_date)
+        parsed_date = date.fromisoformat(flare_date)
     except ValueError:
-        flash("Invalid date format.", "error")
-        return redirect(url_for("clinical_record") + "#backfill")
+        return redirect(url_for("clinical_record", msg="Invalid date format.") + "#backfill")
+
+    if parsed_date > date.today():
+        return redirect(url_for("clinical_record", msg="Cannot backfill a future date.") + "#backfill")
 
     data = {
         "date": flare_date,
@@ -2408,8 +2409,47 @@ def backfill_flare():
         data["notes"] = notes
 
     db.upsert_daily_observations(uid(), data)
-    flash(f"Recorded {severity} flare on {flare_date}.", "success")
-    return redirect(url_for("clinical_record") + "#backfill")
+    severity_label = "ER visit" if severity == "er_visit" else severity
+    return redirect(url_for("clinical_record", msg=f"Recorded {severity_label} flare on {flare_date}.") + "#backfill")
+
+
+@app.route("/backfill/flare/update", methods=["POST"])
+@login_required
+def backfill_flare_update():
+    """Update a backfilled flare entry."""
+    form = request.form
+    flare_date = form.get("date", "").strip()
+    severity = form.get("flare_severity", "").strip()
+    notes = form.get("notes", "").strip() or None
+
+    if not flare_date or severity not in ("minor", "major", "er_visit"):
+        return redirect(url_for("clinical_record", msg="Date and severity are required.") + "#backfill")
+
+    data = {
+        "date": flare_date,
+        "flare_occurred": 1,
+        "flare_severity": severity,
+    }
+    if notes is not None:
+        data["notes"] = notes
+
+    db.upsert_daily_observations(uid(), data)
+    return redirect(url_for("clinical_record", msg=f"Updated flare on {flare_date}.") + "#backfill")
+
+
+@app.route("/backfill/flare/delete", methods=["POST"])
+@login_required
+def backfill_flare_delete():
+    """Remove flare flag from a daily observation (doesn't delete the whole row)."""
+    flare_date = request.form.get("date", "").strip()
+    if flare_date:
+        data = {
+            "date": flare_date,
+            "flare_occurred": 0,
+            "flare_severity": None,
+        }
+        db.upsert_daily_observations(uid(), data)
+    return redirect(url_for("clinical_record", msg=f"Removed flare on {flare_date}.") + "#backfill")
 
 
 @app.route("/medication/add", methods=["POST"])

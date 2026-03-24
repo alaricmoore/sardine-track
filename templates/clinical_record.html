@@ -1449,6 +1449,12 @@ CLINICIANS TAB
 <div class="tab-panel" id="tab-backfill">
     <a id="backfill"></a>
 
+    {% if request.args.get('msg') %}
+    <div class="card" style="margin-bottom:var(--space-md); border-left:4px solid var(--color-success); padding:var(--space-sm) var(--space-md);">
+        <span style="font-size:0.9rem; color:var(--text-secondary);">{{ request.args.get('msg') }}</span>
+    </div>
+    {% endif %}
+
     <div class="card" style="margin-bottom:var(--space-xl);">
         <div class="card-title">record past flare event</div>
         <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:var(--space-md);">
@@ -1459,7 +1465,7 @@ CLINICIANS TAB
             <div class="form-grid">
                 <div class="form-group">
                     <label>date *</label>
-                    <input type="date" name="date" required>
+                    <input type="date" name="date" required max="{{ today }}">
                 </div>
                 <div class="form-group">
                     <label>severity *</label>
@@ -1496,11 +1502,12 @@ CLINICIANS TAB
                         <th>date</th>
                         <th>severity</th>
                         <th>notes</th>
+                        <th style="width:80px;"></th>
                     </tr>
                 </thead>
                 <tbody>
                     {% for f in flare_history %}
-                    <tr>
+                    <tr id="flare-row-{{ loop.index }}">
                         <td>{{ f.date }}</td>
                         <td>
                             {% if f.flare_severity == 'er_visit' %}
@@ -1512,6 +1519,45 @@ CLINICIANS TAB
                             {% endif %}
                         </td>
                         <td style="font-size:0.85rem; color:var(--text-muted);">{{ f.notes or '' }}</td>
+                        <td>
+                            <div style="display:flex; gap:4px;">
+                                <button class="btn btn-secondary btn-sm"
+                                        onclick="document.getElementById('flare-edit-{{ loop.index }}').style.display =
+                                                 document.getElementById('flare-edit-{{ loop.index }}').style.display === 'none' ? 'table-row' : 'none'"
+                                        title="edit">edit</button>
+                                <form method="POST" action="{{ url_for('backfill_flare_delete') }}" style="margin:0;"
+                                      onsubmit="return confirm('Remove flare on {{ f.date }}?')">
+                                    <input type="hidden" name="date" value="{{ f.date }}">
+                                    <button type="submit" class="btn btn-danger btn-sm" title="delete">del</button>
+                                </form>
+                            </div>
+                        </td>
+                    </tr>
+                    <tr id="flare-edit-{{ loop.index }}" style="display:none;">
+                        <td colspan="4">
+                            <form method="POST" action="{{ url_for('backfill_flare_update') }}">
+                                <input type="hidden" name="date" value="{{ f.date }}">
+                                <div style="display:flex; gap:var(--space-md); align-items:center; flex-wrap:wrap;">
+                                    <div style="display:flex; gap:var(--space-sm);">
+                                        <label style="font-size:0.85rem;">
+                                            <input type="radio" name="flare_severity" value="minor"
+                                                {% if f.flare_severity == 'minor' %}checked{% endif %}> minor
+                                        </label>
+                                        <label style="font-size:0.85rem;">
+                                            <input type="radio" name="flare_severity" value="major"
+                                                {% if f.flare_severity == 'major' %}checked{% endif %}> major
+                                        </label>
+                                        <label style="font-size:0.85rem;">
+                                            <input type="radio" name="flare_severity" value="er_visit"
+                                                {% if f.flare_severity == 'er_visit' %}checked{% endif %}> ER visit
+                                        </label>
+                                    </div>
+                                    <input type="text" name="notes" value="{{ f.notes or '' }}"
+                                           placeholder="notes" style="flex:1; min-width:150px;">
+                                    <button type="submit" class="btn btn-primary btn-sm">save</button>
+                                </div>
+                            </form>
+                        </td>
                     </tr>
                     {% endfor %}
                 </tbody>
@@ -1557,7 +1603,7 @@ function toggleForm(id) {
 // ============================================================
 window.addEventListener('DOMContentLoaded', () => {
     const hash = window.location.hash.replace('#', '');
-    const valid = ['labs', 'ana', 'medications', 'events', 'clinicians'];
+    const valid = ['labs', 'ana', 'medications', 'events', 'clinicians', 'backfill'];
     if (valid.includes(hash)) {
         switchTab(hash);
     }
