@@ -133,6 +133,79 @@ Setup instructions are in your account profile.
 
 ---
 
+## Auto-Sync from Apple Health (iOS Shortcut)
+
+If you have an Apple Watch, you can set up your iPhone to automatically send your health data to the biotracker every night — no manual entry required for steps, HRV, resting heart rate, or basal body temperature.
+
+This uses **iOS Shortcuts**, a built-in iPhone feature that lets you chain together small actions (like "read my step count" and "send it to a website") without writing any code.
+
+### What gets synced
+
+- **Steps** — your total for the day
+- **HRV** — heart rate variability from your watch
+- **Resting heart rate** — useful for tracking tachycardia or inflammation patterns
+- **Basal body temperature** — the delta your watch calculates from your personal baseline
+
+### What doesn't get synced
+
+- **Sleep** — Apple Health has trouble with polyphasic sleep and sleepwalking, so sleep is better entered manually
+- **Sun exposure minutes** — Apple tracks "Time in Daylight" on the watch but doesn't make it available to Shortcuts (thanks, Apple)
+- **Symptoms, flare status, notes** — these are personal observations that only you can provide
+
+### How to set it up
+
+1. Open the **Shortcuts** app on your iPhone (it's pre-installed — blue and pink icon)
+2. Tap **+** to create a new shortcut, name it something like "Health Sync"
+3. Use the search bar to add these actions in order:
+
+**Get the date:**
+- Add a **Date** action
+- Add a **Format Date** action — set to Custom format: `yyyy-MM-dd`
+
+**Pull your health data (add four "Find Health Samples" actions):**
+- Step Count — sort by Start Date, Most Recent, limit 1
+- Heart Rate Variability — sort by Start Date, Most Recent, limit 1
+- Resting Heart Rate — sort by Start Date, Most Recent, limit 1
+- Body Temperature — sort by Start Date, Most Recent, limit 1
+
+For Steps, make sure you're getting the sum for the day, not just the last sample.
+
+**Build the data package:**
+- Add a **Dictionary** action with these keys:
+  - `user_id` (Number) — your user ID, usually `1`
+  - `date` (Text) — select the formatted date from earlier
+  - `steps` (Number) — select the step count result
+  - `hrv` (Number) — select the HRV result
+  - `resting_heart_rate` (Number) — select the resting HR result
+  - `basal_temp_delta` (Number) — select the body temperature result
+
+**Send it:**
+- Add **Get Contents of URL**
+  - URL: your biotracker address followed by `/api/health-sync`
+  - Method: POST
+  - Add header `Authorization` with value `Bearer` followed by your API token (from config.json on the server)
+  - Add header `Content-Type` with value `application/json`
+  - Request Body: JSON — select the Dictionary
+
+**Test it** by tapping the play button. You should see a response with `"ok": true`.
+
+### Make it automatic
+
+Go to the **Automation** tab in Shortcuts and set your shortcut to run automatically. Good trigger options:
+
+- **Bedtime begins** — syncs when your wind-down starts
+- **Time of Day** — set to late evening (like 11:50 PM)
+
+Set it to **Run Immediately** so it doesn't ask for confirmation each time.
+
+Once set up, your phone handles this in the background every night. On bad days — the days you need the data most — it's one less thing to do.
+
+### A note about your API token
+
+The token in your Shortcut gives write access to a limited set of biometric fields. It cannot touch your symptoms, medications, flare logs, or notes. But treat it like a password — don't share your Shortcut with anyone you wouldn't trust with your biotracker login.
+
+---
+
 ## A Note on What This Is (and Isn't)
 
 This app is not a medical device and does not give medical advice. It is a record-keeping and pattern-visualization tool.
