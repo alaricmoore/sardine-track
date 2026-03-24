@@ -20,6 +20,7 @@ Biotracking helps you:
 - Keep a longitudinal record of labs, medications, & clinical events, as well a list of your clinicians
 - Run flare forecasting based on your own historical patterns
 - Visualize trends pre/post medical interventions such as hydroxychloriquine or steroids or biologics or what have you.
+- Auto-sync biometrics from Apple Health via iOS Shortcut (steps, HRV, resting heart rate, basal body temperature)
 - Keep all your data local -- nothing leaves your computer, if you don't want it to.
 
 This is not a medical product. This is a tool for veracity: for people who need to make their invisible patterns visible.
