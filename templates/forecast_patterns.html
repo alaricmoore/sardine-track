@@ -1,0 +1,278 @@
+{% extends "base.html" %}
+
+{% block title %}pre-flare patterns — biotracking{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>pre-flare pattern analysis</h1>
+    <p class="page-subtitle">
+        what do the 3 days before severe events look like?
+    </p>
+</div>
+
+<div style="display:flex; gap:var(--space-md); align-items:center; margin-bottom:var(--space-lg);">
+    <a href="{{ url_for('forecast') }}" class="btn btn-secondary">
+        back to forecast
+    </a>
+    <a href="{{ url_for('forecast_accuracy') }}" class="btn btn-secondary">
+        accuracy
+    </a>
+</div>
+
+{% if not has_data %}
+<div class="card">
+    <p style="color:var(--text-muted);">Not enough data yet. Log daily entries and label flare severity to enable pattern analysis.</p>
+</div>
+{% else %}
+
+<!-- Flare counts summary -->
+<div class="card" style="margin-bottom:var(--space-xl);">
+    <div class="card-title">labeled flare events</div>
+    <div style="display:flex; gap:var(--space-xl); flex-wrap:wrap;">
+        <div style="text-align:center;">
+            <div style="font-size:1.5rem; font-weight:600; color:#ff4444;">{{ flare_counts.er_visit }}</div>
+            <div style="font-size:0.85rem; color:var(--text-muted);">ER visits</div>
+        </div>
+        <div style="text-align:center;">
+            <div style="font-size:1.5rem; font-weight:600; color:var(--color-danger);">{{ flare_counts.major }}</div>
+            <div style="font-size:0.85rem; color:var(--text-muted);">major flares</div>
+        </div>
+        <div style="text-align:center;">
+            <div style="font-size:1.5rem; font-weight:600; color:var(--color-warning);">{{ flare_counts.minor }}</div>
+            <div style="font-size:0.85rem; color:var(--text-muted);">minor flares</div>
+        </div>
+        <div style="text-align:center;">
+            <div style="font-size:1.5rem; font-weight:600; color:var(--text-muted);">{{ flare_counts.unlabeled }}</div>
+            <div style="font-size:0.85rem; color:var(--text-muted);">unlabeled</div>
+        </div>
+    </div>
+</div>
+
+<!-- Comparison table -->
+{% set tiers = [
+    ('er_visit', 'ER visits', '#ff4444'),
+    ('major', 'Major flares', 'var(--color-danger)'),
+    ('minor', 'Minor flares', 'var(--color-warning)'),
+    ('baseline', 'Baseline (no flare)', 'var(--text-muted)')
+] %}
+
+<div class="card" style="margin-bottom:var(--space-xl);">
+    <div class="card-title">biometrics in the 3 days before events</div>
+    <p style="font-size:0.8rem; color:var(--text-muted); margin-bottom:var(--space-md);">
+        Average values in the 3-day window preceding each type of event, compared to baseline days.
+    </p>
+    <div style="overflow-x:auto;">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th></th>
+                    {% for key, label, color in tiers %}
+                        {% if profiles[key] %}
+                        <th style="text-align:center; color:{{ color }};">{{ label }}<br>
+                            <span style="font-weight:normal; font-size:0.75rem;">({{ profiles[key].n_flares }} events)</span>
+                        </th>
+                        {% endif %}
+                    {% endfor %}
+                </tr>
+            </thead>
+            <tbody>
+                {% set metrics = [
+                    ('fatigue_avg', 'Fatigue (0-10)'),
+                    ('pain_avg', 'Pain (0-10)'),
+                    ('hrv_avg', 'HRV'),
+                    ('rhr_avg', 'Resting HR'),
+                    ('bbt_avg', 'BBT delta'),
+                    ('sleep_avg', 'Sleep (hrs)'),
+                    ('steps_avg', 'Steps'),
+                ] %}
+                {% for metric_key, metric_label in metrics %}
+                <tr>
+                    <td style="font-size:0.85rem; color:var(--text-secondary);">{{ metric_label }}</td>
+                    {% for key, label, color in tiers %}
+                        {% if profiles[key] %}
+                        <td style="text-align:center;">
+                            {% set val = profiles[key][metric_key] %}
+                            {% if val is not none %}
+                                {% set baseline_val = profiles['baseline'][metric_key] if profiles['baseline'] else none %}
+                                {% if baseline_val is not none and key != 'baseline' %}
+                                    {% set diff = val - baseline_val %}
+                                    <span style="font-weight:600;">{{ val }}</span>
+                                    {% if diff > 0 %}
+                                        <span style="font-size:0.75rem; color:var(--color-danger);">+{{ "%.1f"|format(diff) }}</span>
+                                    {% elif diff < 0 %}
+                                        <span style="font-size:0.75rem; color:var(--color-success);">{{ "%.1f"|format(diff) }}</span>
+                                    {% endif %}
+                                {% else %}
+                                    <span style="font-weight:600;">{{ val }}</span>
+                                {% endif %}
+                            {% else %}
+                                <span style="color:var(--text-muted);">--</span>
+                            {% endif %}
+                        </td>
+                        {% endif %}
+                    {% endfor %}
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Fatigue/Pain trajectory -->
+{% for key, label, color in tiers %}
+{% if profiles[key] and key != 'baseline' %}
+{% set p = profiles[key] %}
+{% if p.fatigue_trajectory.day3 is not none or p.pain_trajectory.day3 is not none %}
+<div class="card" style="margin-bottom:var(--space-md); border-left:4px solid {{ color }};">
+    <div class="card-title" style="color:{{ color }};">{{ label }} — trajectory</div>
+    <div style="display:flex; gap:var(--space-xl); flex-wrap:wrap; font-size:0.9rem;">
+        {% if p.fatigue_trajectory.day3 is not none and p.fatigue_trajectory.day1 is not none %}
+        <div>
+            <span style="color:var(--text-muted);">fatigue:</span>
+            {{ p.fatigue_trajectory.day3 }} (3 days out)
+            &rarr; {{ p.fatigue_trajectory.day1 }} (day before)
+            {% if p.fatigue_trajectory.day1 > p.fatigue_trajectory.day3 %}
+                <span style="color:var(--color-danger);">rising</span>
+            {% elif p.fatigue_trajectory.day1 < p.fatigue_trajectory.day3 %}
+                <span style="color:var(--color-success);">falling</span>
+            {% else %}
+                <span style="color:var(--text-muted);">stable</span>
+            {% endif %}
+        </div>
+        {% endif %}
+        {% if p.pain_trajectory.day3 is not none and p.pain_trajectory.day1 is not none %}
+        <div>
+            <span style="color:var(--text-muted);">pain:</span>
+            {{ p.pain_trajectory.day3 }} (3 days out)
+            &rarr; {{ p.pain_trajectory.day1 }} (day before)
+            {% if p.pain_trajectory.day1 > p.pain_trajectory.day3 %}
+                <span style="color:var(--color-danger);">rising</span>
+            {% elif p.pain_trajectory.day1 < p.pain_trajectory.day3 %}
+                <span style="color:var(--color-success);">falling</span>
+            {% else %}
+                <span style="color:var(--text-muted);">stable</span>
+            {% endif %}
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endif %}
+{% endif %}
+{% endfor %}
+
+<!-- Symptom frequency comparison -->
+<div class="card" style="margin-bottom:var(--space-xl);">
+    <div class="card-title">symptom frequency in pre-flare windows</div>
+    <p style="font-size:0.8rem; color:var(--text-muted); margin-bottom:var(--space-md);">
+        How often each symptom appears in the 3 days before each event type.
+    </p>
+    <div style="overflow-x:auto;">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>symptom</th>
+                    {% for key, label, color in tiers %}
+                        {% if profiles[key] %}
+                        <th style="text-align:center; color:{{ color }};">{{ label }}</th>
+                        {% endif %}
+                    {% endfor %}
+                </tr>
+            </thead>
+            <tbody>
+                {% for sym in symptom_keys %}
+                <tr>
+                    <td style="font-size:0.85rem;">{{ symptom_labels[sym] }}</td>
+                    {% for key, label, color in tiers %}
+                        {% if profiles[key] %}
+                        <td style="text-align:center;">
+                            {% set pct = profiles[key].symptom_freq[sym] %}
+                            <span style="
+                                {% if pct >= 50 %}color:var(--color-danger); font-weight:600;
+                                {% elif pct >= 25 %}color:var(--color-warning);
+                                {% else %}color:var(--text-muted);
+                                {% endif %}">
+                                {{ pct }}%
+                            </span>
+                        </td>
+                        {% endif %}
+                    {% endfor %}
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Top symptom combinations -->
+{% for key, label, color in tiers %}
+{% if profiles[key] and profiles[key].top_combos and key != 'baseline' %}
+<div class="card" style="margin-bottom:var(--space-md); border-left:4px solid {{ color }};">
+    <div class="card-title" style="color:{{ color }};">{{ label }} — common symptom combinations (pre-flare)</div>
+    <div style="font-size:0.9rem;">
+        {% for combo in profiles[key].top_combos %}
+        <div style="margin-bottom:var(--space-xs);">
+            <span style="color:var(--text-secondary);">{{ combo.symptoms | join(' + ') }}</span>
+            <span style="color:var(--text-muted); font-size:0.8rem;"> ({{ combo.count }}x)</span>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+{% endfor %}
+
+<!-- Cycle phase distribution -->
+{% set has_phase = false %}
+{% for key, label, color in tiers %}
+    {% if profiles[key] and profiles[key].phase_pct %}
+        {% set has_phase = true %}
+    {% endif %}
+{% endfor %}
+
+{% if has_phase %}
+<div class="card" style="margin-bottom:var(--space-xl);">
+    <div class="card-title">cycle phase distribution in pre-flare windows</div>
+    <div style="overflow-x:auto;">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>phase</th>
+                    {% for key, label, color in tiers %}
+                        {% if profiles[key] %}
+                        <th style="text-align:center; color:{{ color }};">{{ label }}</th>
+                        {% endif %}
+                    {% endfor %}
+                </tr>
+            </thead>
+            <tbody>
+                {% for phase in ['follicular', 'luteal', 'pms'] %}
+                <tr>
+                    <td style="font-size:0.85rem;">{{ phase }}</td>
+                    {% for key, label, color in tiers %}
+                        {% if profiles[key] %}
+                        <td style="text-align:center;">
+                            {{ profiles[key].phase_pct.get(phase, 0) }}%
+                        </td>
+                        {% endif %}
+                    {% endfor %}
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endif %}
+
+<div class="card" style="margin-bottom:var(--space-xl); border-left:4px solid var(--color-accent);">
+    <div class="card-title">how to read this</div>
+    <div style="font-size:0.85rem; color:var(--text-secondary); line-height:1.7;">
+        <p>This page compares what your body was doing in the <strong>3 days before</strong> each severity of flare event.</p>
+        <p>Look for differences between the ER/major columns and baseline. If fatigue is consistently higher before ER visits,
+           or a specific symptom combination keeps showing up, those are your warning signs.</p>
+        <p>The more labeled flare data you have, the more reliable these patterns become. With {{ flare_counts.er_visit }} ER visits
+           and {{ flare_counts.major }} major flares, {% if flare_counts.major >= 10 %}the major flare patterns are
+           fairly reliable{% else %}patterns will sharpen as you add more data{% endif %}.</p>
+    </div>
+</div>
+
+{% endif %}
+{% endblock %}

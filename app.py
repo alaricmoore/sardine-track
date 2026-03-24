@@ -4148,6 +4148,176 @@ def forecast_accuracy():
     )
 
 # ============================================================
+# Pre-Flare Pattern Analysis
+# ============================================================
+
+_PATTERN_SYMPTOMS = [
+    'neurological', 'cognitive', 'musculature', 'migraine',
+    'pulmonary', 'dermatological', 'rheumatic', 'mucosal', 'gastro',
+]
+_PATTERN_SYMPTOM_LABELS = {
+    'neurological': 'Neurological', 'cognitive': 'Cognitive',
+    'musculature': 'Musculature', 'migraine': 'Migraine',
+    'pulmonary': 'Pulmonary', 'dermatological': 'Dermatological',
+    'rheumatic': 'Rheumatic', 'mucosal': 'Mucosal', 'gastro': 'GI',
+}
+
+@app.route("/forecast/patterns")
+@login_required
+def forecast_patterns():
+    """Pre-flare pattern analysis — what do the days before severe events look like?"""
+    all_obs = db.get_all_daily_observations(uid())
+    if not all_obs:
+        return render_template("forecast_patterns.html", has_data=False)
+
+    all_obs.sort(key=lambda x: x['date'])
+    _inject_cycle_phase(all_obs)
+    obs_by_date = {o['date']: o for o in all_obs}
+
+    # Group flares by severity
+    flare_dates = {'er_visit': [], 'major': [], 'minor': [], 'unlabeled': []}
+    for obs in all_obs:
+        if obs.get('flare_occurred') == 1:
+            sev = obs.get('flare_severity') or 'unlabeled'
+            if sev in flare_dates:
+                flare_dates[sev].append(obs['date'])
+            else:
+                flare_dates['unlabeled'].append(obs['date'])
+
+    # Build pre-flare windows (3 days before each flare)
+    lookback = 3
+
+    def _build_window(flare_date_str):
+        """Get observations for the N days before a flare date."""
+        target = date.fromisoformat(flare_date_str)
+        window = []
+        for offset in range(1, lookback + 1):
+            d = (target - timedelta(days=offset)).isoformat()
+            obs = obs_by_date.get(d)
+            if obs:
+                window.append(obs)
+        return window
+
+    def _profile_windows(windows):
+        """Compute average biometrics and symptom frequencies across windows."""
+        if not windows:
+            return None
+
+        all_obs_in_windows = [obs for w in windows for obs in w]
+        n = len(all_obs_in_windows)
+        if n == 0:
+            return None
+
+        # Biometric averages
+        def _avg(key):
+            vals = [float(o[key]) for o in all_obs_in_windows if o.get(key) is not None]
+            return round(sum(vals) / len(vals), 2) if vals else None
+
+        # Symptom frequency (% of pre-flare days with each symptom)
+        symptom_freq = {}
+        for sym in _PATTERN_SYMPTOMS:
+            count = sum(1 for o in all_obs_in_windows if o.get(sym))
+            symptom_freq[sym] = round(count / n * 100, 1)
+
+        # Top symptom combos (which symptoms co-occur in the same day)
+        combos = {}
+        for o in all_obs_in_windows:
+            active = tuple(sorted(s for s in _PATTERN_SYMPTOMS if o.get(s)))
+            if active:
+                combos[active] = combos.get(active, 0) + 1
+        top_combos = sorted(combos.items(), key=lambda x: -x[1])[:5]
+
+        # Trajectory: compare day-3 vs day-1 for fatigue and pain
+        day1_fatigue = []
+        day3_fatigue = []
+        day1_pain = []
+        day3_pain = []
+        for w in windows:
+            if len(w) >= 1 and w[0].get('fatigue_scale') is not None:
+                day1_fatigue.append(float(w[0]['fatigue_scale']))
+            if len(w) >= 3 and w[2].get('fatigue_scale') is not None:
+                day3_fatigue.append(float(w[2]['fatigue_scale']))
+            if len(w) >= 1 and w[0].get('pain_scale') is not None:
+                day1_pain.append(float(w[0]['pain_scale']))
+            if len(w) >= 3 and w[2].get('pain_scale') is not None:
+                day3_pain.append(float(w[2]['pain_scale']))
+
+        def _safe_avg(lst):
+            return round(sum(lst) / len(lst), 1) if lst else None
+
+        # Cycle phase distribution
+        phase_counts = {'pms': 0, 'luteal': 0, 'follicular': 0}
+        for o in all_obs_in_windows:
+            ph = o.get('cycle_phase_name')
+            if ph in ('pms', 'luteal'):
+                phase_counts[ph] += 1
+            else:
+                phase_counts['follicular'] += 1
+        phase_pct = {k: round(v / n * 100, 1) for k, v in phase_counts.items()} if n else {}
+
+        return {
+            'n_flares': len(windows),
+            'n_obs': n,
+            'fatigue_avg': _avg('fatigue_scale'),
+            'pain_avg': _avg('pain_scale'),
+            'hrv_avg': _avg('hrv'),
+            'rhr_avg': _avg('resting_heart_rate'),
+            'bbt_avg': _avg('basal_temp_delta'),
+            'sleep_avg': _avg('hours_slept'),
+            'steps_avg': _avg('steps'),
+            'symptom_freq': symptom_freq,
+            'top_combos': [
+                {'symptoms': [_PATTERN_SYMPTOM_LABELS.get(s, s) for s in combo], 'count': cnt}
+                for combo, cnt in top_combos
+            ],
+            'fatigue_trajectory': {
+                'day3': _safe_avg(day3_fatigue),
+                'day1': _safe_avg(day1_fatigue),
+            },
+            'pain_trajectory': {
+                'day3': _safe_avg(day3_pain),
+                'day1': _safe_avg(day1_pain),
+            },
+            'phase_pct': phase_pct,
+        }
+
+    # Build profiles for each severity tier
+    profiles = {}
+    for sev in ('er_visit', 'major', 'minor'):
+        windows = [_build_window(d) for d in flare_dates[sev]]
+        windows = [w for w in windows if w]  # drop empty windows
+        profiles[sev] = _profile_windows(windows)
+
+    # Baseline: sample non-flare days (every 7th day that's not within 3 days of a flare)
+    all_flare_dates = set()
+    for dates_list in flare_dates.values():
+        for fd in dates_list:
+            target = date.fromisoformat(fd)
+            for offset in range(-3, 4):
+                all_flare_dates.add((target + timedelta(days=offset)).isoformat())
+
+    baseline_windows = []
+    non_flare_obs = [o for o in all_obs if o['date'] not in all_flare_dates]
+    for i in range(0, len(non_flare_obs), 7):
+        w = _build_window(non_flare_obs[i]['date'])
+        if w:
+            baseline_windows.append(w)
+    profiles['baseline'] = _profile_windows(baseline_windows)
+
+    # Count totals for display
+    flare_counts = {sev: len(dates) for sev, dates in flare_dates.items()}
+
+    return render_template(
+        "forecast_patterns.html",
+        has_data=True,
+        profiles=profiles,
+        flare_counts=flare_counts,
+        symptom_labels=_PATTERN_SYMPTOM_LABELS,
+        symptom_keys=_PATTERN_SYMPTOMS,
+    )
+
+
+# ============================================================
 # Search
 # ============================================================
 
