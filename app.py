@@ -4198,6 +4198,9 @@ def forecast_patterns():
                 window.append(obs)
         return window
 
+    # Get location key for UV lookups
+    loc_key = get_location_key()
+
     def _profile_windows(windows):
         """Compute average biometrics and symptom frequencies across windows."""
         if not windows:
@@ -4212,6 +4215,21 @@ def forecast_patterns():
         def _avg(key):
             vals = [float(o[key]) for o in all_obs_in_windows if o.get(key) is not None]
             return round(sum(vals) / len(vals), 2) if vals else None
+
+        # UV metrics: raw weighted UV index and computed UV dose per day
+        uv_indices = []
+        uv_doses = []
+        for o in all_obs_in_windows:
+            uv_row = db.get_uv_data(loc_key, o['date'])
+            if uv_row:
+                w_uv = weighted_uv(uv_row)
+                uv_indices.append(w_uv)
+                sun_min = float(o.get('sun_exposure_min') or 0)
+                protection = UV_PROTECTION_MULTIPLIERS.get(
+                    o.get('uv_protection_level') or 'none', 1.0)
+                uv_doses.append((w_uv ** 1.5) * sun_min * protection)
+        uv_index_avg = round(sum(uv_indices) / len(uv_indices), 2) if uv_indices else None
+        uv_dose_avg = round(sum(uv_doses) / len(uv_doses), 1) if uv_doses else None
 
         # Symptom frequency (% of pre-flare days with each symptom)
         symptom_freq = {}
@@ -4265,6 +4283,8 @@ def forecast_patterns():
             'bbt_avg': _avg('basal_temp_delta'),
             'sleep_avg': _avg('hours_slept'),
             'steps_avg': _avg('steps'),
+            'uv_index_avg': uv_index_avg,
+            'uv_dose_avg': uv_dose_avg,
             'symptom_freq': symptom_freq,
             'top_combos': [
                 {'symptoms': [_PATTERN_SYMPTOM_LABELS.get(s, s) for s in combo], 'count': cnt}
