@@ -1706,9 +1706,8 @@ def _detect_period_starts(sorted_obs: list) -> list[str]:
                         break
                 period_starts.append(period_start_date.isoformat())
         else:
-            if has_any_flow:
-                last_flow_date = d
-
+            # Check gap BEFORE updating last_flow_date so that a new
+            # period's flow day can still satisfy the 3-day-gap close
             days_since_start = (d - period_start_date).days
             days_since_flow = (d - last_flow_date).days
             if days_since_start >= 3 and days_since_flow >= 3:
@@ -1718,6 +1717,8 @@ def _detect_period_starts(sorted_obs: list) -> list[str]:
                     period_start_date = d
                     last_flow_date = d
                     period_starts.append(d.isoformat())
+            elif has_any_flow:
+                last_flow_date = d
 
     return period_starts
 
