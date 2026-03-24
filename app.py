@@ -4557,6 +4557,11 @@ def api_health_sync():
         return jsonify({"error": "user_id must be an integer"}), 400
 
     obs_date = body.get("date", date.today().isoformat())
+    # Validate date format
+    try:
+        date.fromisoformat(obs_date)
+    except (ValueError, TypeError):
+        return jsonify({"error": f"invalid date format: {obs_date!r}, expected YYYY-MM-DD"}), 400
 
     # Filter to allowed fields only
     data = {"date": obs_date}
