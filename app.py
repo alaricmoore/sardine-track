@@ -17,7 +17,7 @@ import json
 import os
 from datetime import date, datetime, timedelta
 
-from flask import Flask, jsonify, render_template, request, redirect, url_for, Response, session
+from flask import Flask, jsonify, render_template, request, redirect, url_for, Response, session, flash
 
 import bcrypt
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
