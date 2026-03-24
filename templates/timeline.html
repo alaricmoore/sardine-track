@@ -161,6 +161,7 @@
 <script>
 const TIMELINE_DATA = {{ timeline_json | safe }};
 const FLARE_DAYS = {{ flare_days_json | safe }};
+const FLARE_SEVERITY = {{ flare_severity_map_json | safe }};
 const INTERVENTION_DATE = {{ intervention_date | tojson }};
 const INTERVENTION_NAME = {{ intervention_name | tojson }};
 const INTERVENTION_CATEGORY = {{ (intervention_category or 'prescription') | tojson }};
@@ -684,7 +685,11 @@ function generateFlareOverview(stats) {
                             const labels = [];
                             
                             if (FLARE_DAYS.includes(date)) {
-                                labels.push('☣ Flare day');
+                                const sev = FLARE_SEVERITY[date] || 'major';
+                                const sevLabel = sev === 'er_visit' ? 'emojione-monotone:ambulance ER visit'
+                                               : sev === 'major' ? '☣ Major flare'
+                                               : '☣ Minor flare';
+                                labels.push(sevLabel);
                             }
                             if (date === INTERVENTION_DATE) {
                                 labels.push(`⚕️ ${INTERVENTION_NAME} started`);
@@ -973,11 +978,14 @@ function generateComparison() {
                             width: 1.5,
                             label: si.drug_name.substring(0, 10)
                         })),
-                    ...FLARE_DAYS.filter(d => dates.includes(d)).map(d => ({
-                        date: d,
-                        color: 'rgba(255, 255, 255, 0.3)',
-                        width: 1
-                    }))
+                    ...FLARE_DAYS.filter(d => dates.includes(d)).map(d => {
+                        const sev = FLARE_SEVERITY[d] || 'major';
+                        const color = sev === 'er_visit' ? 'rgba(255, 68, 68, 0.5)'
+                                    : sev === 'major' ? 'rgba(255, 255, 255, 0.3)'
+                                    : 'rgba(255, 255, 255, 0.15)';
+                        const width = sev === 'er_visit' ? 2 : 1;
+                        return { date: d, color, width };
+                    })
                 ]
             },
             legend: {
@@ -995,12 +1003,16 @@ function generateComparison() {
                         const labels = [];
                         
                         if (FLARE_DAYS.includes(date)) {
-                            labels.push('☣ Flare day');
+                            const sev = FLARE_SEVERITY[date] || 'major';
+                            const sevLabel = sev === 'er_visit' ? 'emojione-monotone:ambulance ER visit'
+                                           : sev === 'major' ? '☣ Major flare'
+                                           : '☣ Minor flare';
+                            labels.push(sevLabel);
                         }
                         if (date === INTERVENTION_DATE) {
                             labels.push(`⚕️ ${INTERVENTION_NAME} started`);
                         }
-                        
+
                         return labels.length > 0 ? '\n' + labels.join('\n') : '';
                     }
                 }

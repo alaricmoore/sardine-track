@@ -30,6 +30,10 @@
         clinicians
         {% if clinicians %}<span class="tab-count">{{ clinicians|length }}</span>{% endif %}
     </button>
+    <button class="tab-btn" onclick="switchTab('backfill')">
+        backfill
+        {% if flare_history %}<span class="tab-count">{{ flare_history|length }}</span>{% endif %}
+    </button>
 </div>
 
 <!-- ============================================================
@@ -1435,6 +1439,88 @@ CLINICIANS TAB
     {% else %}
     <div class="empty-state">
         <p>No clinicians recorded yet.</p>
+    </div>
+    {% endif %}
+</div>
+
+<!-- ============================================================
+     BACKFILL TAB
+     ============================================================ -->
+<div class="tab-panel" id="tab-backfill">
+    <a id="backfill"></a>
+
+    <div class="card" style="margin-bottom:var(--space-xl);">
+        <div class="card-title">record past flare event</div>
+        <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:var(--space-md);">
+            Use this to backfill flare events you didn't log at the time — ER visits, major flares during tracking gaps, etc.
+            This will only set the flare fields; it won't overwrite any other data you've already entered for that date.
+        </p>
+        <form method="POST" action="{{ url_for('backfill_flare') }}">
+            <div class="form-grid">
+                <div class="form-group">
+                    <label>date *</label>
+                    <input type="date" name="date" required>
+                </div>
+                <div class="form-group">
+                    <label>severity *</label>
+                    <div style="display:flex; gap:var(--space-md); margin-top:4px;">
+                        <label style="font-size:0.85rem;">
+                            <input type="radio" name="flare_severity" value="minor"> minor
+                        </label>
+                        <label style="font-size:0.85rem;">
+                            <input type="radio" name="flare_severity" value="major" checked> major
+                        </label>
+                        <label style="font-size:0.85rem;">
+                            <input type="radio" name="flare_severity" value="er_visit"> ER visit
+                        </label>
+                    </div>
+                </div>
+                <div class="form-group" style="grid-column: 1 / -1;">
+                    <label>notes</label>
+                    <textarea name="notes" rows="2" placeholder="what happened, what preceded it, etc."></textarea>
+                </div>
+            </div>
+            <button type="submit" class="btn btn-primary" style="margin-top:var(--space-sm);">
+                record flare
+            </button>
+        </form>
+    </div>
+
+    {% if flare_history %}
+    <div class="card">
+        <div class="card-title">flare history</div>
+        <div class="table-wrapper">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>date</th>
+                        <th>severity</th>
+                        <th>notes</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for f in flare_history %}
+                    <tr>
+                        <td>{{ f.date }}</td>
+                        <td>
+                            {% if f.flare_severity == 'er_visit' %}
+                                <span style="color:#ff4444; font-weight:600;">ER visit</span>
+                            {% elif f.flare_severity == 'major' %}
+                                <span style="color:var(--color-danger); font-weight:600;">major</span>
+                            {% else %}
+                                <span style="color:var(--color-warning);">minor</span>
+                            {% endif %}
+                        </td>
+                        <td style="font-size:0.85rem; color:var(--text-muted);">{{ f.notes or '' }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% else %}
+    <div class="empty-state">
+        <p>No flare events recorded yet.</p>
     </div>
     {% endif %}
 </div>

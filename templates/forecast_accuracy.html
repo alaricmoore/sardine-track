@@ -170,7 +170,7 @@
 </div>
 
 <!-- Missed Flare Severity Breakdown -->
-{% if missed_minor or missed_major %}
+{% if missed_minor or missed_major or missed_er %}
 <div class="card" style="margin-bottom:var(--space-xl); border-left:4px solid var(--color-danger);">
     <div class="card-title">missed flare severity</div>
     <div style="display:flex; gap:var(--space-lg);">
@@ -178,16 +178,28 @@
             <div style="font-size:1.5rem; font-weight:600; color:var(--color-warning);">
                 {{ missed_minor }}
             </div>
-            <div style="font-size:0.85rem; color:var(--text-muted);">minor flares missed</div>
+            <div style="font-size:0.85rem; color:var(--text-muted);">minor missed</div>
         </div>
         <div style="text-align:center;">
             <div style="font-size:1.5rem; font-weight:600; color:var(--color-danger);">
                 {{ missed_major }}
             </div>
-            <div style="font-size:0.85rem; color:var(--text-muted);">major flares missed</div>
+            <div style="font-size:0.85rem; color:var(--text-muted);">major missed</div>
+        </div>
+        <div style="text-align:center;">
+            <div style="font-size:1.5rem; font-weight:600; color:#ff4444;">
+                {{ missed_er }}
+            </div>
+            <div style="font-size:0.85rem; color:var(--text-muted);">ER visits missed</div>
         </div>
     </div>
-    {% if missed_major > 0 %}
+    {% if missed_er > 0 %}
+    <div style="margin-top:var(--space-sm); font-size:0.85rem; color:#ff4444; line-height:1.6;">
+        The model missed {{ missed_er }} ER visit{{ 's' if missed_er > 1 else '' }}.
+        This is the most critical type of miss. Consider lowering the flare threshold in
+        <a href="{{ url_for('forecast_lab') }}" style="color:var(--color-accent);">Forecast Lab</a>.
+    </div>
+    {% elif missed_major > 0 %}
     <div style="margin-top:var(--space-sm); font-size:0.85rem; color:var(--color-danger); line-height:1.6;">
         The model missed {{ missed_major }} major flare{{ 's' if missed_major > 1 else '' }}.
         Consider lowering the flare threshold in
@@ -195,6 +207,33 @@
         to improve major flare detection.
     </div>
     {% endif %}
+</div>
+{% endif %}
+
+<!-- Caught Flare Severity Breakdown -->
+{% if caught_minor or caught_major or caught_er %}
+<div class="card" style="margin-bottom:var(--space-xl); border-left:4px solid var(--color-success);">
+    <div class="card-title">caught flare severity</div>
+    <div style="display:flex; gap:var(--space-lg);">
+        <div style="text-align:center;">
+            <div style="font-size:1.5rem; font-weight:600; color:var(--color-warning);">
+                {{ caught_minor }}
+            </div>
+            <div style="font-size:0.85rem; color:var(--text-muted);">minor caught</div>
+        </div>
+        <div style="text-align:center;">
+            <div style="font-size:1.5rem; font-weight:600; color:var(--color-danger);">
+                {{ caught_major }}
+            </div>
+            <div style="font-size:0.85rem; color:var(--text-muted);">major caught</div>
+        </div>
+        <div style="text-align:center;">
+            <div style="font-size:1.5rem; font-weight:600; color:#ff4444;">
+                {{ caught_er }}
+            </div>
+            <div style="font-size:0.85rem; color:var(--text-muted);">ER visits caught</div>
+        </div>
+    </div>
 </div>
 {% endif %}
 

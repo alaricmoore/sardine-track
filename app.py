@@ -1283,10 +1283,15 @@ def timeline():
     
     # Extract flare days from daily observations
     flare_days = [
-        obs["date"] 
-        for obs in data.get("daily", []) 
+        obs["date"]
+        for obs in data.get("daily", [])
         if obs.get("flare_occurred") == 1
-    ]  
+    ]
+    flare_severity_map = {
+        obs["date"]: obs.get("flare_severity", "major")
+        for obs in data.get("daily", [])
+        if obs.get("flare_occurred") == 1
+    }
 
     day_count = len(data.get("daily", []))
 
@@ -1300,6 +1305,7 @@ def timeline():
         intervention_category=intervention_category,
         secondary_interventions_json=json.dumps(secondary_interventions),
         flare_days_json=json.dumps(flare_days),
+        flare_severity_map_json=json.dumps(flare_severity_map),
         day_count=day_count,
     )
 
@@ -2137,6 +2143,14 @@ def clinical_record():
     prefs = get_user_prefs()
     ntfy_configured = bool(prefs.get("ntfy_topic") or CONFIG.get("ntfy_topic"))
 
+    # Flare history for backfill tab
+    all_obs = db.get_all_daily_observations(uid())
+    flare_history = [
+        {"date": o["date"], "flare_severity": o.get("flare_severity"), "notes": o.get("notes")}
+        for o in sorted(all_obs, key=lambda x: x["date"], reverse=True)
+        if o.get("flare_occurred") == 1
+    ]
+
     return render_template(
         "clinical_record.html",
         labs=labs,
@@ -2150,6 +2164,7 @@ def clinical_record():
         today=date.today().isoformat(),
         taper_by_med=taper_by_med,
         ntfy_configured=ntfy_configured,
+        flare_history=flare_history,
     )
     
 @app.route("/medication/update/<int:med_id>", methods=["POST"])
@@ -2363,6 +2378,38 @@ def add_event():
     }
     db.add_clinical_event(uid(), data)
     return redirect(url_for("clinical_record") + "#events")
+
+
+@app.route("/backfill/flare", methods=["POST"])
+@login_required
+def backfill_flare():
+    """Record a past flare event (backfill for gaps in tracking)."""
+    form = request.form
+    flare_date = form.get("date", "").strip()
+    severity = form.get("flare_severity", "").strip()
+    notes = form.get("notes", "").strip() or None
+
+    if not flare_date or severity not in ("minor", "major", "er_visit"):
+        flash("Date and severity are required.", "error")
+        return redirect(url_for("clinical_record") + "#backfill")
+
+    try:
+        date.fromisoformat(flare_date)
+    except ValueError:
+        flash("Invalid date format.", "error")
+        return redirect(url_for("clinical_record") + "#backfill")
+
+    data = {
+        "date": flare_date,
+        "flare_occurred": 1,
+        "flare_severity": severity,
+    }
+    if notes:
+        data["notes"] = notes
+
+    db.upsert_daily_observations(uid(), data)
+    flash(f"Recorded {severity} flare on {flare_date}.", "success")
+    return redirect(url_for("clinical_record") + "#backfill")
 
 
 @app.route("/medication/add", methods=["POST"])
@@ -3887,6 +3934,10 @@ def forecast_accuracy():
     problem_cases = []
     missed_minor = 0
     missed_major = 0
+    missed_er = 0
+    caught_minor = 0
+    caught_major = 0
+    caught_er = 0
 
     for obs in analysis_set:
         score = calculate_flare_prime_score(obs)
@@ -3896,6 +3947,12 @@ def forecast_accuracy():
 
         if predicted_flare and actual_flare:
             true_positives += 1
+            if severity == 'er_visit':
+                caught_er += 1
+            elif severity == 'major':
+                caught_major += 1
+            elif severity == 'minor':
+                caught_minor += 1
         elif not predicted_flare and not actual_flare:
             true_negatives += 1
         elif predicted_flare and not actual_flare:
@@ -3916,7 +3973,9 @@ def forecast_accuracy():
                 })
         elif not predicted_flare and actual_flare:
             false_negatives += 1
-            if severity == 'major':
+            if severity == 'er_visit':
+                missed_er += 1
+            elif severity == 'major':
                 missed_major += 1
             elif severity == 'minor':
                 missed_minor += 1
@@ -4041,7 +4100,11 @@ def forecast_accuracy():
         suggestions=suggestions,
         problem_cases=problem_cases[:10],
         missed_minor=missed_minor,
-        missed_major=missed_major
+        missed_major=missed_major,
+        missed_er=missed_er,
+        caught_minor=caught_minor,
+        caught_major=caught_major,
+        caught_er=caught_er,
     )
 
 # ============================================================

@@ -487,6 +487,11 @@
                         {% if not existing or not existing.flare_severity or existing.flare_severity == 'major' %}checked{% endif %}>
                     major (significant flare)
                 </label>
+                <label style="font-size:0.8rem; color:var(--text-secondary);">
+                    <input type="radio" name="flare_severity" value="er_visit"
+                        {% if existing and existing.flare_severity == 'er_visit' %}checked{% endif %}>
+                    ER visit / urgent care
+                </label>
             </div>
         </div>
     </div>
