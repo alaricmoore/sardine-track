@@ -94,13 +94,13 @@
         </div>
         <div style="display: flex; gap: var(--space-sm); align-items: center;">
             <span style="font-size: 0.6rem; background: var(--bg-elevated);
-                         color: var(--color-accent); border-radius: 3px; padding: 0 4px;">Rx</span>
-            <span style="color: var(--text-muted);">intervention start</span>
+                         color: var(--color-intervention); border-radius: 3px; padding: 0 4px;">Rx</span>
+            <span style="color: var(--text-muted);">medication</span>
         </div>
         <div style="display: flex; gap: var(--space-sm); align-items: center;">
             <span style="font-size: 0.6rem; background: var(--bg-elevated);
-                         color: var(--text-muted); border-radius: 3px; padding: 0 4px;">Rx</span>
-            <span style="color: var(--text-muted);">intervention ongoing</span>
+                         color: var(--color-intervention-supplement); border-radius: 3px; padding: 0 4px;">Rx</span>
+            <span style="color: var(--text-muted);">supplement</span>
         </div>
 
 
@@ -322,9 +322,16 @@
                 </span>
                 {% endif %}
                 {% if intervention %}
+                {% if intervention[2] == 'supplement' %}
+                    {% set rx_color = 'var(--color-intervention-supplement)' %}
+                {% elif intervention[1] == 'start' %}
+                    {% set rx_color = 'var(--color-intervention)' %}
+                {% else %}
+                    {% set rx_color = 'var(--text-muted)' %}
+                {% endif %}
                 <span title="{{ intervention[0] }} {% if intervention[1] == 'start' %}started{% else %}active{% endif %}"
                       style="font-size: 0.6rem; background: var(--bg-elevated);
-                             color: {% if intervention[1] == 'start' %}var(--color-accent){% else %}var(--text-muted){% endif %};
+                             color: {{ rx_color }};
                              border-radius: 3px; padding: 0 3px;">
                     Rx
                 </span>

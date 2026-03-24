@@ -34,8 +34,8 @@
         <div id="preStats" style="margin-top:var(--space-sm);"></div>
     </div>
 
-    <div class="card" style="border-color: rgba(74,184,184,0.4);">
-        <div class="card-title" style="color:#4ab8b8; font-size:0.8rem;
+    <div class="card" style="border-color: {% if primary_intervention_category == 'supplement' %}rgba(224,148,58,0.4){% else %}rgba(74,184,184,0.4){% endif %};">
+        <div class="card-title" style="color:{% if primary_intervention_category == 'supplement' %}var(--color-intervention-supplement){% else %}#4ab8b8{% endif %}; font-size:0.8rem;
              text-transform:uppercase; letter-spacing:0.08em;">
             after {{ primary_intervention_name }} · {{ primary_intervention_date }}
         </div>
@@ -79,6 +79,7 @@ const H = {{ hrv_json | safe }};
 const S = {{ sleep_json | safe }};
 const PRIMARY_INTERVENTION_DATE = "{{ primary_intervention_date or '' }}";
 const PRIMARY_INTERVENTION_NAME = "{{ primary_intervention_name or 'intervention' }}";
+const PRIMARY_INTERVENTION_CATEGORY = "{{ primary_intervention_category or 'prescription' }}";
 const OTHER_INTERVENTIONS = {{ other_interventions_json | safe }};
 
 Chart.defaults.font.family = "'Source Serif 4', 'Times New Roman', serif";
@@ -97,20 +98,23 @@ const interventionLinePlugin = {
         const { ctx, chartArea, scales } = chart;
         if (!chartArea || !scales.x) return;
 
-        // Primary intervention (prominent teal line)
+        // Primary intervention line (teal for Rx, orange for supplements)
         if (PRIMARY_INTERVENTION_DATE) {
             const x = scales.x.getPixelForValue(PRIMARY_INTERVENTION_DATE);
             if (x && x >= chartArea.left && x <= chartArea.right) {
+                const isSupplement = PRIMARY_INTERVENTION_CATEGORY === 'supplement';
+                const lineColor = isSupplement ? 'rgba(224,148,58,0.6)' : 'rgba(74,184,184,0.6)';
+                const textColor = isSupplement ? 'rgba(224,148,58,0.8)' : 'rgba(74,184,184,0.8)';
                 ctx.save();
                 ctx.beginPath();
                 ctx.moveTo(x, chartArea.top);
                 ctx.lineTo(x, chartArea.bottom);
-                ctx.strokeStyle = 'rgba(74,184,184,0.6)';
+                ctx.strokeStyle = lineColor;
                 ctx.lineWidth = 1.5;
                 ctx.setLineDash([4, 3]);
                 ctx.stroke();
 
-                ctx.fillStyle = 'rgba(74,184,184,0.8)';
+                ctx.fillStyle = textColor;
                 ctx.font = "11px 'Source Serif 4', serif";
                 ctx.textAlign = 'left';
                 ctx.fillText(PRIMARY_INTERVENTION_NAME + ' start', x + 5, chartArea.top + 14);
@@ -118,20 +122,23 @@ const interventionLinePlugin = {
             }
         }
 
-        // Other interventions (lighter purple reference lines)
+        // Other interventions (purple for Rx, orange for supplements)
         OTHER_INTERVENTIONS.forEach((med, i) => {
             const x = scales.x.getPixelForValue(med.start_date);
             if (x && x >= chartArea.left && x <= chartArea.right) {
+                const isSupplement = med.category === 'supplement';
+                const lineColor = isSupplement ? 'rgba(224,148,58,0.3)' : 'rgba(157,114,207,0.3)';
+                const textColor = isSupplement ? 'rgba(224,148,58,0.5)' : 'rgba(157,114,207,0.5)';
                 ctx.save();
                 ctx.beginPath();
                 ctx.moveTo(x, chartArea.top);
                 ctx.lineTo(x, chartArea.bottom);
-                ctx.strokeStyle = 'rgba(157,114,207,0.3)';
+                ctx.strokeStyle = lineColor;
                 ctx.lineWidth = 1;
                 ctx.setLineDash([2, 2]);
                 ctx.stroke();
 
-                ctx.fillStyle = 'rgba(157,114,207,0.5)';
+                ctx.fillStyle = textColor;
                 ctx.font = "9px 'Source Serif 4', serif";
                 ctx.textAlign = 'left';
                 ctx.fillText(med.drug_name, x + 3, chartArea.top + 28 + (i * 11));

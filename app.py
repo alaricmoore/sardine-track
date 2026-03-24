@@ -64,11 +64,11 @@ def weighted_uv(uv_row):
 
 
 def _compute_cumulative_uv(obs_date: str, obs_by_date: dict, location_key: str) -> float:
-    """Compute prior-2-day cumulative UV dose (yesterday + day-before).
-    Decay: yesterday 0.7×, day-before 0.4×.
+    """Compute prior-3-day cumulative UV dose.
+    Decay: yesterday 0.7×, day-before 0.4×, 3 days ago 0.2×.
     Same-day UV is already handled by the main scoring block.
     """
-    decay = [(1, 0.7), (2, 0.4)]
+    decay = [(1, 0.7), (2, 0.4), (3, 0.2)]
     total = 0.0
     target = datetime.strptime(obs_date, "%Y-%m-%d").date()
 
@@ -1264,15 +1264,18 @@ def timeline():
     
     intervention_date = None
     intervention_name = None
+    intervention_category = None
     if primary_med:
         intervention_date = primary_med["start_date"]
         intervention_name = primary_med["drug_name"]
-        
-    # Get secondary interventions 
+        intervention_category = primary_med.get("category", "prescription")
+
+    # Get secondary interventions
     secondary_interventions = [
         {
             "drug_name": m["drug_name"],
-            "start_date": m["start_date"]
+            "start_date": m["start_date"],
+            "category": m.get("category", "prescription"),
         }
         for m in all_meds
         if m.get("is_secondary_intervention") == 1
@@ -1294,9 +1297,10 @@ def timeline():
         timeline_json=json.dumps(data, default=str),
         intervention_date=intervention_date,
         intervention_name=intervention_name,
+        intervention_category=intervention_category,
         secondary_interventions_json=json.dumps(secondary_interventions),
         flare_days_json=json.dumps(flare_days),
-        day_count=day_count,      
+        day_count=day_count,
     )
 
  
@@ -1827,8 +1831,8 @@ def cycle_view():
         bbt = obs["basal_temp_delta"] if obs and obs.get("basal_temp_delta") is not None else None
         bbt_points.append((d_num, bbt))
 
-    # Intervention markers: (drug_name, 'start') for new starts this month,
-    # (drug_name, 'active') on day-1 for meds active from a prior month
+    # Intervention markers: (drug_name, 'start', category) for new starts this month,
+    # (drug_name, 'active', category) on day-1 for meds active from a prior month
     all_meds = db.get_all_medications(uid())
     intervention_dates: dict = {}
     for m in all_meds:
@@ -1836,11 +1840,12 @@ def cycle_view():
             continue
         s = m["start_date"]
         e = m.get("end_date")
+        cat = m.get("category", "prescription")
         if month_start_str <= s <= month_end:
-            intervention_dates[s] = (m["drug_name"], "start")
+            intervention_dates[s] = (m["drug_name"], "start", cat)
         elif s < month_start_str and (e is None or e >= month_start_str):
             if month_start_str not in intervention_dates:
-                intervention_dates[month_start_str] = (m["drug_name"], "active")
+                intervention_dates[month_start_str] = (m["drug_name"], "active", cat)
 
     # Flare counts by cycle phase (across all history)
     phase_day_counts: dict[str, int] = {"pms": 0, "luteal": 0, "follicular": 0, "period": 0}
@@ -2064,27 +2069,30 @@ def hrv_view():
     
     # Find primary intervention (the medication marked as primary)
     primary_med = next((m for m in all_meds if m.get("is_primary_intervention") == 1), None)
-    
+
     intervention_name = None
     intervention_date = None
-    
+    intervention_category = None
+
     if primary_med:
         intervention_name = primary_med["drug_name"]
         intervention_date = primary_med["start_date"]
-    
+        intervention_category = primary_med.get("category", "prescription")
+
     # Find secondary interventions (medications marked as secondary)
     secondary_interventions = [
         {
             "drug_name": m["drug_name"],
-            "start_date": m["start_date"]
+            "start_date": m["start_date"],
+            "category": m.get("category", "prescription"),
         }
         for m in all_meds
         if m.get("is_secondary_intervention") == 1
     ]
-    
+
     hrv_data = compute_hrv_data(observations, intervention_date)
     sleep_bbt_uv = compute_sleep_bbt_uv(observations, get_location_key())
-    
+
     return render_template(
         "hrv.html",
         has_data=bool(hrv_data),
@@ -2092,6 +2100,7 @@ def hrv_view():
         sleep_json=json.dumps(sleep_bbt_uv, default=lambda x: int(x) if isinstance(x, bool) else str(x)),
         primary_intervention_name=intervention_name,
         primary_intervention_date=intervention_date,
+        primary_intervention_category=intervention_category,
         other_interventions_json=json.dumps(secondary_interventions),
     )
 

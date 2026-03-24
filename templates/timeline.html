@@ -163,6 +163,7 @@ const TIMELINE_DATA = {{ timeline_json | safe }};
 const FLARE_DAYS = {{ flare_days_json | safe }};
 const INTERVENTION_DATE = {{ intervention_date | tojson }};
 const INTERVENTION_NAME = {{ intervention_name | tojson }};
+const INTERVENTION_CATEGORY = {{ (intervention_category or 'prescription') | tojson }};
 const SECONDARY_INTERVENTIONS = {{ secondary_interventions_json | safe }};
 let comparisonChart = null;
 
@@ -644,7 +645,9 @@ function generateFlareOverview(stats) {
                     lines: [
                         ...(INTERVENTION_DATE && dates.includes(INTERVENTION_DATE) ? [{
                                 date: INTERVENTION_DATE,
-                                color: getComputedStyle(document.documentElement).getPropertyValue('--color-intervention').trim(),
+                                color: getComputedStyle(document.documentElement).getPropertyValue(
+                                    INTERVENTION_CATEGORY === 'supplement' ? '--color-intervention-supplement' : '--color-intervention'
+                                ).trim(),
                                 width: 2,
                                 dash: [5, 3],
                                 label: INTERVENTION_NAME ? INTERVENTION_NAME.substring(0, 20) : 'Intervention',
@@ -656,7 +659,9 @@ function generateFlareOverview(stats) {
                             .filter(si => dates.includes(si.start_date))
                             .map(si => ({
                                 date: si.start_date,
-                                color: getComputedStyle(document.documentElement).getPropertyValue('--color-intervention-secondary').trim(),
+                                color: getComputedStyle(document.documentElement).getPropertyValue(
+                                    si.category === 'supplement' ? '--color-intervention-supplement' : '--color-intervention-secondary'
+                                ).trim(),
                                 width: 1.5,
                                 label: si.drug_name.substring(0, 20),
                                 font: "11px 'Source Serif 4', serif",
@@ -951,7 +956,9 @@ function generateComparison() {
                 lines: [
                     ...(INTERVENTION_DATE && dates.includes(INTERVENTION_DATE) ? [{
                         date: INTERVENTION_DATE,
-                        color: getComputedStyle(document.documentElement).getPropertyValue('--color-intervention').trim(),
+                        color: getComputedStyle(document.documentElement).getPropertyValue(
+                            INTERVENTION_CATEGORY === 'supplement' ? '--color-intervention-supplement' : '--color-intervention'
+                        ).trim(),
                         width: 2,
                         dash: [5, 3],
                         label: INTERVENTION_NAME ? INTERVENTION_NAME.substring(0, 12) : 'Intervention'
@@ -960,7 +967,9 @@ function generateComparison() {
                         .filter(si => dates.includes(si.start_date))
                         .map(si => ({
                             date: si.start_date,
-                            color: getComputedStyle(document.documentElement).getPropertyValue('--color-intervention-secondary').trim(),
+                            color: getComputedStyle(document.documentElement).getPropertyValue(
+                                si.category === 'supplement' ? '--color-intervention-supplement' : '--color-intervention-secondary'
+                            ).trim(),
                             width: 1.5,
                             label: si.drug_name.substring(0, 10)
                         })),
