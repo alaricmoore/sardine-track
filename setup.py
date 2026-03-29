@@ -171,6 +171,7 @@ def create_database():
             steps               INTEGER,
             hours_slept         REAL,
             hrv                 REAL,
+            hrv_rmssd           REAL,              -- RMSSD (parasympathetic HRV, ms)
             resting_heart_rate  REAL,              -- resting HR in bpm
             basal_temp_delta    REAL,              -- deviation from personal baseline
             sun_exposure_min    INTEGER,           -- minutes, from Apple Health or manual
@@ -285,6 +286,11 @@ def create_database():
 
     try:
         c.execute("ALTER TABLE daily_observations ADD COLUMN resting_heart_rate REAL")
+    except:
+        pass  # Column already exists
+
+    try:
+        c.execute("ALTER TABLE daily_observations ADD COLUMN hrv_rmssd REAL")
     except:
         pass  # Column already exists
 

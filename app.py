@@ -14,6 +14,7 @@ Access from phone: http://<your-mac-ip>:5000
 
 import calendar
 import json
+import math
 import os
 from datetime import date, datetime, timedelta
 
@@ -61,6 +62,18 @@ def weighted_uv(uv_row):
     n = float(uv_row.get("uv_noon") or 0)
     e = float(uv_row.get("uv_evening") or 0)
     return m * 0.2 + n * 0.6 + e * 0.2
+
+
+def compute_rmssd(rr_intervals: list) -> float | None:
+    """Compute RMSSD from a list of RR intervals in milliseconds.
+    RMSSD = sqrt(mean(successive_differences^2))
+    Returns None if fewer than 2 intervals.
+    """
+    if len(rr_intervals) < 2:
+        return None
+    diffs = [rr_intervals[i + 1] - rr_intervals[i] for i in range(len(rr_intervals) - 1)]
+    squared = [d * d for d in diffs]
+    return round(math.sqrt(sum(squared) / len(squared)), 2)
 
 
 def _compute_cumulative_uv(obs_date: str, obs_by_date: dict, location_key: str) -> float:
@@ -1170,6 +1183,7 @@ def daily_entry_submit():
         "steps": get_float("steps"),
         "hours_slept": get_float("hours_slept"),
         "hrv": get_float("hrv"),
+        "hrv_rmssd": get_float("hrv_rmssd"),
         "basal_temp_delta": get_float("basal_temp_delta"),
         "sun_exposure_min": get_float("sun_exposure_min"),
         "pain_scale": get_float("pain_scale"),
@@ -1502,7 +1516,9 @@ def uv_lag():
 
 
 def compute_hrv_data(observations: list, intervention_date: str = None) -> dict:
-    """Compute HRV trend with 7-day rolling average and intervention split."""
+    """Compute HRV trend with 7-day rolling average and intervention split.
+    Includes both SDNN (hrv) and RMSSD (hrv_rmssd) when available.
+    """
     import numpy as np
 
     hrv_obs = [o for o in observations if o.get("hrv") is not None]
@@ -1511,20 +1527,30 @@ def compute_hrv_data(observations: list, intervention_date: str = None) -> dict:
 
     dates    = [o["date"] for o in hrv_obs]
     hrv_vals = [float(o["hrv"]) for o in hrv_obs]
+    rmssd_vals = [float(o["hrv_rmssd"]) if o.get("hrv_rmssd") is not None else None for o in hrv_obs]
     fatigue  = [o.get("fatigue_scale") for o in hrv_obs]
     pain     = [o.get("pain_scale") for o in hrv_obs]
 
-    rolling = []
-    for i in range(len(hrv_vals)):
-        window = hrv_vals[max(0, i - 6): i + 1]
-        rolling.append(round(sum(window) / len(window), 2) if len(window) >= 3 else None)
+    def _rolling_avg(vals):
+        result = []
+        for i in range(len(vals)):
+            window = [v for v in vals[max(0, i - 6): i + 1] if v is not None]
+            result.append(round(sum(window) / len(window), 2) if len(window) >= 3 else None)
+        return result
+
+    rolling = _rolling_avg(hrv_vals)
+    rmssd_rolling = _rolling_avg(rmssd_vals)
 
     # Split stats only if intervention date is provided
     pre_vals  = []
     post_vals = []
+    pre_rmssd = []
+    post_rmssd = []
     if intervention_date:
         pre_vals  = [v for d, v in zip(dates, hrv_vals) if d < intervention_date]
         post_vals = [v for d, v in zip(dates, hrv_vals) if d >= intervention_date]
+        pre_rmssd = [v for d, v in zip(dates, rmssd_vals) if d < intervention_date and v is not None]
+        post_rmssd = [v for d, v in zip(dates, rmssd_vals) if d >= intervention_date and v is not None]
 
     def stats_dict(vals):
         if not vals:
@@ -1534,14 +1560,23 @@ def compute_hrv_data(observations: list, intervention_date: str = None) -> dict:
                 "std":  round(float(arr.std()), 2),
                 "n":    len(vals)}
 
+    pre_stats = stats_dict(pre_vals)
+    post_stats = stats_dict(post_vals)
+    pre_stats["rmssd_mean"] = stats_dict(pre_rmssd)["mean"]
+    pre_stats["rmssd_std"] = stats_dict(pre_rmssd)["std"]
+    post_stats["rmssd_mean"] = stats_dict(post_rmssd)["mean"]
+    post_stats["rmssd_std"] = stats_dict(post_rmssd)["std"]
+
     return {
-        "dates":       dates,
-        "hrv_raw":     hrv_vals,
-        "hrv_rolling": rolling,
-        "fatigue":     fatigue,
-        "pain":        pain,
-        "pre_intervention":  stats_dict(pre_vals),
-        "post_intervention": stats_dict(post_vals),
+        "dates":          dates,
+        "hrv_raw":        hrv_vals,
+        "hrv_rolling":    rolling,
+        "rmssd_raw":      rmssd_vals,
+        "rmssd_rolling":  rmssd_rolling,
+        "fatigue":        fatigue,
+        "pain":           pain,
+        "pre_intervention":  pre_stats,
+        "post_intervention": post_stats,
     }
 
 
@@ -4279,6 +4314,7 @@ def forecast_patterns():
             'fatigue_avg': _avg('fatigue_scale'),
             'pain_avg': _avg('pain_scale'),
             'hrv_avg': _avg('hrv'),
+            'rmssd_avg': _avg('hrv_rmssd'),
             'rhr_avg': _avg('resting_heart_rate'),
             'bbt_avg': _avg('basal_temp_delta'),
             'sleep_avg': _avg('hours_slept'),
@@ -4810,7 +4846,7 @@ def clinical_report():
 # Health-sync API (iOS Shortcut / programmatic ingest)
 # ============================================================
 
-_HEALTH_SYNC_FIELDS = {"steps", "hrv", "resting_heart_rate", "basal_temp_delta", "sun_exposure_min"}
+_HEALTH_SYNC_FIELDS = {"steps", "hrv", "hrv_rmssd", "resting_heart_rate", "basal_temp_delta", "sun_exposure_min"}
 
 @app.route("/api/health-sync", methods=["POST"])
 @csrf.exempt

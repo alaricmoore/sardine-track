@@ -173,7 +173,7 @@ function buildHRVChart() {
             labels: H.dates,
             datasets: [
                 {
-                    label: 'HRV raw',
+                    label: 'SDNN raw',
                     data: H.hrv_raw,
                     borderColor: 'rgba(74,144,217,0.3)',
                     backgroundColor: 'transparent',
@@ -183,7 +183,7 @@ function buildHRVChart() {
                     tension: 0.3,
                 },
                 {
-                    label: 'HRV 7d avg',
+                    label: 'SDNN 7d avg',
                     data: H.hrv_rolling,
                     borderColor: '#4a90d9',
                     backgroundColor: 'rgba(74,144,217,0.1)',
@@ -192,7 +192,29 @@ function buildHRVChart() {
                     pointHoverRadius: 4,
                     tension: 0.4,
                     fill: true,
-                }
+                },
+                ...(H.rmssd_raw && H.rmssd_raw.some(v => v !== null) ? [
+                {
+                    label: 'RMSSD raw',
+                    data: H.rmssd_raw,
+                    borderColor: 'rgba(155,114,207,0.3)',
+                    backgroundColor: 'transparent',
+                    borderWidth: 1,
+                    pointRadius: 0,
+                    pointHoverRadius: 3,
+                    tension: 0.3,
+                },
+                {
+                    label: 'RMSSD 7d avg',
+                    data: H.rmssd_rolling,
+                    borderColor: '#9b72cf',
+                    backgroundColor: 'rgba(155,114,207,0.1)',
+                    borderWidth: 2,
+                    pointRadius: 0,
+                    pointHoverRadius: 4,
+                    tension: 0.4,
+                    fill: true,
+                }] : [])
             ]
         },
         options: {
@@ -209,7 +231,7 @@ function buildHRVChart() {
                 },
                 y: {
                     grid: gridOpts(),
-                    title: { display: true, text: 'HRV (ms)', color: TEXT }
+                    title: { display: true, text: 'HRV — SDNN / RMSSD (ms)', color: TEXT }
                 }
             }
         }
@@ -460,14 +482,24 @@ function populateStats() {
     const pre  = H.pre_intervention;
     const post = H.post_intervention;
 
+    function rmssdLine(stats) {
+        if (stats.rmssd_mean != null) {
+            return `<div style="font-size:0.85rem; color:#9b72cf; margin-top:4px;">
+                RMSSD: ${stats.rmssd_mean} ms (σ ${stats.rmssd_std})
+            </div>`;
+        }
+        return '';
+    }
+
     if (pre && pre.n > 0) {
         document.getElementById('preStats').innerHTML = `
             <div style="font-size:1.6rem; font-weight:600; color:#4a90d9;">
-                ${pre.mean} <span style="font-size:0.9rem; color:var(--text-muted);">ms</span>
+                ${pre.mean} <span style="font-size:0.9rem; color:var(--text-muted);">ms SDNN</span>
             </div>
             <div style="font-size:0.85rem; color:var(--text-muted); margin-top:4px;">
                 σ ${pre.std} · n=${pre.n}
             </div>
+            ${rmssdLine(pre)}
         `;
     } else {
         document.getElementById('preStats').innerHTML = `
@@ -479,18 +511,19 @@ function populateStats() {
         const delta = pre.mean && post.mean ? post.mean - pre.mean : null;
         const deltaStr = delta !== null
             ? `<div style="font-size:0.85rem; margin-top:4px; color:${delta > 0 ? '#4ab8b8' : '#c94040'};">
-                 ${delta > 0 ? '↑' : '↓'} ${Math.abs(delta).toFixed(1)} ms
+                 ${delta > 0 ? '↑' : '↓'} ${Math.abs(delta).toFixed(1)} ms SDNN
                </div>`
             : '';
-        
+
         document.getElementById('postStats').innerHTML = `
             <div style="font-size:1.6rem; font-weight:600; color:#4ab8b8;">
-                ${post.mean} <span style="font-size:0.9rem; color:var(--text-muted);">ms</span>
+                ${post.mean} <span style="font-size:0.9rem; color:var(--text-muted);">ms SDNN</span>
             </div>
             <div style="font-size:0.85rem; color:var(--text-muted); margin-top:4px;">
                 σ ${post.std} · n=${post.n}
             </div>
             ${deltaStr}
+            ${rmssdLine(post)}
         `;
     } else {
         document.getElementById('postStats').innerHTML = `

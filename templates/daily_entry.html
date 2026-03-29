@@ -147,10 +147,17 @@
         </div>
 
         <div class="form-group">
-            <label>HRV <span style="color:var(--text-muted)">(from watch)</span></label>
+            <label>HRV / SDNN <span style="color:var(--text-muted)">(from watch)</span></label>
             <input type="number" name="hrv" step="0.1" min="0"
                 placeholder="e.g. 28"
                 value="{{ existing.hrv if existing and existing.hrv else '' }}">
+        </div>
+
+        <div class="form-group">
+            <label>RMSSD <span style="color:var(--text-muted)">(parasympathetic)</span></label>
+            <input type="number" name="hrv_rmssd" step="0.1" min="0"
+                placeholder="e.g. 22"
+                value="{{ existing.hrv_rmssd if existing and existing.hrv_rmssd else '' }}">
         </div>
 
         <div class="form-group">

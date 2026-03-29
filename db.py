@@ -226,7 +226,7 @@ def upsert_daily_observations(user_id: int, data: dict) -> bool:
         raise ValueError("daily observation requires a 'date' field")
 
     fields = [
-        "date", "steps", "hours_slept", "hrv", "resting_heart_rate", "basal_temp_delta",
+        "date", "steps", "hours_slept", "hrv", "hrv_rmssd", "resting_heart_rate", "basal_temp_delta",
         "sun_exposure_min", "pain_scale", "fatigue_scale",
         "emotional_state", "emotional_notes",
         "neurological", "neuro_notes",
