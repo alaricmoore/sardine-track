@@ -173,6 +173,8 @@ def create_database():
             hrv                 REAL,
             hrv_rmssd           REAL,              -- RMSSD (parasympathetic HRV, ms)
             resting_heart_rate  REAL,              -- resting HR in bpm
+            spo2                REAL,              -- blood oxygen %
+            respiratory_rate    REAL,              -- breaths per minute
             basal_temp_delta    REAL,              -- deviation from personal baseline
             sun_exposure_min    INTEGER,           -- minutes, from Apple Health or manual
             pain_scale          REAL,              -- 0-10
@@ -291,6 +293,16 @@ def create_database():
 
     try:
         c.execute("ALTER TABLE daily_observations ADD COLUMN hrv_rmssd REAL")
+    except:
+        pass  # Column already exists
+
+    try:
+        c.execute("ALTER TABLE daily_observations ADD COLUMN spo2 REAL")
+    except:
+        pass  # Column already exists
+
+    try:
+        c.execute("ALTER TABLE daily_observations ADD COLUMN respiratory_rate REAL")
     except:
         pass  # Column already exists
 

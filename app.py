@@ -4316,6 +4316,8 @@ def forecast_patterns():
             'hrv_avg': _avg('hrv'),
             'rmssd_avg': _avg('hrv_rmssd'),
             'rhr_avg': _avg('resting_heart_rate'),
+            'spo2_avg': _avg('spo2'),
+            'resp_rate_avg': _avg('respiratory_rate'),
             'bbt_avg': _avg('basal_temp_delta'),
             'sleep_avg': _avg('hours_slept'),
             'steps_avg': _avg('steps'),
@@ -4846,7 +4848,7 @@ def clinical_report():
 # Health-sync API (iOS Shortcut / programmatic ingest)
 # ============================================================
 
-_HEALTH_SYNC_FIELDS = {"steps", "hrv", "hrv_rmssd", "resting_heart_rate", "basal_temp_delta", "sun_exposure_min"}
+_HEALTH_SYNC_FIELDS = {"steps", "hrv", "hrv_rmssd", "resting_heart_rate", "basal_temp_delta", "sun_exposure_min", "spo2", "respiratory_rate"}
 
 @app.route("/api/health-sync", methods=["POST"])
 @csrf.exempt
