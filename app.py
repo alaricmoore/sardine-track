@@ -4900,7 +4900,7 @@ def api_health_sync():
     for field in _HEALTH_SYNC_FIELDS:
         if field in body and body[field] is not None:
             try:
-                data[field] = float(body[field])
+                data[field] = round(float(body[field]), 2)
                 fields_updated.append(field)
             except (ValueError, TypeError):
                 pass
