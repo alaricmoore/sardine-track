@@ -10,6 +10,11 @@ class HealthSyncer: ObservableObject {
     @Published var lastResult: String = ""
     @Published var isSyncing: Bool = false
 
+    // Backfill state
+    @Published var backfillProgress: Double = 0
+    @Published var backfillStatus: String = ""
+    @Published var isBackfilling: Bool = false
+
     // All the HealthKit types we want to read
     private var readTypes: Set<HKObjectType> {
         var types: Set<HKObjectType> = [
@@ -206,7 +211,119 @@ class HealthSyncer: ObservableObject {
         store.execute(query)
     }
 
+    // MARK: - Backfill
+
+    func backfillRMSSD(serverURL: String, apiToken: String, userID: Int, days: Int) {
+        guard !isBackfilling else { return }
+        DispatchQueue.main.async {
+            self.isBackfilling = true
+            self.backfillProgress = 0
+            self.backfillStatus = "starting backfill..."
+        }
+
+        let cal = Calendar.current
+        let today = cal.startOfDay(for: Date())
+
+        // Build list of dates to process (yesterday back to N days ago)
+        var dates: [Date] = []
+        for offset in 1...days {
+            if let d = cal.date(byAdding: .day, value: -offset, to: today) {
+                dates.append(d)
+            }
+        }
+
+        let total = dates.count
+        var processed = 0
+        var synced = 0
+        var skipped = 0
+
+        func processNext() {
+            guard processed < total else {
+                DispatchQueue.main.async {
+                    self.isBackfilling = false
+                    self.backfillProgress = 1.0
+                    self.backfillStatus = "done: \(synced) days synced, \(skipped) skipped (no data)"
+                }
+                return
+            }
+
+            let targetDate = dates[processed]
+            let dateStr = Self.isoDate(targetDate)
+            let prevDay = cal.date(byAdding: .day, value: -1, to: targetDate)!
+
+            // Overnight window: previous day 10pm → target day 8am
+            let overnightStart = prevDay.addingTimeInterval(22 * 3600)
+            let overnightEnd = targetDate.addingTimeInterval(8 * 3600)
+
+            DispatchQueue.main.async {
+                self.backfillStatus = "querying \(dateStr)..."
+            }
+
+            queryRMSSD(start: overnightStart, end: overnightEnd) { [weak self] rmssd in
+                guard let self = self else { return }
+
+                if let rmssd = rmssd {
+                    let payload: [String: Any] = [
+                        "user_id": userID,
+                        "date": dateStr,
+                        "hrv_rmssd": rmssd,
+                    ]
+                    self.sendPayload(serverURL: serverURL, apiToken: apiToken, payload: payload) { success in
+                        if success { synced += 1 } else { skipped += 1 }
+                        processed += 1
+                        DispatchQueue.main.async {
+                            self.backfillProgress = Double(processed) / Double(total)
+                            self.backfillStatus = "\(processed)/\(total) — \(synced) synced"
+                        }
+                        // Delay 0.5s between requests
+                        DispatchQueue.global().asyncAfter(deadline: .now() + 0.5) {
+                            processNext()
+                        }
+                    }
+                } else {
+                    skipped += 1
+                    processed += 1
+                    DispatchQueue.main.async {
+                        self.backfillProgress = Double(processed) / Double(total)
+                        self.backfillStatus = "\(processed)/\(total) — \(synced) synced"
+                    }
+                    // No delay needed when skipping
+                    processNext()
+                }
+            }
+        }
+
+        DispatchQueue.global().async {
+            processNext()
+        }
+    }
+
     // MARK: - Network
+
+    /// Reusable POST that reports success/failure via completion handler.
+    private func sendPayload(serverURL: String, apiToken: String,
+                             payload: [String: Any],
+                             completion: @escaping (Bool) -> Void) {
+        guard let url = URL(string: serverURL.trimmingCharacters(in: .whitespacesAndNewlines)) else {
+            completion(false)
+            return
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(apiToken)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try? JSONSerialization.data(withJSONObject: payload)
+
+        URLSession.shared.dataTask(with: request) { data, response, error in
+            if error != nil {
+                completion(false)
+                return
+            }
+            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+            completion(status == 200)
+        }.resume()
+    }
 
     private func postToServer(serverURL: String, apiToken: String, payload: [String: Any]) {
         guard let url = URL(string: serverURL.trimmingCharacters(in: .whitespacesAndNewlines)) else {
@@ -235,7 +352,6 @@ class HealthSyncer: ObservableObject {
                 let status = (response as? HTTPURLResponse)?.statusCode ?? 0
                 if let data = data, let body = String(data: data, encoding: .utf8) {
                     if status == 200 {
-                        // Parse fields_updated from response
                         if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                            let fields = json["fields_updated"] as? [String] {
                             self.lastResult = "synced \(fields.count) fields: \(fields.joined(separator: ", "))"

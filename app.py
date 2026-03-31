@@ -16,6 +16,7 @@ import calendar
 import json
 import math
 import os
+import statistics
 from datetime import date, datetime, timedelta
 
 from flask import Flask, jsonify, render_template, request, redirect, url_for, Response, session
@@ -2134,11 +2135,19 @@ def hrv_view():
     hrv_data = compute_hrv_data(observations, intervention_date)
     sleep_bbt_uv = compute_sleep_bbt_uv(observations, get_location_key())
 
+    # Flare events for overlay markers on charts
+    flare_events = [
+        {"date": o["date"], "severity": o.get("flare_severity") or "minor"}
+        for o in observations
+        if o.get("flare_occurred") == 1
+    ]
+
     return render_template(
         "hrv.html",
         has_data=bool(hrv_data),
         hrv_json=json.dumps(hrv_data, default=lambda x: int(x) if isinstance(x, bool) else str(x)),
         sleep_json=json.dumps(sleep_bbt_uv, default=lambda x: int(x) if isinstance(x, bool) else str(x)),
+        flare_events_json=json.dumps(flare_events),
         primary_intervention_name=intervention_name,
         primary_intervention_date=intervention_date,
         primary_intervention_category=intervention_category,
@@ -4365,6 +4374,84 @@ def forecast_patterns():
     # Count totals for display
     flare_counts = {sev: len(dates) for sev, dates in flare_dates.items()}
 
+    # Build 7-day RMSSD trajectories for severe events (ER + major)
+    rmssd_trajectories = []
+    for sev in ('er_visit', 'major'):
+        for flare_date_str in flare_dates[sev]:
+            target = date.fromisoformat(flare_date_str)
+            window = []
+            for offset in range(7, -1, -1):  # day -7 through day 0
+                d = (target - timedelta(days=offset)).isoformat()
+                obs = obs_by_date.get(d)
+                rmssd = round(float(obs['hrv_rmssd']), 2) if obs and obs.get('hrv_rmssd') is not None else None
+                window.append(rmssd)
+            rmssd_trajectories.append({
+                'date': flare_date_str,
+                'severity': sev,
+                'values': window,
+            })
+
+    has_rmssd_trajectories = any(
+        any(v is not None for v in t['values']) for t in rmssd_trajectories
+    )
+
+    # Baseline RMSSD average on non-flare days (for reference line)
+    baseline_rmssd_vals = [
+        float(o['hrv_rmssd']) for o in non_flare_obs
+        if o.get('hrv_rmssd') is not None
+    ]
+    baseline_rmssd = (
+        round(sum(baseline_rmssd_vals) / len(baseline_rmssd_vals), 2)
+        if baseline_rmssd_vals else None
+    )
+
+    # Aggregate RMSSD trajectory stats (mean, std, n per day-offset)
+    agg_rmssd = {'mean': [], 'std': [], 'n': []}
+    for i in range(8):  # 8 data points: day -7 through day 0
+        vals = [
+            t['values'][i] for t in rmssd_trajectories
+            if t['values'][i] is not None
+        ]
+        if vals:
+            m = round(sum(vals) / len(vals), 2)
+            agg_rmssd['mean'].append(m)
+            agg_rmssd['std'].append(
+                round(statistics.stdev(vals), 2) if len(vals) >= 2 else 0
+            )
+            agg_rmssd['n'].append(len(vals))
+        else:
+            agg_rmssd['mean'].append(None)
+            agg_rmssd['std'].append(None)
+            agg_rmssd['n'].append(0)
+
+    # Trend: linear slope of aggregate RMSSD means (ms per day)
+    rmssd_trend = None
+    valid_points = [
+        (i, agg_rmssd['mean'][i]) for i in range(8)
+        if agg_rmssd['mean'][i] is not None
+    ]
+    if len(valid_points) >= 3:
+        xs = [p[0] for p in valid_points]
+        ys = [p[1] for p in valid_points]
+        x_mean = sum(xs) / len(xs)
+        y_mean = sum(ys) / len(ys)
+        num = sum((x - x_mean) * (y - y_mean) for x, y in zip(xs, ys))
+        den = sum((x - x_mean) ** 2 for x in xs)
+        if den > 0:
+            slope = round(num / den, 2)
+            total_change = round(slope * 7, 1)
+            if abs(slope) < 0.3:
+                direction = 'flat'
+            elif slope > 0:
+                direction = 'rising'
+            else:
+                direction = 'falling'
+            rmssd_trend = {
+                'direction': direction,
+                'slope': slope,
+                'total_change': total_change,
+            }
+
     return render_template(
         "forecast_patterns.html",
         has_data=True,
@@ -4372,6 +4459,11 @@ def forecast_patterns():
         flare_counts=flare_counts,
         symptom_labels=_PATTERN_SYMPTOM_LABELS,
         symptom_keys=_PATTERN_SYMPTOMS,
+        rmssd_trajectories_json=json.dumps(rmssd_trajectories),
+        has_rmssd_trajectories=has_rmssd_trajectories,
+        rmssd_aggregate_json=json.dumps(agg_rmssd),
+        baseline_rmssd=baseline_rmssd,
+        rmssd_trend=rmssd_trend,
     )
 
 

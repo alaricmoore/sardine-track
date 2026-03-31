@@ -8,6 +8,8 @@ struct ContentView: View {
     @AppStorage("apiToken") private var apiToken = ""
     @AppStorage("userID") private var userID = 1
 
+    @State private var backfillDays: Int = 90
+
     var body: some View {
         NavigationView {
             Form {
@@ -39,6 +41,40 @@ struct ContentView: View {
                         }
                     }
                     .disabled(apiToken.isEmpty || syncer.isSyncing)
+                }
+
+                Section(header: Text("Backfill RMSSD History")) {
+                    Picker("Range", selection: $backfillDays) {
+                        Text("90 days").tag(90)
+                        Text("180 days").tag(180)
+                        Text("365 days").tag(365)
+                    }
+                    Button(action: {
+                        syncer.backfillRMSSD(serverURL: serverURL,
+                                             apiToken: apiToken,
+                                             userID: userID,
+                                             days: backfillDays)
+                    }) {
+                        HStack {
+                            Text("Start Backfill")
+                            Spacer()
+                            if syncer.isBackfilling {
+                                ProgressView()
+                            }
+                        }
+                    }
+                    .disabled(apiToken.isEmpty || syncer.isBackfilling)
+
+                    if syncer.isBackfilling {
+                        ProgressView(value: syncer.backfillProgress)
+                        Text(syncer.backfillStatus)
+                            .font(.system(.caption, design: .monospaced))
+                            .foregroundColor(.secondary)
+                    } else if !syncer.backfillStatus.isEmpty {
+                        Text(syncer.backfillStatus)
+                            .font(.system(.caption, design: .monospaced))
+                            .foregroundColor(.secondary)
+                    }
                 }
 
                 Section(header: Text("Status")) {

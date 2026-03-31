@@ -2,6 +2,10 @@
 
 {% block title %}pre-flare patterns — biotracking{% endblock %}
 
+{% block head %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+{% endblock %}
+
 {% block content %}
 <div class="page-header">
     <h1>pre-flare pattern analysis</h1>
@@ -267,6 +271,37 @@
 </div>
 {% endif %}
 
+<!-- RMSSD trajectory before severe events -->
+{% if has_rmssd_trajectories %}
+<div class="card" style="margin-bottom:var(--space-xl);">
+    <div class="card-title">RMSSD trajectory before severe events</div>
+    <p style="font-size:0.8rem; color:var(--text-muted); margin-bottom:var(--space-md);">
+        RMSSD (parasympathetic HRV) in the 7 days leading up to each ER visit or major flare.
+        The bold line shows the average across all events. The shaded band shows +/- 1 SD.
+    </p>
+    <div style="font-size:0.75rem; color:var(--text-muted); margin-bottom:var(--space-sm);">
+        <span style="color:#ff4444;">&#9472;</span> ER visit
+        <span style="color:#ff8c00; margin-left:0.5rem;">&#9472;</span> major flare
+        <span style="color:#82b4ff; margin-left:0.5rem; font-weight:bold;">&#9473;</span> aggregate mean
+        {% if baseline_rmssd %}
+        <span style="color:#66bb6a; margin-left:0.5rem;">- - -</span> baseline avg ({{ baseline_rmssd }} ms)
+        {% endif %}
+    </div>
+    {% if rmssd_trend %}
+    <div style="font-size:0.8rem; margin-bottom:var(--space-sm);
+                padding:var(--space-xs) var(--space-sm);
+                background:var(--bg-secondary); border-radius:6px; display:inline-block;">
+        pre-flare RMSSD trend:
+        <strong style="color:{% if rmssd_trend.direction == 'rising' %}var(--color-warning){% elif rmssd_trend.direction == 'falling' %}var(--color-danger){% else %}var(--text-secondary){% endif %};">
+            {{ rmssd_trend.direction }}
+            ({{ '%+.1f'|format(rmssd_trend.total_change) }} ms over 7 days)
+        </strong>
+    </div>
+    {% endif %}
+    <canvas id="chartRmssdTrajectory" style="max-height:340px;"></canvas>
+</div>
+{% endif %}
+
 <div class="card" style="margin-bottom:var(--space-xl); border-left:4px solid var(--color-accent);">
     <div class="card-title">how to read this</div>
     <div style="font-size:0.85rem; color:var(--text-secondary); line-height:1.7;">
@@ -279,5 +314,147 @@
     </div>
 </div>
 
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+{% if has_rmssd_trajectories %}
+<script>
+(function() {
+    const trajectories = {{ rmssd_trajectories_json | safe }};
+    const aggregate = {{ rmssd_aggregate_json | safe }};
+    const baselineRmssd = {{ baseline_rmssd | tojson }};
+    const LABELS = ['-7', '-6', '-5', '-4', '-3', '-2', '-1', 'event'];
+
+    Chart.defaults.font.family = "'Source Serif 4', 'Times New Roman', serif";
+    Chart.defaults.font.size = 12;
+    Chart.defaults.color = '#9994a8';
+
+    // Individual event lines (subdued)
+    const datasets = trajectories.map((t, i) => {
+        const isER = t.severity === 'er_visit';
+        const baseColor = isER ? '255,68,68' : '255,140,0';
+        const opacity = Math.max(0.2, 0.5 - i * 0.05);
+        return {
+            label: (isER ? 'ER' : 'Major') + ' — ' + t.date,
+            data: t.values,
+            borderColor: `rgba(${baseColor},${opacity})`,
+            backgroundColor: 'transparent',
+            borderWidth: 1,
+            pointRadius: 0,
+            pointHoverRadius: 3,
+            tension: 0.3,
+            spanGaps: true,
+            order: 3,
+        };
+    });
+
+    if (datasets.length === 0) return;
+
+    // +/- 1 SD confidence band
+    const upperBound = aggregate.mean.map((m, i) =>
+        m !== null && aggregate.std[i] !== null ? +(m + aggregate.std[i]).toFixed(2) : null
+    );
+    const lowerBound = aggregate.mean.map((m, i) =>
+        m !== null && aggregate.std[i] !== null ? +(m - aggregate.std[i]).toFixed(2) : null
+    );
+
+    datasets.push({
+        label: 'mean +1 SD',
+        data: upperBound,
+        borderColor: 'transparent',
+        backgroundColor: 'rgba(130,180,255,0.15)',
+        fill: '+1',
+        pointRadius: 0,
+        tension: 0.3,
+        spanGaps: true,
+        order: 1,
+    });
+    datasets.push({
+        label: 'mean -1 SD',
+        data: lowerBound,
+        borderColor: 'transparent',
+        backgroundColor: 'transparent',
+        fill: false,
+        pointRadius: 0,
+        tension: 0.3,
+        spanGaps: true,
+        order: 1,
+    });
+
+    // Aggregate mean line (prominent)
+    datasets.push({
+        label: 'aggregate mean',
+        data: aggregate.mean,
+        borderColor: 'rgba(130,180,255,1)',
+        backgroundColor: 'transparent',
+        borderWidth: 3,
+        pointRadius: 4,
+        pointHoverRadius: 6,
+        pointBackgroundColor: 'rgba(130,180,255,1)',
+        tension: 0.3,
+        spanGaps: true,
+        order: 0,
+    });
+
+    // Baseline reference line (dashed green)
+    if (baselineRmssd !== null) {
+        datasets.push({
+            label: 'baseline avg (' + baselineRmssd + ' ms)',
+            data: Array(8).fill(baselineRmssd),
+            borderColor: 'rgba(102,187,106,0.7)',
+            borderWidth: 2,
+            borderDash: [6, 4],
+            pointRadius: 0,
+            fill: false,
+            order: 2,
+        });
+    }
+
+    new Chart(document.getElementById('chartRmssdTrajectory'), {
+        type: 'line',
+        data: { labels: LABELS, datasets: datasets },
+        options: {
+            responsive: true,
+            interaction: { mode: 'index', intersect: false },
+            plugins: {
+                legend: {
+                    labels: {
+                        color: '#9994a8', boxWidth: 12, padding: 10, font: { size: 11 },
+                        filter: function(item) { return !item.text.includes('SD'); }
+                    }
+                },
+                tooltip: {
+                    backgroundColor: '#1e1e28',
+                    borderColor: '#2a2a38',
+                    borderWidth: 1,
+                    padding: 10,
+                    cornerRadius: 6,
+                    callbacks: {
+                        label: function(ctx) {
+                            if (ctx.parsed.y === null) return ctx.dataset.label + ': no data';
+                            var val = ctx.parsed.y.toFixed(1) + ' ms';
+                            if (ctx.dataset.label === 'aggregate mean' && aggregate.n[ctx.dataIndex]) {
+                                return ctx.dataset.label + ': ' + val + ' (n=' + aggregate.n[ctx.dataIndex] + ')';
+                            }
+                            return ctx.dataset.label + ': ' + val;
+                        }
+                    }
+                }
+            },
+            scales: {
+                x: {
+                    grid: { color: 'rgba(255,255,255,0.06)' },
+                    title: { display: true, text: 'days before event', color: '#9994a8' }
+                },
+                y: {
+                    grid: { color: 'rgba(255,255,255,0.06)' },
+                    title: { display: true, text: 'RMSSD (ms)', color: '#9994a8' }
+                }
+            }
+        }
+    });
+})();
+</script>
 {% endif %}
 {% endblock %}

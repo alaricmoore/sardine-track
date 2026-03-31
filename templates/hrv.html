@@ -48,6 +48,14 @@
 <!-- HRV trend chart -->
 <div class="chart-container">
     <div class="chart-title">hrv — raw & 7-day rolling average</div>
+    {% if flare_events_json != '[]' %}
+    <div style="font-size:0.75rem; color:var(--text-muted); margin-bottom:var(--space-sm);">
+        flare markers:
+        <span style="color:#ff4444;">|</span> ER visit
+        <span style="color:#ff8c00; margin-left:0.5rem;">|</span> major
+        <span style="color:#ffcc00; margin-left:0.5rem;">|</span> minor
+    </div>
+    {% endif %}
     <canvas id="chartHRV" style="max-height:340px;"></canvas>
 </div>
 
@@ -77,6 +85,7 @@
 <script>
 const H = {{ hrv_json | safe }};
 const S = {{ sleep_json | safe }};
+const FLARE_EVENTS = {{ flare_events_json | safe }};
 const PRIMARY_INTERVENTION_DATE = "{{ primary_intervention_date or '' }}";
 const PRIMARY_INTERVENTION_NAME = "{{ primary_intervention_name or 'intervention' }}";
 const PRIMARY_INTERVENTION_CATEGORY = "{{ primary_intervention_category or 'prescription' }}";
@@ -148,6 +157,39 @@ const interventionLinePlugin = {
     }
 };
 
+// ============================================================
+// Flare event vertical line plugin
+// ============================================================
+const SEVERITY_COLORS = {
+    'er_visit': '#ff4444',
+    'major': '#ff8c00',
+    'minor': '#ffcc00'
+};
+
+const flareLinePlugin = {
+    id: 'flareLines',
+    afterDraw(chart) {
+        const { ctx, chartArea, scales } = chart;
+        if (!chartArea || !scales.x) return;
+
+        FLARE_EVENTS.forEach(event => {
+            const x = scales.x.getPixelForValue(event.date);
+            if (!x || x < chartArea.left || x > chartArea.right) return;
+
+            const color = SEVERITY_COLORS[event.severity] || '#ffcc00';
+            ctx.save();
+            ctx.beginPath();
+            ctx.moveTo(x, chartArea.top);
+            ctx.lineTo(x, chartArea.bottom);
+            ctx.strokeStyle = color;
+            ctx.lineWidth = 1;
+            ctx.globalAlpha = 0.5;
+            ctx.stroke();
+            ctx.restore();
+        });
+    }
+};
+
 function gridOpts() {
     return { color: GRID };
 }
@@ -168,7 +210,7 @@ function tooltipOpts() {
 function buildHRVChart() {
     new Chart(document.getElementById('chartHRV'), {
         type: 'line',
-        plugins: [interventionLinePlugin],
+        plugins: [interventionLinePlugin, flareLinePlugin],
         data: {
             labels: H.dates,
             datasets: [
@@ -244,7 +286,7 @@ function buildHRVChart() {
 function buildFatigueChart() {
     new Chart(document.getElementById('chartFatigue'), {
         type: 'line',
-        plugins: [interventionLinePlugin],
+        plugins: [interventionLinePlugin, flareLinePlugin],
         data: {
             labels: H.dates,
             datasets: [
@@ -309,7 +351,7 @@ function buildFatigueChart() {
 function buildPainChart() {
     new Chart(document.getElementById('chartPain'), {
         type: 'line',
-        plugins: [interventionLinePlugin],
+        plugins: [interventionLinePlugin, flareLinePlugin],
         data: {
             labels: H.dates,
             datasets: [
@@ -393,7 +435,7 @@ function buildSleepChart() {
 
     new Chart(document.getElementById('chartSleep'), {
         type: 'line',
-        plugins: [interventionLinePlugin],
+        plugins: [interventionLinePlugin, flareLinePlugin],
         data: {
             labels: S.dates,
             datasets: [

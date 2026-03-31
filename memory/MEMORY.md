@@ -2,3 +2,5 @@
 - [project_overview.md](project_overview.md) - Flask health tracker on Raspberry Pi, accessed via <YOUR_SERVER>
 - [feedback_explanations.md](feedback_explanations.md) - Explain web concepts clearly when they arise, user is learning
 - [feedback_icons.md](feedback_icons.md) - No standard emojis; use Emoji One Monotone SVGs or plain text symbols
+- [project_next_session.md](project_next_session.md) - Queued: timeline overhaul, cycle calendar redesign, RMSSD backfill + flare overlay
+- [project_hrv_flare_hypothesis.md](project_hrv_flare_hypothesis.md) - Hypothesis: HRV/RMSSD may elevate before lupus flares (not drop)
