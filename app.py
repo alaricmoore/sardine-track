@@ -101,6 +101,78 @@ def _compute_cumulative_uv(obs_date: str, obs_by_date: dict, location_key: str) 
     return total
 
 
+_SYMPTOM_KEYS = [
+    'neurological', 'cognitive', 'musculature', 'migraine',
+    'pulmonary', 'dermatological', 'rheumatic', 'mucosal', 'gastro',
+]
+
+
+def _compute_symptom_burden_3d(obs_date: str, obs_by_date: dict) -> int:
+    """Count total symptom flags across the prior 3 days (day-1, day-2, day-3)."""
+    target = datetime.strptime(obs_date, "%Y-%m-%d").date()
+    count = 0
+    for offset in range(1, 4):
+        d = (target - timedelta(days=offset)).isoformat()
+        prior = obs_by_date.get(d)
+        if not prior:
+            continue
+        for sym in _SYMPTOM_KEYS:
+            if prior.get(sym):
+                count += 1
+    return count
+
+
+def _compute_rmssd_deviation(obs_date: str, obs_by_date: dict) -> float | None:
+    """Percentage deviation of 7-day RMSSD average from 30-day baseline.
+
+    Returns negative values when recent RMSSD is below baseline (vagal withdrawal).
+    Returns None if insufficient data in either window.
+    """
+    target = datetime.strptime(obs_date, "%Y-%m-%d").date()
+
+    # 7-day recent window (day-1 through day-7)
+    recent = []
+    for offset in range(1, 8):
+        d = (target - timedelta(days=offset)).isoformat()
+        obs = obs_by_date.get(d)
+        if obs and obs.get('hrv_rmssd') is not None:
+            recent.append(float(obs['hrv_rmssd']))
+
+    # 30-day baseline window (day-8 through day-37, avoids overlap with recent)
+    baseline = []
+    for offset in range(8, 38):
+        d = (target - timedelta(days=offset)).isoformat()
+        obs = obs_by_date.get(d)
+        if obs and obs.get('hrv_rmssd') is not None:
+            baseline.append(float(obs['hrv_rmssd']))
+
+    if len(recent) < 4 or len(baseline) < 4:
+        return None
+
+    recent_avg = sum(recent) / len(recent)
+    baseline_avg = sum(baseline) / len(baseline)
+
+    if baseline_avg == 0:
+        return None
+
+    return round((recent_avg - baseline_avg) / baseline_avg * 100, 1)
+
+
+def _inject_scoring_context(obs_list: list, obs_by_date: dict, loc_key: str,
+                            n: int | None = None) -> None:
+    """Inject multi-day scoring context into observations in-place.
+
+    Enriches each obs with _uv_row, _cumulative_uv_dose, _symptom_burden_3d,
+    and _rmssd_deviation so calculate_flare_prime_score() has full context.
+    """
+    subset = obs_list[:n] if n else obs_list
+    for obs in subset:
+        obs['_uv_row'] = db.get_uv_data(loc_key, obs['date'])
+        obs['_cumulative_uv_dose'] = _compute_cumulative_uv(obs['date'], obs_by_date, loc_key)
+        obs['_symptom_burden_3d'] = _compute_symptom_burden_3d(obs['date'], obs_by_date)
+        obs['_rmssd_deviation'] = _compute_rmssd_deviation(obs['date'], obs_by_date)
+
+
 # Default weights (factory settings)
 # Symptom weights control points added per symptom checked.
 # Category multipliers scale entire scoring categories (1.0 = default).
@@ -115,6 +187,9 @@ DEFAULT_WEIGHTS = {
     'mucosal': 0.25,
     'rheumatic': 0.5,
     'cycle_phase': 0.0,  # disabled: no predictive signal in data (Fisher p>0.2, OR inverted)
+    # Multi-day predictors
+    'symptom_burden_weight': 1.0,
+    'rmssd_deviation_weight': 0.5,  # speculative, conservative
     # Category multipliers
     'uv_weight': 1.0,
     'exertion_weight': 1.0,
@@ -705,15 +780,13 @@ def _check_flare_risk_alert() -> None:
         all_obs.sort(key=lambda x: x["date"], reverse=True)
         _inject_cycle_phase(all_obs)
 
-        # Inject UV data for scoring
+        # Inject multi-day scoring context
         loc_key = db.make_location_key(
             user.get("location_lat") or CONFIG.get("location_lat", 0),
             user.get("location_lon") or CONFIG.get("location_lon", 0),
         )
         obs_by_date = {o["date"]: o for o in all_obs}
-        for obs in all_obs[:3]:
-            obs["_uv_row"] = db.get_uv_data(loc_key, obs["date"])
-            obs["_cumulative_uv_dose"] = _compute_cumulative_uv(obs["date"], obs_by_date, loc_key)
+        _inject_scoring_context(all_obs, obs_by_date, loc_key, n=3)
 
         # Load user's flare threshold
         user_weights = get_current_weights(user_id)
@@ -3157,6 +3230,24 @@ def calculate_flare_prime_score(obs, weights_override=None):
     if obs.get('cycle_in_high_risk_phase'):
         score += weights.get('cycle_phase', 1.0)
 
+    # 10. 3-day symptom burden (multi-day accumulation signal, d=1.70)
+    burden_w = weights.get('symptom_burden_weight', 1.0)
+    symptom_burden = obs.get('_symptom_burden_3d')
+    if symptom_burden is not None:
+        if symptom_burden >= 6:
+            score += 3.0 * burden_w
+        elif symptom_burden >= 3:
+            score += 1.5 * burden_w
+
+    # 11. RMSSD baseline deviation (vagal withdrawal signal, d=-0.35)
+    rmssd_w = weights.get('rmssd_deviation_weight', 0.5)
+    rmssd_dev = obs.get('_rmssd_deviation')
+    if rmssd_dev is not None:
+        if rmssd_dev <= -25:
+            score += 1.5 * rmssd_w
+        elif rmssd_dev <= -15:
+            score += 0.75 * rmssd_w
+
     return round(score, 1)
 
 def calculate_model_stats(observations, custom_weights=None):
@@ -3300,6 +3391,10 @@ def forecast_lab():
     # Calculate current metrics (reuse from forecast_accuracy)
     all_obs.sort(key=lambda x: x['date'], reverse=True)
     _inject_cycle_phase(all_obs)
+
+    obs_by_date = {o['date']: o for o in all_obs}
+    _inject_scoring_context(all_obs, obs_by_date, get_location_key(), n=60)
+
     analysis_set = all_obs[:60]
 
     # Calculate current stats
@@ -3404,6 +3499,10 @@ def forecast_lab_simulate():
     all_obs = db.get_all_daily_observations(uid())
     all_obs.sort(key=lambda x: x['date'], reverse=True)
     _inject_cycle_phase(all_obs)
+
+    obs_by_date = {o['date']: o for o in all_obs}
+    _inject_scoring_context(all_obs, obs_by_date, get_location_key(), n=60)
+
     analysis_set = all_obs[:60]
 
     # Calculate stats with custom weights
@@ -3468,6 +3567,10 @@ def forecast_lab_apply():
         all_obs = db.get_all_daily_observations(uid())
         all_obs.sort(key=lambda x: x['date'], reverse=True)
         _inject_cycle_phase(all_obs)
+
+        obs_by_date = {o['date']: o for o in all_obs}
+        _inject_scoring_context(all_obs, obs_by_date, get_location_key(), n=60)
+
         analysis_set = all_obs[:60]
         new_stats = calculate_model_stats(analysis_set, custom_weights)
 
@@ -3530,10 +3633,14 @@ def forecast():
     # Get last 7 days for trend
     last_7 = all_obs[:7]
     today_obs = all_obs[0] if all_obs else None
-    
+
     if not today_obs:
         return render_template("forecast.html", has_data=False)
-    
+
+    # Inject multi-day scoring context
+    obs_by_date = {o['date']: o for o in all_obs}
+    _inject_scoring_context(all_obs, obs_by_date, get_location_key(), n=7)
+
     # Calculate scores for last 7 days
     scores_7day = []
     for obs in last_7:
@@ -3907,6 +4014,10 @@ def forecast_history():
     
     all_obs.sort(key=lambda x: x['date'], reverse=True)
     _inject_cycle_phase(all_obs)
+
+    obs_by_date = {o['date']: o for o in all_obs}
+    _inject_scoring_context(all_obs, obs_by_date, get_location_key(), n=30)
+
     last_30 = all_obs[:30]
 
     _hist_weights = get_current_weights(uid())
@@ -3995,6 +4106,9 @@ def forecast_accuracy():
     all_obs.sort(key=lambda x: x['date'], reverse=True)
     _inject_cycle_phase(all_obs)
 
+    obs_by_date = {o['date']: o for o in all_obs}
+    _inject_scoring_context(all_obs, obs_by_date, get_location_key())
+
     # Select analysis window
     if days_param == 'all':
         analysis_set = all_obs
@@ -4003,13 +4117,13 @@ def forecast_accuracy():
         days_int = int(days_param)
         analysis_set = all_obs[:days_int]
         days_display = days_int
-    
+
     # Calculate predictions vs actuals
     true_positives = 0   # Predicted flare, flare occurred
     true_negatives = 0   # Predicted no flare, no flare
     false_positives = 0  # Predicted flare, no flare (false alarm)
     false_negatives = 0  # Predicted no flare, but flare occurred (missed)
-    
+
     # Track which factors appear in false predictions
     _acc_weights = get_current_weights(uid())
     _acc_threshold = _acc_weights.get('flare_threshold', 8.0)
