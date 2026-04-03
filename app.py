@@ -114,7 +114,7 @@ DEFAULT_WEIGHTS = {
     'dermatological': 0.75,
     'mucosal': 0.25,
     'rheumatic': 0.5,
-    'cycle_phase': 1.0,
+    'cycle_phase': 0.0,  # disabled: no predictive signal in data (Fisher p>0.2, OR inverted)
     # Category multipliers
     'uv_weight': 1.0,
     'exertion_weight': 1.0,
