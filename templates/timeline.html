@@ -116,6 +116,15 @@
     <div id="accuracyStats" style="font-size:0.8rem; color:var(--text-secondary); margin-top:var(--space-sm);"></div>
 </div>
 
+<!-- Export -->
+<div style="text-align:right; margin-bottom:var(--space-xl);">
+    <a href="{{ url_for('timeline_export') }}"
+       style="font-size:0.85rem; color:var(--text-secondary); text-decoration:none; padding:var(--space-xs) var(--space-sm);
+              background:var(--bg-secondary); border-radius:4px;">
+        export scores as CSV
+    </a>
+</div>
+
 {% endif %}
 {% endblock %}
 

@@ -1628,7 +1628,54 @@ def timeline():
         days_param=days_param,
     )
 
- 
+@app.route("/timeline/export")
+@login_required
+def timeline_export():
+    """Export daily score + component breakdown as CSV."""
+    from io import StringIO
+    import csv
+
+    all_obs = db.get_all_daily_observations(uid())
+    if not all_obs:
+        return "No data", 404
+
+    all_obs.sort(key=lambda x: x['date'], reverse=True)
+    _inject_cycle_phase(all_obs)
+    obs_by_date = {o['date']: o for o in all_obs}
+    _inject_scoring_context(all_obs, obs_by_date, get_location_key())
+
+    weights = get_current_weights(uid())
+    threshold = weights.get('flare_threshold', 8.0)
+
+    output = StringIO()
+    writer = csv.writer(output)
+    writer.writerow([
+        'date', 'total_score', 'predicted_flare', 'actual_flare', 'flare_severity',
+        'uv', 'exertion', 'temperature', 'symptoms', 'pain_fatigue',
+        'burden_delta', 'rmssd',
+        'burden_delta_raw', 'rmssd_deviation_raw',
+    ])
+
+    for obs in reversed(all_obs):
+        comp = _score_components(obs)
+        writer.writerow([
+            obs['date'],
+            comp['total'],
+            'Y' if comp['total'] >= threshold else '',
+            'Y' if obs.get('flare_occurred') == 1 else '',
+            obs.get('flare_severity') or '',
+            comp['uv'], comp['exertion'], comp['temperature'],
+            comp['symptoms'], comp['pain_fatigue'],
+            comp['burden_delta'], comp['rmssd'],
+            obs.get('_symptom_burden_delta') or '',
+            obs.get('_rmssd_deviation') or '',
+        ])
+
+    return Response(
+        output.getvalue(),
+        mimetype='text/csv',
+        headers={'Content-Disposition': 'attachment; filename=flare_scores.csv'},
+    )
 
 
 # ============================================================
@@ -3913,8 +3960,34 @@ def forecast():
         'scores': [s['score'] for s in reversed(scores_7day)]
     }
     
-    # Build score breakdown by category
-    breakdown = get_score_breakdown(today_obs)
+    # Build score breakdown with 7-day component history for sparklines
+    COMPONENT_META = [
+        ('uv',           'UV Exposure',    '#d4b84a'),
+        ('exertion',     'Physical Load',  '#d4a054'),
+        ('temperature',  'Temperature',    '#c94040'),
+        ('symptoms',     'Symptoms',       '#9b72cf'),
+        ('pain_fatigue', 'Pain & Fatigue', '#e85d9e'),
+        ('burden_delta', 'Burden Delta',   '#5b9bd5'),
+        ('rmssd',        'RMSSD',          '#66bb6a'),
+    ]
+
+    # Compute components for each of the 7 days
+    comp_history = [_score_components(obs) for obs in last_7]
+    today_comp = comp_history[0]
+
+    breakdown = []
+    for key, name, color in COMPONENT_META:
+        val = today_comp[key]
+        # Skip components that are zero today and have been zero all week
+        history = [c[key] for c in reversed(comp_history)]  # chronological
+        if val == 0 and all(h == 0 for h in history):
+            continue
+        breakdown.append({
+            'name': name,
+            'score': val,
+            'color': color,
+            'history': history,
+        })
 
     # Score trend delta vs yesterday
     score_delta = round(weighted_score - scores_7day[1]['score'], 1) if len(scores_7day) >= 2 else None
@@ -3936,6 +4009,7 @@ def forecast():
         recommendations=recommendations,
         trend_data=trend_data,
         breakdown=breakdown,
+        breakdown_json=json.dumps(breakdown),
         score_delta=score_delta,
         predicted_flare=predicted_flare,
         flare_threshold=round(_threshold, 1)
