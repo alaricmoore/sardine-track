@@ -100,17 +100,19 @@
 <div class="card help-section" style="margin-bottom: var(--space-md);">
     <h2>The Forecast Model</h2>
     <p>After 7 days of logging, the app starts generating a daily flare risk score. This is not a medical prediction &mdash; it's a statistical pattern based on <em>your own</em> historical data.</p>
-    <p>The model looks at:</p>
+    <p>The model scores each day (0&ndash;25) based on:</p>
     <ul>
-        <li>Yesterday's and today's UV index</li>
-        <li>Your symptom levels over the past few days</li>
-        <li>Sleep quality</li>
-        <li>HRV trends (if logged)</li>
-        <li>Cycle phase (if cycle tracking is enabled)</li>
+        <li><strong>UV dose</strong> &mdash; sun exposure minutes weighted by UV index intensity and protection level, including cumulative load from the prior 3 days</li>
+        <li><strong>Physical overexertion</strong> &mdash; steps relative to your personal baseline, adjusted for sleep</li>
+        <li><strong>Temperature elevation</strong> &mdash; basal body temperature deviation from your personal baseline</li>
+        <li><strong>Individual symptoms</strong> &mdash; each category has its own weight based on how often it appeared before past flares</li>
+        <li><strong>Pain, fatigue, and emotional state</strong></li>
+        <li><strong>Symptom burden delta</strong> &mdash; the model's strongest predictor. Are you having <em>more</em> symptom categories than your usual number? Having symptoms doesn't predict a flare when you have symptoms most days. Having more than your <em>normal</em> number does.</li>
+        <li><strong>RMSSD baseline deviation</strong> &mdash; is your parasympathetic nervous system withdrawing? A sustained drop in vagal tone (measured via Apple Watch HRV) may precede inflammatory flares. This one is still being validated.</li>
     </ul>
-    <p>It compares current conditions to the conditions that preceded past flares in your own history, and produces a risk score from 0 to 25.</p>
     <p><strong>The more data you have, the more accurate it becomes.</strong> Early on it will be rough. Over months, it gets meaningful.</p>
-    <p>You can see the breakdown of what's contributing to today's score on the Forecast page.</p>
+    <p>You can see today's breakdown on the Forecast page, and the full scoring history on the <strong>Model</strong> dashboard.</p>
+    <p><a href="{{ url_for('model_explainer') }}" style="color: var(--color-accent); font-weight: 500;">Read the full model explainer &rarr;</a></p>
 </div>
 
 <!-- The Forecast Lab -->
@@ -176,21 +178,23 @@
     <p><strong>Mark your flare days.</strong> This is the most important thing for the prediction model. If you're having a bad day, check the flare box.</p>
     <p><strong>Don't stress about missing days.</strong> Life happens. A gap in the data is fine &mdash; the model works around it.</p>
     <p><strong>Use the notes fields.</strong> You don't have to write much, but "started new medication today" or "out in the sun for two hours" adds context that pure numbers can't capture.</p>
-    <p><strong>Come back to the Timeline.</strong> After a month or two of data, the Timeline view starts showing you things. UV spikes followed by symptom spikes a day later. Sleep drops before flares. Patterns you couldn't see in the day-to-day.</p>
+    <p><strong>Come back to the Model dashboard.</strong> After a month or two of data, the Model view starts showing you things. Score spikes before flares. Symptom burden deltas climbing. Which components are doing the heavy lifting. Patterns you couldn't see in the day-to-day.</p>
 </div>
 
 <!-- Technical Details -->
 <div class="card help-section" style="margin-bottom: var(--space-md);">
     <h2>Technical Details</h2>
-    <p>Want to know how the app is built, how the prediction model works under the hood, how to import data from Apple Health, or how to set up remote access on a Raspberry Pi?</p>
-    <p>The full technical documentation covers installation, data import scripts, the flare prediction algorithm and its current weights, push notification setup, project structure, and the philosophy behind the project.</p>
+    <p>Want to know how the app is built, how to import data from Apple Health, or how to set up remote access on a Raspberry Pi?</p>
     <p><a href="{{ url_for('readme_page') }}" style="color: var(--color-accent); font-weight: 500;">Read the full technical readme &rarr;</a></p>
+    <p>Want to understand exactly how the flare prediction model works &mdash; every scoring category, the math, the multi-day context system, and the research behind it?</p>
+    <p><a href="{{ url_for('model_explainer') }}" style="color: var(--color-accent); font-weight: 500;">Read the model explainer &rarr;</a></p>
     <p>Curious how your data is stored and how it reaches your phone? The app runs on a Raspberry Pi 4 with traffic routed through an encrypted Tailscale tunnel. Your health data never leaves the Pi.</p>
     <p><a href="{{ url_for('remote_access_page') }}" style="color: var(--color-accent); font-weight: 500;">Read the remote access guide &rarr;</a></p>
 </div>
 
 <p style="color: var(--text-muted); font-size: 0.8rem; font-style: italic; text-align: center; margin-bottom: var(--space-2xl);">
     Built by C. Alaric Moore. Hosted privately. Your data stays here.<br>
+    Assisted by Claude Opus (Anthropic) &mdash; known around here as Clode &mdash; for the forecasting model and data analysis pipeline.<br>
     If something isn't working or you want a feature added, just ask.
 </p>
 

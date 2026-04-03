@@ -200,3 +200,7 @@ This was built to test the hypothesis that RMSSD may behave differently before f
 - Huston & Tracey (2011): Cholinergic anti-inflammatory pathway -- vagal tone suppresses systemic inflammation via acetylcholine on macrophage nicotinic receptors. Proposed HRV as a predictor of impending relapse.
 - Bhatt/Engel group (ACR abstracts): 58 SLE patients, 505 visit pairs. RMSSD and HF-HRV increased during clinical improvement, decreased during flares, inverse correlation to SLEDAI.
 - Apple Watch HRV validation (2024): Underestimates HRV by ~8.3ms vs Polar H10 (MAPE ~29%), but tracks relative within-person changes adequately for longitudinal monitoring.
+
+---
+
+Built by C. Alaric Moore. Model development and data analysis by Claude Opus (Anthropic) -- nicknamed Clode -- with statistical validation by a second Claude instance (Wolf).

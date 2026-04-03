@@ -5523,6 +5523,19 @@ def readme_page():
     return render_template("readme.html", content=readme_content)
 
 
+@app.route("/model")
+@login_required
+def model_explainer():
+    """Render MODEL.md as a styled page."""
+    model_path = os.path.join(os.path.dirname(__file__), "MODEL.md")
+    try:
+        with open(model_path, "r") as f:
+            model_content = f.read()
+    except FileNotFoundError:
+        model_content = "MODEL.md not found."
+    return render_template("readme.html", content=model_content)
+
+
 @app.route("/remote-access")
 @login_required
 def remote_access_page():

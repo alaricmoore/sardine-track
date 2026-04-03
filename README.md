@@ -668,7 +668,7 @@ biotracking/
 
 Built by C. Alaric Moore, a USPS technician and mechanic and patient who got tired of being told her labs were normal.
 
-Assisted by Claude (Anthropic) -- Sonnet for the original build, Opus for the forecasting model and data analysis pipeline. H/t to GitHub Copilot for closing parentheses and other surprisingly convenient features.
+Assisted by Claude (Anthropic) -- Sonnet for the original build, Opus (nicknamed Clode) for the forecasting model and data analysis pipeline, with statistical validation by a second Claude instance (Wolf). H/t to GitHub Copilot for closing parentheses and other surprisingly convenient features.
 
 Inspired by every patient who was told "your labs are fine" when they knew something was deeply wrong. Dedicated to the ones still waiting for someone to believe them.
 
