@@ -20,7 +20,7 @@ Biotracking helps you:
 - Keep a longitudinal record of labs, medications, & clinical events, as well a list of your clinicians
 - Run flare forecasting based on your own historical patterns
 - Visualize trends pre/post medical interventions such as hydroxychloriquine or steroids or biologics or what have you.
-- Auto-sync biometrics from Apple Health via iOS Shortcut (steps, HRV, resting heart rate, basal body temperature)
+- Auto-sync biometrics from Apple Health via iOS companion app (steps, HRV/SDNN, RMSSD, resting heart rate, SpO2, respiratory rate, basal body temperature, time in daylight)
 - Keep all your data local -- nothing leaves your computer, if you don't want it to.
 
 This is not a medical product. This is a tool for veracity: for people who need to make their invisible patterns visible.
@@ -79,9 +79,10 @@ Enabled via `track_cycle: true` in setup. Designed for patients where steroids, 
 
 ### Data Visualization & Analysis
 
-- **Timeline view**: Multi-axis chart showing symptoms, sleep, temperature, and UV exposure over time
+- **Model dashboard**: Score attribution over time -- stacked bars showing exactly what's driving each day's risk score, with flare markers and threshold line. Includes symptom burden delta and RMSSD deviation trend charts, score distribution stats, and prediction accuracy strip.
 - **UV lag analysis**: Statistical analysis of UV exposure patterns and flare correlation with configurable lag periods (same-day, 24h, 48h, 72h)
-- **HRV tracking**: Heart rate variability trends with intervention markers
+- **HRV tracking**: SDNN and RMSSD trends with 7-day rolling averages, intervention markers, flare event overlays, and pre/post intervention statistics
+- **Pre-flare pattern analysis**: Biometric averages, symptom frequencies, and RMSSD trajectories in the days before ER visits and major flares, with aggregate mean lines and confidence bands
 - **Intervention tracking**: Mark primary and secondary medical interventions, visualize pre/post effects
 
 ### Flare Prediction Model
@@ -575,54 +576,18 @@ This deletes all your data. Back up first.
 
 ## How the Flare Prediction Model Works
 
-The flare prediction model is a transparent, statistical approach based on weighted symptom scoring. You can see exactly how it works and modify all you want.
+The flare prediction model is a transparent, statistical approach. No black box -- you can see exactly how every prediction is made, and tune it yourself.
 
-### Calculation
+Each day receives a risk score (0-25) based on UV dose, physical overexertion, temperature elevation, individual symptoms, pain/fatigue, and two multi-day predictors:
 
-Each day receives a score (0-25) based on:
+- **Symptom burden delta**: How many more symptom categories are active than your personal rolling baseline? Flares build -- they don't appear from nowhere. This is the model's strongest predictor.
+- **RMSSD baseline deviation**: Is your parasympathetic nervous system withdrawing? A sustained drop in vagal tone (measured via Apple Watch HRV) may precede inflammatory flares.
 
-- **Symptoms** (weighted 0.25-2.0 based on severity and flare correlation)
-- **UV exposure** (exponential weighting by UV Index score, 24-hour lag has shown strongest correlation)
-- **Physical overexertion** (steps per hour slept ratio)
-- **Temperature elevation** (basal body temperature delta)
-- **Fatigue and pain scales**
-- **Emotional state**
+Both use baseline-relative scoring rather than raw values, because chronic daily symptoms become constant offsets that don't distinguish flare days from non-flare days.
 
-**Threshold**: Score ≥ 8.0 = flare risk
+**Threshold**: Score >= 8.0 = flare risk. All weights are tunable in the Forecast Lab.
 
-### Current Weights (as of 2026-03-05)
-
-Adjusted based on accuracy analysis of 60 days of data:
-
-- Neurological: 1.5 (appeared in 51 missed flares)
-- Cognitive: 1.0 (appeared in 34 missed flares)
-- Musculature: 1.5 (appeared in 44 missed flares)
-- Migraine: 1.0
-- Pulmonary: 1.0
-- Dermatological: 0.75
-- Mucosal: 0.25
-- Rheumatic: 0.5 (base), 2.0 (major joints), 1.0 (minor joints)
-- Cycle phase (PMS/Luteal): 1.0 — only active when `track_cycle: true`
-
-The cycle phase weight was added after observing that across 11 cycles of real data (69 total flares), PMS and luteal phases carried roughly double the flare rate of other phases: PMS 38%, Luteal 39% vs. Follicular 19%, Period 19%. Adding the default +1.0 weight for these phases improved recall from 36.7% to 45.5% and reduced false positives from 20% to 16.7%. The weight is adjustable in the Forecast Lab like all others, and has no effect if cycle tracking is disabled.
-
-### Performance
-
-Current model accuracy: **85.8%** overall
-
-- Recall: 45.5% with cycle phase weighting (was 36.7% without)
-- Precision: 79.2% (4/5 predictions are correct)
-- False positives: 16.7% (was 20% before cycle phase weighting)
-- Improved from initial 76% accuracy / 20.9% recall
-
-### Customization
-
-Use the Forecast Lab (`/forecast/lab`) to:
-
-- Adjust weights based on your personal patterns
-- Run simulations to see impact on accuracy
-- Apply changes or reset to defaults
-- View the actual Python calculation code inside the app
+For full details on every scoring category, the math behind multi-day context injection, the RMSSD trajectory analysis, and relevant literature, see **[MODEL.md](MODEL.md)**.
 
 ## For Developers
 
@@ -648,40 +613,39 @@ Also reach out to me at <alaric.moore@pm.me>
 
 ```
 biotracking/
-├── app.py              # Flask routes only
+├── app.py              # Flask routes and scoring model
 ├── db.py               # All database operations
 ├── uv_fetcher.py       # UV API integration
-├── setup.py            # First-run configuration
+├── setup.py            # First-run configuration and migrations
+├── MODEL.md            # Full flare prediction model documentation
 ├── requirements.txt    # Python dependencies
-├── .gitignore          # Keeps sensitive data out of git
 ├── config.json         # User settings (gitignored)
-├── import_labs.py
-├── import_tracker.py
-├── import_apple_health.py
-├── import_cycle.py     # Apple Health menstrual cycle CSV import
-├── migrate_symptoms.py
-├── backfill_uv.py
 ├── biotracking.db      # SQLite database (gitignored)
+├── import_*.py         # Data import scripts (labs, tracker, Apple Health, cycle)
+├── backfill_uv.py      # Historical UV data fetcher
 ├── config/
 │   ├── custom_weights.json     # Forecast Lab overrides (gitignored)
 │   └── flare_alert_state.json  # Daily alert rate-limit state (gitignored)
-├── templates/          # HTML templates
-│   ├── base.html
-│   ├── daily_entry.html
-│   ├── timeline.html
-│   ├── uv_lag.html
-│   ├── hrv.html
-│   ├── cycle.html
-│   ├── forecast_history.html
-│   ├── forecast_accuracy.html
-│   ├── forecast_lab.html
-│   ├── forecast.html
-│   ├── daily_confirm.html
-│   ├── clinical_record.html
-│   ├── search.html
-│   ├── report.html
-│   └── login.html
-└── import_*.py         # Data import scripts
+├── ios-health-sync/    # iOS companion app (HealthKit -> Flask API)
+│   ├── HealthSyncer.swift
+│   ├── ContentView.swift
+│   └── HealthSyncApp.swift
+└── templates/
+    ├── base.html
+    ├── daily_entry.html
+    ├── timeline.html           # Model dashboard (score attribution)
+    ├── forecast.html           # Daily flare forecast
+    ├── forecast_lab.html       # Weight tuning interface
+    ├── forecast_history.html   # Predictions vs actuals
+    ├── forecast_accuracy.html  # Model performance grading
+    ├── forecast_patterns.html  # Pre-flare pattern analysis + RMSSD trajectories
+    ├── hrv.html                # HRV trends with flare overlays
+    ├── cycle.html              # Menstrual cycle calendar
+    ├── uv_lag.html             # UV-symptom correlation analysis
+    ├── clinical_record.html
+    ├── report.html
+    ├── search.html
+    └── login.html
 ```
 
 ---
@@ -704,7 +668,7 @@ biotracking/
 
 Built by C. Alaric Moore, a USPS technician and mechanic and patient who got tired of being told her labs were normal.
 
-Assisted by Claude Sonnet (Anthropic) for development support, h/t to Github's copilot for closing parentheses and other surprisningly convenient features.
+Assisted by Claude (Anthropic) -- Sonnet for the original build, Opus for the forecasting model and data analysis pipeline. H/t to GitHub Copilot for closing parentheses and other surprisingly convenient features.
 
 Inspired by every patient who was told "your labs are fine" when they knew something was deeply wrong. Dedicated to the ones still waiting for someone to believe them.
 
