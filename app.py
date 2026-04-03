@@ -275,56 +275,88 @@ FORECAST_LAB_MANUAL ="""╔═════════════════�
 
 WHAT THIS IS
 ────────────
-A transparent, statistical model for predicting lupus flare risk based on 
-daily observations. Unlike black-box AI, you can see exactly how it works 
+A transparent, statistical model for predicting lupus flare risk based on
+daily observations. Unlike black-box AI, you can see exactly how it works
 and tune it yourself.
 
-CURRENT WEIGHTS (as of 2026-03-05)
-───────────────────────────────────
-These weights were adjusted based on accuracy analysis:
+HOW SCORING WORKS
+─────────────────
+Each day, the model computes a flare risk score by summing weighted
+contributions from several categories. Before scoring, each observation
+is enriched with multi-day context:
 
-  Symptom Weights:
-  • Neurological: 1.5 (numbness, tingling, vision changes)
-  • Cognitive: 1.0 (brain fog, memory, word recall)
-  • Musculature: 1.5 (muscle pain, cramping, weakness)
-  • Migraine: 1.0 (headaches, light sensitivity)
-  • Pulmonary: 1.0 (air hunger, chest discomfort)
-  • Dermatological: 0.75 (rash, photosensitivity)
-  • Mucosal: 0.25 (dry mouth, dry eyes)
-  • Rheumatic (base): 0.5 (joint pain without specificity)
-    └─ Major joints: 2.0 (hip, knee, shoulder, elbow, ankle, wrist, jaw)
-    └─ Minor joints: 1.0 (finger, toe, hand)
+  _inject_scoring_context() pre-computes:
+  • Cumulative UV dose from the prior 3 days (decay-weighted)
+  • 3-day symptom burden (total symptom flags across days -1, -2, -3)
+  • RMSSD baseline deviation (7-day rolling avg vs 30-day personal baseline)
 
-  Environmental Factors:
-  • High UV (100+ min): 3.0
-  • Moderate UV (70-99 min): 1.25
-  • High temperature (0.8°F+): 3.0
-  • Moderate temperature (0.5-0.8°F): 2.0
-  • Mild temperature (0.3-0.5°F): 1.0
+These values are injected into each observation so the scoring function
+has access to patterns that span multiple days, not just today's snapshot.
 
-  Physical Load:
-  • Severe overexertion (2000+ steps/hr slept): 2.0
-  • Moderate overexertion (1500-2000 steps/hr slept): 1.5
+SCORING CATEGORIES
+──────────────────
 
-  Other:
-  • Severe fatigue (7+): 3.0
-  • Moderate fatigue (5-7): 1.0
-  • Mild fatigue (3-5): 0.5
-  • High pain (7+): 1.0
-  • Low emotional state (≤4): 2.0
+  1. UV Dose (weighted UV index^1.5 x sun minutes x protection factor)
+     • Dose >= 800: +3.0 x uv_weight
+     • Dose >= 400: +1.25 x uv_weight
+     Cohen's d = +1.29, p < 0.0001 for 3-day cumulative sun exposure.
+
+  2. Cumulative UV Load (prior 3 days, decay-weighted)
+     • Cumulative >= 1500: +1.5 x uv_weight
+     • Cumulative >= 1000: +0.75 x uv_weight
+
+  3. Physical Overexertion (steps relative to baseline / sleep hours)
+     • Overexertion ratio >= 1.8: +2.0 x exertion_weight
+     • Overexertion ratio >= 1.4: +1.5 x exertion_weight
+
+  4. Basal Temperature Delta (deviation from personal baseline)
+     • Delta >= 0.8 F: +3.0 x temperature_weight
+     • Delta >= 0.5 F: +2.0 x temperature_weight
+     • Delta >= 0.3 F: +1.0 x temperature_weight
+
+  5. Individual Symptoms (each adds its weight when flagged):
+     • Neurological: 1.5
+     • Cognitive: 1.0
+     • Musculature: 1.5
+     • Migraine: 1.0
+     • Pulmonary: 1.0
+     • Dermatological: 0.75
+     • Mucosal: 0.25
+     • Rheumatic: 0.5 base, 2.0 major joints, 1.0 minor joints
+
+  6. Pain Scale
+     • Pain >= 7: +1.0 x pain_fatigue_weight
+
+  7. Fatigue Scale
+     • Fatigue >= 7: +3.0 x pain_fatigue_weight
+     • Fatigue > 5:  +1.0 x pain_fatigue_weight
+     • Fatigue > 3:  +0.5 x pain_fatigue_weight
+
+  8. Emotional State
+     • Emotional state <= 4: +2.0 x pain_fatigue_weight
+
+  9. Cycle Phase
+     • Weight set to 0.0 (disabled). Fisher exact tests showed no
+       predictive signal (bleeding OR=0.70 p=0.24, PMS OR=1.12 p=0.70).
+       With post-steroid cycles averaging 15.7 days vs the 28-day model
+       assumption, 90% of days were flagged, adding constant bias.
+
+  10. 3-Day Symptom Burden (strongest predictor, Cohen's d = +1.70)
+      Pre-flare days average 8.9 symptom flags over 3 days vs 1.7 for
+      non-flare days. Flares build — they don't appear from nowhere.
+      • Burden >= 6 flags: +3.0 x symptom_burden_weight
+      • Burden >= 3 flags: +1.5 x symptom_burden_weight
+
+  11. RMSSD Baseline Deviation (vagal withdrawal signal, d = -0.35)
+      Compares 7-day rolling RMSSD average to 30-day personal baseline.
+      Based on the cholinergic anti-inflammatory pathway: declining vagal
+      tone weakens the inflammatory brake. Conservative weight (0.5)
+      because p=0.11 with n=25 events — mechanistically grounded but
+      not yet statistically significant.
+      • Deviation <= -25%: +1.5 x rmssd_deviation_weight
+      • Deviation <= -15%: +0.75 x rmssd_deviation_weight
 
   Threshold: 8.0 points = flare risk
-  (Lowered from 10.0 to improve recall from 20.9% to 65.7%)
-
-WHY THESE WEIGHTS
-─────────────────
-Analysis of 60 days of data with known flare outcomes showed:
-  - Neurological symptoms appeared in 51 missed flares
-  - Cognitive symptoms appeared in 34 missed flares  
-  - Musculature symptoms appeared in 44 missed flares
-
-Weights were increased to catch more true flares (recall) while maintaining
-accuracy. Current model: 85.8% accuracy, 65.7% recall, 79.2% precision.
 
 UV LAG ANALYSIS — HOW IT WORKS
 ───────────────────────────────
@@ -4783,13 +4815,23 @@ def _export_csvs_to_zip(zipf):
             writer.writerow([row.get(col, '') for col in columns])
         return output.getvalue()
 
-    # Daily observations
+    # Daily observations — all columns
     daily_obs = db.get_all_observations(uid())
     zipf.writestr("daily_observations.csv", make_csv(daily_obs, [
-        'date', 'sun_exposure_min', 'neurological', 'musculature', 'migraine',
-        'cognitive', 'dermatological', 'pulmonary', 'rheumatic', 'gastro', 'mucosal',
-        'pain_scale', 'fatigue_scale', 'emotional_state', 'flare_occurred',
-        'basal_temp_delta', 'hours_slept', 'hrv', 'steps', 'notes'
+        'date', 'steps', 'hours_slept', 'hrv', 'hrv_rmssd',
+        'resting_heart_rate', 'spo2', 'respiratory_rate',
+        'basal_temp_delta', 'sun_exposure_min', 'uv_protection_level', 'stayed_indoors',
+        'pain_scale', 'fatigue_scale', 'emotional_state', 'emotional_notes',
+        'neurological', 'neuro_notes', 'cognitive', 'cognitive_notes',
+        'musculature', 'musculature_notes', 'migraine', 'migraine_notes',
+        'pulmonary', 'pulmonary_notes', 'dermatological', 'derm_notes',
+        'rheumatic', 'rheumatic_notes', 'mucosal', 'mucosal_notes',
+        'gastro', 'gastro_notes',
+        'air_hunger', 'air_hunger_notes', 'word_loss', 'word_loss_notes',
+        'period_flow', 'cramping', 'cycle_notes',
+        'flare_occurred', 'flare_severity',
+        'strike_physical', 'strike_environmental',
+        'notes',
     ]))
 
     # Labs
