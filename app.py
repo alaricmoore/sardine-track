@@ -1408,69 +1408,224 @@ def daily_confirm(entry_date):
 # Timeline
 # ============================================================
 
+def _score_components(obs: dict) -> dict:
+    """Compute per-category score contributions for a single observation.
+
+    Returns a dict with named component scores that sum to the total flare
+    prime score. This is the single source of truth for score attribution —
+    uses the same logic as calculate_flare_prime_score().
+    """
+    weights = get_current_weights(current_user.id if current_user.is_authenticated else None)
+    uv_w = weights.get('uv_weight', 1.0)
+    exertion_w = weights.get('exertion_weight', 1.0)
+    temp_w = weights.get('temperature_weight', 1.0)
+    pf_w = weights.get('pain_fatigue_weight', 1.0)
+
+    c = {}
+
+    # UV dose + cumulative
+    sun_min = obs.get('sun_exposure_min') or 0
+    uv_row = obs.get('_uv_row')
+    protection = UV_PROTECTION_MULTIPLIERS.get(obs.get('uv_protection_level') or 'none', 1.0)
+    w_uv = weighted_uv(uv_row)
+    uv_dose = (w_uv ** 1.5) * sun_min * protection
+    uv_pts = 0
+    if uv_dose >= 800:
+        uv_pts = 3 * uv_w
+    elif uv_dose >= 400:
+        uv_pts = 1.25 * uv_w
+    cum_uv = obs.get('_cumulative_uv_dose')
+    if cum_uv is not None and cum_uv >= 1500:
+        uv_pts += 1.5 * uv_w
+    elif cum_uv is not None and cum_uv >= 1000:
+        uv_pts += 0.75 * uv_w
+    c['uv'] = round(uv_pts, 2)
+
+    # Exertion
+    steps = obs.get('steps') or 0
+    hours_slept = obs.get('hours_slept') or 8
+    steps_baseline = obs.get('_steps_baseline')
+    if steps_baseline is None:
+        try:
+            _uid = current_user.id if current_user.is_authenticated else None
+            _p = db.get_user_preferences(_uid) if _uid else {}
+            steps_baseline = _p.get('steps_baseline') if _p else None
+        except Exception:
+            steps_baseline = None
+    ex_pts = 0
+    if steps_baseline and steps_baseline > 0 and steps > 0:
+        overexertion = (steps / steps_baseline) * (8.0 / max(hours_slept, 1))
+        if overexertion >= 1.8:
+            ex_pts = 2.0 * exertion_w
+        elif overexertion >= 1.4:
+            ex_pts = 1.5 * exertion_w
+    elif hours_slept > 0:
+        ratio = steps / hours_slept
+        if ratio >= 2000:
+            ex_pts = 2.0 * exertion_w
+        elif ratio >= 1500:
+            ex_pts = 1.5 * exertion_w
+    c['exertion'] = round(ex_pts, 2)
+
+    # Temperature
+    basal_temp = obs.get('basal_temp_delta') or 0
+    t_pts = 0
+    if basal_temp >= 0.8:
+        t_pts = 3 * temp_w
+    elif basal_temp >= 0.5:
+        t_pts = 2 * temp_w
+    elif basal_temp >= 0.3:
+        t_pts = 1 * temp_w
+    c['temperature'] = round(t_pts, 2)
+
+    # Individual symptoms
+    sym_pts = 0
+    for sym in ('neurological', 'cognitive', 'musculature', 'migraine',
+                'pulmonary', 'dermatological', 'mucosal'):
+        if obs.get(sym):
+            sym_pts += weights.get(sym, 0)
+    if obs.get('rheumatic'):
+        rheum_notes = (obs.get('rheumatic_notes') or '').lower()
+        major_joints = ['hip', 'knee', 'shoulder', 'elbow', 'ankle', 'wrist', 'jaw']
+        minor_joints = ['finger', 'toe', 'hand']
+        if any(j in rheum_notes for j in major_joints):
+            sym_pts += 2.0
+        elif any(j in rheum_notes for j in minor_joints):
+            sym_pts += 1.0
+        else:
+            sym_pts += weights.get('rheumatic', 0.5)
+    c['symptoms'] = round(sym_pts, 2)
+
+    # Pain & fatigue & emotional
+    pf_pts = 0
+    pain = obs.get('pain_scale') or 0
+    fatigue = obs.get('fatigue_scale') or 0
+    emotional = obs.get('emotional_state') or 5
+    if pain >= 7:
+        pf_pts += 1 * pf_w
+    if fatigue >= 7:
+        pf_pts += 3 * pf_w
+    elif fatigue > 5:
+        pf_pts += 1 * pf_w
+    elif fatigue > 3:
+        pf_pts += 0.5 * pf_w
+    if emotional <= 4:
+        pf_pts += 2 * pf_w
+    c['pain_fatigue'] = round(pf_pts, 2)
+
+    # Symptom burden delta
+    burden_w = weights.get('symptom_burden_weight', 1.0)
+    burden_delta = obs.get('_symptom_burden_delta')
+    b_pts = 0
+    if burden_delta is not None:
+        if burden_delta >= 3.0:
+            b_pts = 3.0 * burden_w
+        elif burden_delta >= 2.0:
+            b_pts = 2.0 * burden_w
+        elif burden_delta >= 1.0:
+            b_pts = 1.0 * burden_w
+    c['burden_delta'] = round(b_pts, 2)
+
+    # RMSSD deviation
+    rmssd_w = weights.get('rmssd_deviation_weight', 0.5)
+    rmssd_dev = obs.get('_rmssd_deviation')
+    r_pts = 0
+    if rmssd_dev is not None:
+        if rmssd_dev <= -25:
+            r_pts = 1.5 * rmssd_w
+        elif rmssd_dev <= -15:
+            r_pts = 0.75 * rmssd_w
+    c['rmssd'] = round(r_pts, 2)
+
+    c['total'] = round(sum(c.values()), 1)
+    return c
+
+
 @app.route("/timeline")
 def timeline():
-    """Timeline view - defaults to last 90 days."""
-    end_date = date.today().isoformat()
-    start_date = (date.today() - timedelta(days=90)).isoformat()
+    """Model dashboard — score attribution over time."""
+    days_param = request.args.get("days", "60")
+    try:
+        n_days = int(days_param)
+    except ValueError:
+        n_days = 0  # 0 = all
 
-    # Allow URL params to override range
-    if request.args.get("start"):
-        start_date = request.args.get("start")
-    if request.args.get("end"):
-        end_date = request.args.get("end")
+    all_obs = db.get_all_daily_observations(uid())
+    if not all_obs:
+        return render_template("timeline.html", has_data=False)
 
-    data = db.get_timeline_data(uid(), get_location_key(), start_date, end_date)
+    all_obs.sort(key=lambda x: x['date'], reverse=True)
+    _inject_cycle_phase(all_obs)
 
-    # Get primary intervention info
-    all_meds = db.get_all_medications(uid())
-    primary_med = next((m for m in all_meds if m.get("is_primary_intervention") == 1), None)
-    
-    intervention_date = None
-    intervention_name = None
-    intervention_category = None
-    if primary_med:
-        intervention_date = primary_med["start_date"]
-        intervention_name = primary_med["drug_name"]
-        intervention_category = primary_med.get("category", "prescription")
+    obs_by_date = {o['date']: o for o in all_obs}
+    subset = all_obs[:n_days] if n_days else all_obs
+    _inject_scoring_context(subset, obs_by_date, get_location_key())
 
-    # Get secondary interventions
-    secondary_interventions = [
-        {
-            "drug_name": m["drug_name"],
-            "start_date": m["start_date"],
-            "category": m.get("category", "prescription"),
+    weights = get_current_weights(uid())
+    threshold = weights.get('flare_threshold', 8.0)
+
+    # Compute per-day score components
+    daily_data = []
+    flare_scores = []
+    nonflare_scores = []
+
+    for obs in reversed(subset):  # chronological order
+        comp = _score_components(obs)
+        flare = obs.get('flare_occurred') == 1
+        severity = obs.get('flare_severity')
+
+        entry = {
+            'date': obs['date'],
+            'total': comp['total'],
+            'uv': comp['uv'],
+            'exertion': comp['exertion'],
+            'temperature': comp['temperature'],
+            'symptoms': comp['symptoms'],
+            'pain_fatigue': comp['pain_fatigue'],
+            'burden_delta': comp['burden_delta'],
+            'rmssd': comp['rmssd'],
+            'flare': flare,
+            'severity': severity,
+            # Raw values for multi-day predictor panel
+            'burden_delta_raw': obs.get('_symptom_burden_delta'),
+            'rmssd_deviation_raw': obs.get('_rmssd_deviation'),
         }
-        for m in all_meds
-        if m.get("is_secondary_intervention") == 1
-    ]
-    
-    # Extract flare days from daily observations
-    flare_days = [
-        obs["date"]
-        for obs in data.get("daily", [])
-        if obs.get("flare_occurred") == 1
-    ]
-    flare_severity_map = {
-        obs["date"]: obs.get("flare_severity", "major")
-        for obs in data.get("daily", [])
-        if obs.get("flare_occurred") == 1
-    }
+        daily_data.append(entry)
 
-    day_count = len(data.get("daily", []))
+        if flare:
+            flare_scores.append(comp['total'])
+        else:
+            nonflare_scores.append(comp['total'])
+
+    # Score distribution stats
+    def _dist_stats(vals):
+        if not vals:
+            return None
+        s = sorted(vals)
+        n = len(s)
+        return {
+            'min': round(s[0], 1),
+            'q1': round(s[n // 4], 1),
+            'median': round(s[n // 2], 1),
+            'q3': round(s[3 * n // 4], 1),
+            'max': round(s[-1], 1),
+            'mean': round(sum(s) / n, 1),
+            'n': n,
+        }
+
+    distribution = {
+        'flare': _dist_stats(flare_scores),
+        'nonflare': _dist_stats(nonflare_scores),
+    }
 
     return render_template(
         "timeline.html",
-        start_date=start_date,
-        end_date=end_date,
-        timeline_json=json.dumps(data, default=str),
-        intervention_date=intervention_date,
-        intervention_name=intervention_name,
-        intervention_category=intervention_category,
-        secondary_interventions_json=json.dumps(secondary_interventions),
-        flare_days_json=json.dumps(flare_days),
-        flare_severity_map_json=json.dumps(flare_severity_map),
-        day_count=day_count,
+        has_data=True,
+        daily_json=json.dumps(daily_data),
+        threshold=threshold,
+        distribution=distribution,
+        n_days=len(subset),
+        days_param=days_param,
     )
 
  

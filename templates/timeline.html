@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}timeline — biotracking{% endblock %}
+{% block title %}model dashboard — biotracking{% endblock %}
 
 {% block head %}
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
@@ -8,1329 +8,374 @@
 
 {% block content %}
 <div class="page-header">
-    <h1>symptom comparison</h1>
-    <p class="page-subtitle">compare symptoms against biometrics & environmental factors</p>
+    <h1>model dashboard</h1>
+    <p class="page-subtitle">
+        {% if has_data %}
+            score attribution over {{ n_days }} days of observation
+        {% else %}
+            no data yet
+        {% endif %}
+    </p>
 </div>
+
+{% if not has_data %}
+<div class="card">
+    <p>Start logging daily observations to see your model's behavior over time.</p>
+</div>
+{% else %}
 
 <!-- Date range controls -->
-<div class="range-controls">
-    <div class="range-presets">
-        <button class="preset-btn" onclick="setRange(30, this)">30 days</button>
-        <button class="preset-btn" onclick="setRange(90, this)">90 days</button>
-        <button class="preset-btn" onclick="setRange(180, this)">180 days</button>
-        <button class="preset-btn" onclick="setRange(0, this)">all</button>
-    </div>
-    
-    <div class="date-inputs">
-        <div class="form-group">
-            <label>from</label>
-            <input type="date" id="start-date" value="{{ start_date }}">
-        </div>
-        <div class="form-group">
-            <label>to</label>
-            <input type="date" id="end-date" value="{{ end_date }}">
-        </div>
-        <button class="btn btn-secondary" onclick="loadData()">update</button>
-    </div>
+<div style="margin-bottom:var(--space-lg); display:flex; gap:var(--space-sm); flex-wrap:wrap;">
+    {% for d, label in [(30, '30d'), (60, '60d'), (90, '90d'), (0, 'all')] %}
+    <a href="?days={{ d }}"
+       style="padding:var(--space-xs) var(--space-sm); border-radius:4px; text-decoration:none; font-size:0.85rem;
+              {% if days_param == d|string %}background:var(--color-accent); color:#fff;{% else %}background:var(--bg-secondary); color:var(--text-secondary);{% endif %}">
+        {{ label }}
+    </a>
+    {% endfor %}
 </div>
 
-<!-- Comparison tool -->
+<!-- Score attribution chart -->
 <div class="card" style="margin-bottom:var(--space-xl);">
-    <div class="card-title" style="margin-bottom:var(--space-md);">symptom comparison</div>
-
-    <!-- Quick view presets -->
-    <div style="margin-bottom:var(--space-md);">
-        <div style="font-size:0.8rem; color:var(--text-muted); margin-bottom:var(--space-xs);">quick views</div>
-        <div style="display:flex; gap:var(--space-sm); flex-wrap:wrap;">
-            <button class="chart-preset-btn" data-preset="uv">UV vs symptoms</button>
-            <button class="chart-preset-btn" data-preset="hrv_sleep">HRV + sleep</button>
-            <button class="chart-preset-btn" data-preset="pain_fatigue">pain + fatigue</button>
-            <button class="chart-preset-btn" data-preset="all_symptoms">all symptoms</button>
-        </div>
-    </div>
-
-    <!-- Symptom checkboxes -->
-    <div class="symptom-selectors">
-        <label class="symptom-checkbox">
-            <input type="checkbox" value="neurological" data-color="#4a90d9">
-            <span class="checkbox-label neuro">neurological</span>
-        </label>
-        <label class="symptom-checkbox">
-            <input type="checkbox" value="cognitive" data-color="#9b72cf">
-            <span class="checkbox-label cognitive">cognitive</span>
-        </label>
-        <label class="symptom-checkbox">
-            <input type="checkbox" value="musculature" data-color="#d4a054">
-            <span class="checkbox-label muscle">musculature</span>
-        </label>
-        <label class="symptom-checkbox">
-            <input type="checkbox" value="migraine" data-color="#c94040">
-            <span class="checkbox-label migraine">migraine</span>
-        </label>
-        <label class="symptom-checkbox">
-            <input type="checkbox" value="pulmonary" data-color="#4ab8b8">
-            <span class="checkbox-label air">pulmonary</span>
-        </label>
-        <label class="symptom-checkbox">
-            <input type="checkbox" value="rheumatic" data-color="#e85d9e">
-            <span style="color:#e85d9e;">rheumatic</span>
-        </label>
-        <label class="symptom-checkbox">
-            <input type="checkbox" value="dermatological" data-color="#d4784a">
-            <span class="checkbox-label derm">dermatological</span>
-        </label>
-        <label class="symptom-checkbox">
-            <input type="checkbox" value="gastro" data-color="#a8d46f">
-            <span style="color:#a8d46f;">gastro</span>
-        </label>
-        <label class="symptom-checkbox">
-            <input type="checkbox" value="mucosal" data-color="#d4c4a0">
-            <span class="checkbox-label word">mucosal</span>
-        </label>
-    </div>
-    
-    <!-- Metric controls -->
-    <div class="comparison-controls" style="margin-top:var(--space-md);">
-        <div style="display:flex; gap:var(--space-md); flex-wrap:wrap; width:100%;">
-            <div class="form-group" style="flex:1; min-width:160px; margin:0;">
-                <label>metric 1</label>
-                <select id="metric-select">
-                    <option value="none">— none —</option>
-                    <option value="uv_dose">UV dose (index^1.5 × min)</option>
-                    <option value="basal_temp_delta">basal temp delta</option>
-                    <option value="hrv">HRV</option>
-                    <option value="hours_slept">hours slept</option>
-                    <option value="steps">steps walked</option>
-                    <option value="emotional_state">emotional state</option>
-                    <option value="pain_scale">pain (0-10)</option>
-                    <option value="fatigue_scale">fatigue (0-10)</option>
-                </select>
-            </div>
-            <div class="form-group" style="flex:1; min-width:160px; margin:0;">
-                <label>metric 2</label>
-                <select id="metric-select-2">
-                    <option value="none">— none —</option>
-                    <option value="uv_dose">UV dose (index^1.5 × min)</option>
-                    <option value="basal_temp_delta">basal temp delta</option>
-                    <option value="hrv">HRV</option>
-                    <option value="hours_slept">hours slept</option>
-                    <option value="steps">steps walked</option>
-                    <option value="emotional_state">emotional state</option>
-                    <option value="pain_scale">pain (0-10)</option>
-                    <option value="fatigue_scale">fatigue (0-10)</option>
-                </select>
-            </div>
-        </div>
-    </div>
-
-    <!-- Comparison chart -->
-    <div id="chart-container" class="chart-container" style="display:none;">
-        <div class="chart-title" id="chart-title">comparison</div>
-        <canvas id="comparison-chart" style="max-height:400px;"></canvas>
-    </div>
-</div>
-
-<!-- ============================================================
-     AUTO-GENERATED FLARE PREDICTOR
-     ============================================================ -->
-<div class="card" style="margin-bottom:var(--space-xl);">
-    <div class="card-title">flare predictor analysis</div>
-    <p style="margin:0 0 var(--space-lg) 0; color:var(--text-muted); font-size:0.9rem;">
-        Statistical analysis of what precedes your flare days. Based on {{ day_count }} days of observation.
+    <div class="card-title">score attribution</div>
+    <p style="font-size:0.8rem; color:var(--text-muted); margin-bottom:var(--space-md);">
+        Daily flare score broken down by what's driving it. The dashed line is the flare threshold.
+        Vertical markers show actual flare events.
     </p>
-    
-    <!-- Stats cards -->
-    <div id="flare-stats" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(280px, 1fr)); 
-                                  gap:var(--space-md); margin-bottom:var(--space-lg);">
-        <!-- Will be populated by JavaScript -->
+    <div style="font-size:0.75rem; color:var(--text-muted); margin-bottom:var(--space-sm);">
+        <span style="color:#d4b84a;">&#9632;</span> UV
+        <span style="color:#d4a054; margin-left:0.5rem;">&#9632;</span> exertion
+        <span style="color:#c94040; margin-left:0.5rem;">&#9632;</span> temperature
+        <span style="color:#9b72cf; margin-left:0.5rem;">&#9632;</span> symptoms
+        <span style="color:#e85d9e; margin-left:0.5rem;">&#9632;</span> pain/fatigue
+        <span style="color:#5b9bd5; margin-left:0.5rem;">&#9632;</span> burden delta
+        <span style="color:#66bb6a; margin-left:0.5rem;">&#9632;</span> RMSSD
     </div>
-    
-    <!-- 90-day overview chart -->
-    <div style="margin-top:var(--space-lg);">
-        <h3 style="margin:0 0 var(--space-sm) 0; font-size:1rem; color:var(--text-secondary);">
-            90-day overview: strongest predictor vs flares
-        </h3>
-        <canvas id="flareOverviewChart" style="max-height:320px;"></canvas>
+    <canvas id="chartAttribution" style="max-height:360px;"></canvas>
+</div>
+
+<!-- Multi-day predictor panel -->
+<div style="display:grid; grid-template-columns:1fr 1fr; gap:var(--space-md); margin-bottom:var(--space-xl);">
+    <div class="card">
+        <div class="card-title">symptom burden delta</div>
+        <p style="font-size:0.75rem; color:var(--text-muted); margin-bottom:var(--space-sm);">
+            3-day avg minus 14-day baseline. Positive = symptoms accelerating above your normal.
+        </p>
+        <canvas id="chartBurdenDelta" style="max-height:200px;"></canvas>
+    </div>
+    <div class="card">
+        <div class="card-title">RMSSD deviation</div>
+        <p style="font-size:0.75rem; color:var(--text-muted); margin-bottom:var(--space-sm);">
+            7-day rolling vs 30-day baseline. Negative = vagal withdrawal (inflammatory brake weakening).
+        </p>
+        <canvas id="chartRmssdDev" style="max-height:200px;"></canvas>
     </div>
 </div>
 
+<!-- Score distribution -->
+<div class="card" style="margin-bottom:var(--space-xl);">
+    <div class="card-title">score distribution: flare days vs non-flare days</div>
+    <p style="font-size:0.8rem; color:var(--text-muted); margin-bottom:var(--space-md);">
+        Are the model's scores actually separating flare days from normal days?
+    </p>
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:var(--space-lg);">
+        {% if distribution.nonflare %}
+        <div style="font-size:0.85rem;">
+            <div style="color:var(--text-secondary); margin-bottom:var(--space-xs); font-weight:600;">non-flare days (n={{ distribution.nonflare.n }})</div>
+            <div style="display:flex; gap:var(--space-md); flex-wrap:wrap;">
+                <span>median: <strong>{{ distribution.nonflare.median }}</strong></span>
+                <span>mean: <strong>{{ distribution.nonflare.mean }}</strong></span>
+                <span>Q1-Q3: {{ distribution.nonflare.q1 }}–{{ distribution.nonflare.q3 }}</span>
+                <span>range: {{ distribution.nonflare.min }}–{{ distribution.nonflare.max }}</span>
+            </div>
+        </div>
+        {% endif %}
+        {% if distribution.flare %}
+        <div style="font-size:0.85rem;">
+            <div style="color:var(--color-danger); margin-bottom:var(--space-xs); font-weight:600;">flare days (n={{ distribution.flare.n }})</div>
+            <div style="display:flex; gap:var(--space-md); flex-wrap:wrap;">
+                <span>median: <strong>{{ distribution.flare.median }}</strong></span>
+                <span>mean: <strong>{{ distribution.flare.mean }}</strong></span>
+                <span>Q1-Q3: {{ distribution.flare.q1 }}–{{ distribution.flare.q3 }}</span>
+                <span>range: {{ distribution.flare.min }}–{{ distribution.flare.max }}</span>
+            </div>
+        </div>
+        {% else %}
+        <div style="font-size:0.85rem; color:var(--text-muted);">no flare events in this window</div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Prediction accuracy strip -->
+<div class="card" style="margin-bottom:var(--space-xl);">
+    <div class="card-title">prediction accuracy</div>
+    <p style="font-size:0.8rem; color:var(--text-muted); margin-bottom:var(--space-md);">
+        Each dot is one day. Green = correct prediction, red = missed flare, orange = false alarm.
+    </p>
+    <div id="accuracyStrip" style="display:flex; flex-wrap:wrap; gap:2px;"></div>
+    <div id="accuracyStats" style="font-size:0.8rem; color:var(--text-secondary); margin-top:var(--space-sm);"></div>
+</div>
+
+{% endif %}
 {% endblock %}
 
 {% block scripts %}
-
+{% if has_data %}
 <script>
-const TIMELINE_DATA = {{ timeline_json | safe }};
-const FLARE_DAYS = {{ flare_days_json | safe }};
-const FLARE_SEVERITY = {{ flare_severity_map_json | safe }};
-const INTERVENTION_DATE = {{ intervention_date | tojson }};
-const INTERVENTION_NAME = {{ intervention_name | tojson }};
-const INTERVENTION_CATEGORY = {{ (intervention_category or 'prescription') | tojson }};
-const SECONDARY_INTERVENTIONS = {{ secondary_interventions_json | safe }};
-let comparisonChart = null;
+(function() {
+    const D = {{ daily_json | safe }};
+    const THRESHOLD = {{ threshold }};
+    const dates = D.map(d => d.date);
+    const GRID = 'rgba(255,255,255,0.06)';
+    const FONT = "'Source Serif 4', 'Times New Roman', serif";
 
-// Date range management
-function setRange(days, button) {
-    const end = new Date();
-    const start = days === 0 
-        ? new Date('2000-01-01')
-        : new Date(end.getTime() - days * 24 * 60 * 60 * 1000);
-    
-    document.getElementById('start-date').value = start.toISOString().split('T')[0];
-    document.getElementById('end-date').value = end.toISOString().split('T')[0];
-    
-    document.querySelectorAll('.preset-btn').forEach(b => b.classList.remove('active'));
-    button.classList.add('active');
-    
-    loadData();
-}
+    Chart.defaults.font.family = FONT;
+    Chart.defaults.font.size = 12;
+    Chart.defaults.color = '#9994a8';
 
-function loadData() {
-    const start = document.getElementById('start-date').value;
-    const end = document.getElementById('end-date').value;
-    window.location.href = `/timeline?start=${start}&end=${end}`;
-}
-
-
-
-// ============================================================
-// FLARE PREDICTOR ANALYSIS
-// ============================================================
-
-
-
-function computeFlareStats() {
-    const daily = TIMELINE_DATA.daily;
-    const uvData = TIMELINE_DATA.uv;
-    
-    // Require at least 30 days of data
-    if (daily.length < 30) {
-        document.getElementById('flare-stats').innerHTML = `
-            <div style="color:var(--text-muted); padding:var(--space-lg); text-align:center;">
-                At least 30 days of observations required for flare prediction analysis.
-                Currently tracking ${daily.length} days.
-            </div>
-        `;
-        return null;
-    }
-    
-    // Get flare days
-    const flareDays = daily.filter(d => d.flare_occurred === 1);
-    
-    if (flareDays.length === 0) {
-        document.getElementById('flare-stats').innerHTML = `
-            <div style="color:var(--text-muted); padding:var(--space-lg); text-align:center;">
-                No flare days recorded in this date range.
-            </div>
-        `;
-        return null;
-    }
-    
-    // Need at least 3 flares for meaningful statistics
-    if (flareDays.length < 3) {
-        document.getElementById('flare-stats').innerHTML = `
-            <div style="color:var(--text-muted); padding:var(--space-lg); text-align:center;">
-                At least 3 flare days required for statistical analysis. Currently have ${flareDays.length}.
-            </div>
-        `;
-        return null;
-    }
-    
-    // Build UV dose lookup
-    const uvByDate = {};
-    uvData.forEach(u => { uvByDate[u.date] = u.uv_noon || 0; });
-    
-    const uvDoseByDate = {};
-    daily.forEach(d => {
-        const uvNoon = uvByDate[d.date];
-        const sunMin = d.sun_exposure_min || 0;
-        uvDoseByDate[d.date] = uvNoon ? (Math.pow(uvNoon, 1.5) * sunMin) : 0;
-    });
-    
-    // Calculate personal baselines (mean of non-flare days)
-    const nonFlareDays = daily.filter(d => d.flare_occurred !== 1);
-    
-    const baselines = {
-        uv_dose: calculateMean(nonFlareDays.map(d => uvDoseByDate[d.date]).filter(v => v != null)),
-        hrv: calculateMean(nonFlareDays.map(d => d.hrv).filter(v => v != null)),
-        hours_slept: calculateMean(nonFlareDays.map(d => d.hours_slept).filter(v => v != null)),
-        steps: calculateMean(nonFlareDays.map(d => d.steps).filter(v => v != null)),
-        basal_temp_delta: calculateMean(nonFlareDays.map(d => d.basal_temp_delta).filter(v => v != null))
-    };
-    
-    // Define metrics with trend-based thresholds
-    const metrics = {
-        uv_dose: {
-            label: 'Elevated UV exposure',
-            threshold: baselines.uv_dose * 1.5, // 50% above personal average
-            compare: (v) => v > baselines.uv_dose * 1.5,
-            direction: 'high'
-        },
-        hrv: {
-            label: 'Low HRV',
-            threshold: baselines.hrv * 0.85, // 15% below personal average
-            compare: (v) => v < baselines.hrv * 0.85,
-            direction: 'low'
-        },
-        hours_slept: {
-            label: 'Poor sleep',
-            threshold: baselines.hours_slept * 0.85, // 15% below average
-            compare: (v) => v < baselines.hours_slept * 0.85,
-            direction: 'low'
-        },
-        steps: {
-            label: 'Low activity',
-            threshold: baselines.steps * 0.7, // 30% below average
-            compare: (v) => v < baselines.steps * 0.7,
-            direction: 'low'
-        },
-        basal_temp_delta: {
-            label: 'Elevated temperature',
-            threshold: baselines.basal_temp_delta + 0.3, // 0.3°F above average
-            compare: (v) => v > baselines.basal_temp_delta + 0.3,
-            direction: 'high'
+    // ── Flare marker plugin ──
+    const flarePlugin = {
+        id: 'flareMarkers',
+        afterDraw(chart) {
+            const { ctx, chartArea, scales } = chart;
+            if (!chartArea || !scales.x) return;
+            const COLORS = { er_visit: '#ff4444', major: '#ff8c00', minor: '#ffcc00' };
+            D.forEach((d, i) => {
+                if (!d.flare) return;
+                const x = scales.x.getPixelForValue(i);
+                if (x < chartArea.left || x > chartArea.right) return;
+                ctx.save();
+                ctx.beginPath();
+                ctx.moveTo(x, chartArea.top);
+                ctx.lineTo(x, chartArea.bottom);
+                ctx.strokeStyle = COLORS[d.severity] || '#ffcc00';
+                ctx.lineWidth = 1.5;
+                ctx.globalAlpha = 0.6;
+                ctx.stroke();
+                ctx.restore();
+            });
         }
     };
-    
-    // Weighted lag analysis (based on UV lag findings)
-    // 24h and 48h lags are most predictive, weight them more heavily
-    const lagWeights = {
-        1: 1.0,   // same day - weight 1.0
-        2: 1.5,   // 24h lag - weight 1.5 (most important)
-        3: 1.5,   // 48h lag - weight 1.5 (most important)
-        4: 0.75   // 72h lag - weight 0.75 (less important)
-    };
-    
-    // For each metric, collect flare-adjacent values and control values
-    const metricData = {};
-    Object.keys(metrics).forEach(key => {
-        metricData[key] = {
-            flareAdjacent: [],  // values in lag windows before flares
-            control: [],        // values at other times
-            weights: []         // weights for each flare-adjacent value
-        };
-    });
-    
-    // Collect flare-adjacent values
-    flareDays.forEach(flare => {
-        const flareDate = new Date(flare.date);
-        
-        // Check 1-4 day lags
-        for (let lag = 1; lag <= 4; lag++) {
-            const checkDate = new Date(flareDate);
-            checkDate.setDate(checkDate.getDate() - lag);
-            const dateStr = checkDate.toISOString().split('T')[0];
-            
-            const dayData = daily.find(d => d.date === dateStr);
-            if (!dayData) continue;
-            
-            const weight = lagWeights[lag];
-            
-            // UV dose
-            const uvDose = uvDoseByDate[dateStr];
-            if (uvDose != null) {
-                metricData.uv_dose.flareAdjacent.push(uvDose);
-                metricData.uv_dose.weights.push(weight);
-            }
-            
-            // HRV
-            if (dayData.hrv != null) {
-                metricData.hrv.flareAdjacent.push(dayData.hrv);
-                metricData.hrv.weights.push(weight);
-            }
-            
-            // Sleep
-            if (dayData.hours_slept != null) {
-                metricData.hours_slept.flareAdjacent.push(dayData.hours_slept);
-                metricData.hours_slept.weights.push(weight);
-            }
-            
-            // Steps
-            if (dayData.steps != null) {
-                metricData.steps.flareAdjacent.push(dayData.steps);
-                metricData.steps.weights.push(weight);
-            }
-            
-            // Temp
-            if (dayData.basal_temp_delta != null) {
-                metricData.basal_temp_delta.flareAdjacent.push(dayData.basal_temp_delta);
-                metricData.basal_temp_delta.weights.push(weight);
-            }
+
+    // ── Threshold line plugin ──
+    const thresholdPlugin = {
+        id: 'thresholdLine',
+        afterDraw(chart) {
+            const { ctx, chartArea, scales } = chart;
+            if (!chartArea || !scales.y) return;
+            const y = scales.y.getPixelForValue(THRESHOLD);
+            if (y < chartArea.top || y > chartArea.bottom) return;
+            ctx.save();
+            ctx.beginPath();
+            ctx.moveTo(chartArea.left, y);
+            ctx.lineTo(chartArea.right, y);
+            ctx.strokeStyle = 'rgba(255,255,255,0.4)';
+            ctx.lineWidth = 1.5;
+            ctx.setLineDash([6, 4]);
+            ctx.stroke();
+            // Label
+            ctx.fillStyle = 'rgba(255,255,255,0.5)';
+            ctx.font = '10px ' + FONT;
+            ctx.textAlign = 'right';
+            ctx.fillText('threshold ' + THRESHOLD, chartArea.right - 4, y - 4);
+            ctx.restore();
         }
-    });
-    
-    // Collect control values (non-flare days, excluding 4 days before any flare)
-    const flareExclusionDates = new Set();
-    flareDays.forEach(flare => {
-        const flareDate = new Date(flare.date);
-        for (let lag = 0; lag <= 4; lag++) {
-            const excludeDate = new Date(flareDate);
-            excludeDate.setDate(excludeDate.getDate() - lag);
-            flareExclusionDates.add(excludeDate.toISOString().split('T')[0]);
-        }
-    });
-    
-    nonFlareDays.forEach(day => {
-        if (flareExclusionDates.has(day.date)) return;
-        
-        const uvDose = uvDoseByDate[day.date];
-        if (uvDose != null) metricData.uv_dose.control.push(uvDose);
-        if (day.hrv != null) metricData.hrv.control.push(day.hrv);
-        if (day.hours_slept != null) metricData.hours_slept.control.push(day.hours_slept);
-        if (day.steps != null) metricData.steps.control.push(day.steps);
-        if (day.basal_temp_delta != null) metricData.basal_temp_delta.control.push(day.basal_temp_delta);
-    });
-    
-    // Calculate statistics for each metric
-    const predictors = [];
-    Object.keys(metrics).forEach(key => {
-        const m = metrics[key];
-        const data = metricData[key];
-        
-        if (data.flareAdjacent.length < 3 || data.control.length < 5) return;
-        
-        // Weighted mean for flare-adjacent values
-        const flareWeightedMean = calculateWeightedMean(data.flareAdjacent, data.weights);
-        const controlMean = calculateMean(data.control);
-        
-        // Calculate how many flare-adjacent values crossed threshold
-        const crossedCount = data.flareAdjacent.reduce((sum, val, i) => {
-            return sum + (m.compare(val) ? data.weights[i] : 0);
-        }, 0);
-        
-        const totalWeight = data.weights.reduce((a, b) => a + b, 0);
-        const percentCrossed = Math.round((crossedCount / totalWeight) * 100);
-        
-        // T-test for significance
-        const tTest = calculateTTest(data.flareAdjacent, data.control);
-        
-        // Effect size (Cohen's d)
-        const effectSize = calculateCohenD(data.flareAdjacent, data.control);
-        
-        predictors.push({
-            metric: key,
-            label: m.label,
-            threshold: m.threshold,
-            direction: m.direction,
-            percentCrossed: percentCrossed,
-            flareMean: flareWeightedMean,
-            controlMean: controlMean,
-            pValue: tTest.p,
-            tStat: tTest.t,
-            effectSize: effectSize,
-            n: data.flareAdjacent.length,
-            significant: tTest.p < 0.05 && Math.abs(effectSize) > 0.3
-        });
-    });
-    
-    // Sort by effect size (strongest predictors first)
-    predictors.sort((a, b) => Math.abs(b.effectSize) - Math.abs(a.effectSize));
-    
-    // Filter to only significant predictors
-    const significantPredictors = predictors.filter(p => p.significant);
-    
-    return {
-        flareDays: flareDays,
-        predictors: significantPredictors.length > 0 ? significantPredictors : predictors.slice(0, 3),
-        strongest: significantPredictors.length > 0 ? significantPredictors[0] : predictors[0],
-        baselines: baselines
     };
-}
 
-// Helper: Calculate mean
-function calculateMean(values) {
-    if (values.length === 0) return 0;
-    return values.reduce((a, b) => a + b, 0) / values.length;
-}
+    // ── 1. Score attribution stacked bar ──
+    const COMPONENTS = [
+        { key: 'uv',           label: 'UV',           color: '#d4b84a' },
+        { key: 'exertion',     label: 'exertion',     color: '#d4a054' },
+        { key: 'temperature',  label: 'temperature',  color: '#c94040' },
+        { key: 'symptoms',     label: 'symptoms',     color: '#9b72cf' },
+        { key: 'pain_fatigue', label: 'pain/fatigue', color: '#e85d9e' },
+        { key: 'burden_delta', label: 'burden delta', color: '#5b9bd5' },
+        { key: 'rmssd',        label: 'RMSSD',        color: '#66bb6a' },
+    ];
 
-// Helper: Calculate weighted mean
-function calculateWeightedMean(values, weights) {
-    if (values.length === 0) return 0;
-    const weightedSum = values.reduce((sum, val, i) => sum + (val * weights[i]), 0);
-    const totalWeight = weights.reduce((a, b) => a + b, 0);
-    return weightedSum / totalWeight;
-}
+    const stackedDatasets = COMPONENTS.map(c => ({
+        label: c.label,
+        data: D.map(d => d[c.key]),
+        backgroundColor: c.color,
+        borderWidth: 0,
+        borderSkipped: false,
+    }));
 
-// Helper: Calculate standard deviation
-function calculateStdDev(values) {
-    if (values.length < 2) return 0;
-    const mean = calculateMean(values);
-    const squareDiffs = values.map(v => Math.pow(v - mean, 2));
-    const variance = squareDiffs.reduce((a, b) => a + b, 0) / (values.length - 1);
-    return Math.sqrt(variance);
-}
-
-// Helper: Calculate two-sample t-test
-function calculateTTest(sample1, sample2) {
-    const n1 = sample1.length;
-    const n2 = sample2.length;
-    
-    if (n1 < 2 || n2 < 2) return { t: 0, p: 1 };
-    
-    const mean1 = calculateMean(sample1);
-    const mean2 = calculateMean(sample2);
-    const std1 = calculateStdDev(sample1);
-    const std2 = calculateStdDev(sample2);
-    
-    // Pooled standard error
-    const se = Math.sqrt((std1 * std1 / n1) + (std2 * std2 / n2));
-    
-    if (se === 0) return { t: 0, p: 1 };
-    
-    const t = (mean1 - mean2) / se;
-    const df = n1 + n2 - 2;
-    
-    // Approximate p-value using t-distribution
-    // For simplicity, using conservative thresholds
-    let p;
-    const absT = Math.abs(t);
-    if (absT < 1.96) p = 0.05;
-    else if (absT < 2.576) p = 0.01;
-    else if (absT < 3.291) p = 0.001;
-    else p = 0.0001;
-    
-    return { t: t, p: p };
-}
-
-// Helper: Calculate Cohen's d (effect size)
-function calculateCohenD(sample1, sample2) {
-    const mean1 = calculateMean(sample1);
-    const mean2 = calculateMean(sample2);
-    const std1 = calculateStdDev(sample1);
-    const std2 = calculateStdDev(sample2);
-    
-    // Pooled standard deviation
-    const n1 = sample1.length;
-    const n2 = sample2.length;
-    const pooledStd = Math.sqrt(((n1 - 1) * std1 * std1 + (n2 - 1) * std2 * std2) / (n1 + n2 - 2));
-    
-    if (pooledStd === 0) return 0;
-    
-    return (mean1 - mean2) / pooledStd;
-}
-
-
-// Flare statistics
-function displayFlareStats() {
-    const stats = computeFlareStats();
-    
-    if (!stats || !stats.strongest) {
-        return;
-    }
-    
-    const container = document.getElementById('flare-stats');
-    
-    // Show top 3 predictors as cards
-    const top3 = stats.predictors.slice(0, 3);
-    
-    container.innerHTML = top3.map((p, i) => `
-        <div style="background:var(--bg-elevated); padding:var(--space-md); border-radius:var(--radius-md);
-                    border-left:3px solid ${i === 0 ? 'var(--color-accent)' : 'var(--border-medium)'};">
-            <div style="font-size:0.8rem; color:var(--text-muted); text-transform:uppercase; 
-                        letter-spacing:0.5px; margin-bottom:4px;">
-                ${i === 0 ? '✰ strongest predictor' : `predictor #${i + 1}`}
-            </div>
-            <div style="font-size:1.8rem; font-weight:600; color:var(--text-primary); margin:4px 0;">
-                ${p.label}
-            </div>
-            <div style="color:var(--text-secondary); font-size:0.9rem; margin:8px 0;">
-                ${p.direction === 'high' ? '☣ Flare average' : '☣ Flare average'}: 
-                <strong>${p.flareMean.toFixed(1)}</strong> vs 
-                normal: <strong>${p.controlMean.toFixed(1)}</strong>
-            </div>
-            <div style="color:var(--text-muted); font-size:0.8rem;">
-                Effect size: <strong>d = ${p.effectSize.toFixed(2)}</strong> • 
-                p ${p.pValue < 0.0001 ? '< 0.0001' : '= ' + p.pValue.toFixed(4)}
-            </div>
-            <div style="color:var(--text-muted); font-size:0.75rem; margin-top:4px;">
-                Based on ${p.n} flare-adjacent observations (weighted by lag)
-            </div>
-        </div>
-    `).join('');
-    
-    // Generate overview chart
-    generateFlareOverview(stats);
-}
-
-
-function generateFlareOverview(stats) {
-    if (!stats || !stats.strongest) return;
-    
-    const daily = TIMELINE_DATA.daily;
-    const uvData = TIMELINE_DATA.uv;
-    
-    // Build data for strongest predictor
-    const metric = stats.strongest.metric;
-    const dates = daily.map(d => d.date);
-    const dateLabels = dates.map(d => {
-        const dt = new Date(d + 'T12:00:00');
-        return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-    });
-    
-    let metricData = [];
-    let metricLabel = '';
-    let metricColor = '#d4b84a';
-    
-    if (metric === 'uv_dose') {
-        const uvByDate = {};
-        uvData.forEach(u => { uvByDate[u.date] = u.uv_noon || 0; });
-        
-        const uvDoseByDate = {};
-        daily.forEach(d => {
-            const uvNoon = uvByDate[d.date];
-            const sunMin = d.sun_exposure_min || 0;
-            uvDoseByDate[d.date] = uvNoon ? (Math.pow(uvNoon, 1.5) * sunMin) : 0;
-        });
-        
-        metricData = dates.map(d => uvDoseByDate[d] || null);
-        metricLabel = 'UV dose';
-    } else if (metric === 'hrv') {
-        metricData = daily.map(d => d.hrv);
-        metricLabel = 'HRV (ms)';
-        metricColor = '#4a90d9';
-    } else if (metric === 'hours_slept') {
-        metricData = daily.map(d => d.hours_slept);
-        metricLabel = 'Hours slept';
-        metricColor = '#9b72cf';
-    } else if (metric === 'steps') {
-        metricData = daily.map(d => d.steps);
-        metricLabel = 'Steps';
-        metricColor = '#4ab8b8';
-    } else if (metric === 'basal_temp_delta') {
-        metricData = daily.map(d => d.basal_temp_delta);
-        metricLabel = 'Temp delta (°F)';
-        metricColor = '#d4784a';
-    }
-    
-    // Build flare marker data (stars at the metric value on flare days)
-    const flareMarkerData = dates.map((d, i) => {
-        return FLARE_DAYS.includes(d) ? metricData[i] : null;
-    });
-    
-    new Chart(document.getElementById('flareOverviewChart'), {
-        type: 'line',
-        data: {
-            labels: dateLabels,
-            datasets: [
-                // Main metric line
-                {
-                    label: metricLabel,
-                    data: metricData,
-                    borderColor: metricColor,
-                    backgroundColor: 'transparent',
-                    borderWidth: 2,
-                    pointRadius: 2,
-                    tension: 0.3,
-                    order: 2
-                },
-                // Flare day stars
-                {
-                    label: 'Flare days',
-                    data: flareMarkerData,
-                    type: 'scatter',
-                    borderColor: getComputedStyle(document.documentElement).getPropertyValue('--color-flare').trim(),
-                    backgroundColor: getComputedStyle(document.documentElement).getPropertyValue('--color-flare').trim(),
-                    pointStyle: 'star',
-                    pointRadius: 8,
-                    pointHoverRadius: 10,
-                    order: 1  // Draw on top
-                }
-            ]
-        },
+    new Chart(document.getElementById('chartAttribution'), {
+        type: 'bar',
+        plugins: [flarePlugin, thresholdPlugin],
+        data: { labels: dates, datasets: stackedDatasets },
         options: {
             responsive: true,
-            maintainAspectRatio: true,
             interaction: { mode: 'index', intersect: false },
+            scales: {
+                x: {
+                    stacked: true,
+                    grid: { color: GRID },
+                    ticks: {
+                        maxTicksLimit: 15,
+                        callback: function(val, idx) {
+                            const d = dates[idx];
+                            return d ? d.slice(5) : '';  // MM-DD
+                        }
+                    }
+                },
+                y: {
+                    stacked: true,
+                    grid: { color: GRID },
+                    title: { display: true, text: 'score', color: '#9994a8' }
+                }
+            },
             plugins: {
-                verticalLines: {
-                    dates: dates,  //the dates array
-                    lines: [
-                        ...(INTERVENTION_DATE && dates.includes(INTERVENTION_DATE) ? [{
-                                date: INTERVENTION_DATE,
-                                color: getComputedStyle(document.documentElement).getPropertyValue(
-                                    INTERVENTION_CATEGORY === 'supplement' ? '--color-intervention-supplement' : '--color-intervention'
-                                ).trim(),
-                                width: 2,
-                                dash: [5, 3],
-                                label: INTERVENTION_NAME ? INTERVENTION_NAME.substring(0, 20) : 'Intervention',
-                                font: "11px 'Source Serif 4', serif",
-                                fillText: (ctx) => ctx.fillText(INTERVENTION_NAME, x + 3, chartArea.top + 28 + (i * 11)),
-                                fillStyle:  (ctx) => ctx.fillStyle = line.color || '#05eaff99'
-                        }] : []),
-                        ...SECONDARY_INTERVENTIONS
-                            .filter(si => dates.includes(si.start_date))
-                            .map(si => ({
-                                date: si.start_date,
-                                color: getComputedStyle(document.documentElement).getPropertyValue(
-                                    si.category === 'supplement' ? '--color-intervention-supplement' : '--color-intervention-secondary'
-                                ).trim(),
-                                width: 1.5,
-                                label: si.drug_name.substring(0, 20),
-                                font: "11px 'Source Serif 4', serif",
-                                fillText: (ctx) => ctx.fillText(si.drug_name, x + 10, chartArea.top + 10 + (i * 8))
-                            }))
-                    ]
-                },
-                legend: {
-                    labels: { color: '#9994a8', boxWidth: 12, padding: 12 }
-                },
+                legend: { display: false },
                 tooltip: {
                     backgroundColor: '#1e1e28',
                     borderColor: '#2a2a38',
                     borderWidth: 1,
-                    padding: 8,
+                    padding: 10,
                     cornerRadius: 6,
                     callbacks: {
-                        afterLabel: (context) => {
-                            const date = dates[context.dataIndex];
-                            const labels = [];
-                            
-                            if (FLARE_DAYS.includes(date)) {
-                                const sev = FLARE_SEVERITY[date] || 'major';
-                                const sevLabel = sev === 'er_visit' ? 'emojione-monotone:ambulance ER visit'
-                                               : sev === 'major' ? '☣ Major flare'
-                                               : '☣ Minor flare';
-                                labels.push(sevLabel);
-                            }
-                            if (date === INTERVENTION_DATE) {
-                                labels.push(`⚕️ ${INTERVENTION_NAME} started`);
-                            }
-                            
-                            return labels.length > 0 ? '\n' + labels.join('\n') : '';
+                        title: function(items) {
+                            const idx = items[0].dataIndex;
+                            const d = D[idx];
+                            let t = d.date;
+                            if (d.flare) t += ' — ' + (d.severity === 'er_visit' ? 'ER visit' : d.severity + ' flare');
+                            return t;
+                        },
+                        afterBody: function(items) {
+                            const idx = items[0].dataIndex;
+                            return ['total: ' + D[idx].total];
                         }
                     }
-                }
-            },
-            scales: {
-                x: {
-                    grid: { color: 'rgba(255,255,255,0.06)' },
-                    ticks: { color: '#9994a8', maxTicksLimit: 12, maxRotation: 45 }
-                },
-                y: {
-                    grid: { color: 'rgba(255,255,255,0.06)' },
-                    ticks: { color: '#9994a8' }
                 }
             }
         }
     });
-}
 
-// Call on page load
-window.addEventListener('DOMContentLoaded', displayFlareStats);
+    // ── 2. Burden delta line chart ──
+    const burdenVals = D.map(d => d.burden_delta_raw);
 
-// ============================================================
-// Chart.js plugin for vertical line annotations
-// ============================================================
-
-const flareColor = getComputedStyle(document.documentElement).getPropertyValue('--color-flare').trim();
-const verticalLinePlugin = {
-    id: 'verticalLines',
-    afterDraw: (chart) => {
-        if (!chart.options.plugins.verticalLines) return;
-        
-        const ctx = chart.ctx;
-        const chartArea = chart.chartArea;
-        const xScale = chart.scales.x;
-        
-        const lines = chart.options.plugins.verticalLines.lines || [];
-        const dates = chart.options.plugins.verticalLines.dates || []; 
-        
-        lines.forEach(line => {
-            // Find the index of this date in the dates array
-            const dateIndex = dates.indexOf(line.date);
-            if (dateIndex === -1) return; // Date not in range
-            
-            // Get pixel position for this index
-            const xPos = xScale.getPixelForValue(dateIndex);
-            
-            if (xPos < chartArea.left || xPos > chartArea.right) return;
-            
-            ctx.save();
-            ctx.strokeStyle = line.color || flareColor;
-            ctx.lineWidth = line.width || 2;
-            
-            if (line.dash) {
-                ctx.setLineDash(line.dash);
-            }
-            
-            ctx.beginPath();
-            ctx.moveTo(xPos, chartArea.top);
-            ctx.lineTo(xPos, chartArea.bottom);
-            ctx.stroke();
-            
-            // Add label if provided
-            if (line.label) {
-                ctx.fillStyle = line.color || flareColor;
-                ctx.font = '12px "Times New Roman", monospace';
-                ctx.textAlign = 'right';
-                ctx.fillText(line.label, xPos, chartArea.top + 35);
-            }
-            
-            ctx.restore();
-        });
-    }
-};
-
-// Register the plugin
-Chart.register(verticalLinePlugin);
-
-function generateComparison() {
-    const selectedSymptoms = Array.from(
-        document.querySelectorAll('.symptom-checkbox input:checked')
-    ).map(cb => ({
-        key: cb.value,
-        color: cb.dataset.color
-    }));
-    
-    const metric = document.getElementById('metric-select').value;
-    const metric2 = document.getElementById('metric-select-2').value;
-    const daily = TIMELINE_DATA.daily;
-    const uvData = TIMELINE_DATA.uv;
-
-    // Nothing to show
-    if (selectedSymptoms.length === 0 && metric === 'none' && metric2 === 'none') {
-        document.getElementById('chart-container').style.display = 'none';
-        return;
-    }
-
-    // Declare metric variables
-    let metricData = [];
-    let metricLabel = '';
-    let metricColor = '#d4b84a';
-    let metricAxis = {};
-    let metricData2 = [];
-    let metricLabel2 = '';
-    let metricColor2 = '#4ab8b8';
-    let metricAxis2 = {};
-    
-    // Build datasets
-    const dates = daily.map(d => d.date);
-    const dateLabels = dates.map(d => {
-        const dt = new Date(d + 'T12:00:00');
-        return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-    });
-    
-    // UV mapping
-    // Build UV lookup
-    const uvByDate = {};
-    uvData.forEach(u => { uvByDate[u.date] = u.uv_noon || 0; });
-    
-    // Build UV dose lookup (index × sun minutes)
-    const uvDoseByDate = {};
-    daily.forEach(d => {
-        const uvNoon = uvByDate[d.date];
-        const sunMin = d.sun_exposure_min || 0;
-        uvDoseByDate[d.date] = uvNoon ? (Math.pow(uvNoon, 1.5) * sunMin) : 0;
-    });
-    
-    // Helper: build metric data/label/color/axis from a metric key
-    function buildMetric(key) {
-        if (key === 'none') return null;
-        if (key === 'uv_dose') return {
-            data: dates.map(d => uvDoseByDate[d] || null),
-            label: 'UV dose (index^1.5 × min)', color: '#d4b84a',
-            axis: { min: 0, position: 'right' }
-        };
-        if (key === 'basal_temp_delta') return {
-            data: daily.map(d => d.basal_temp_delta),
-            label: 'temp delta (°F)', color: '#d4784a',
-            axis: { position: 'right' }
-        };
-        if (key === 'hrv') return {
-            data: daily.map(d => d.hrv),
-            label: 'HRV (ms)', color: '#4a90d9',
-            axis: { position: 'right' }
-        };
-        if (key === 'hours_slept') return {
-            data: daily.map(d => d.hours_slept),
-            label: 'hours slept', color: '#9b72cf',
-            axis: { min: 0, max: 14, position: 'right' }
-        };
-        if (key === 'steps') return {
-            data: daily.map(d => d.steps),
-            label: 'steps', color: '#4ab8b8',
-            axis: { min: 0, position: 'right' }
-        };
-        if (key === 'emotional_state') return {
-            data: daily.map(d => d.emotional_state),
-            label: 'emotional (0-10)', color: '#b8aee8',
-            axis: { min: 0, max: 10, position: 'right' }
-        };
-        if (key === 'pain_scale') return {
-            data: daily.map(d => d.pain_scale),
-            label: 'pain (0-10)', color: '#c94040',
-            axis: { min: 0, max: 10, position: 'right' }
-        };
-        // fatigue_scale
-        return {
-            data: daily.map(d => d.fatigue_scale),
-            label: 'fatigue (0-10)', color: '#d4a054',
-            axis: { min: 0, max: 10, position: 'right' }
-        };
-    }
-
-    const m1 = buildMetric(metric);
-    const m2 = buildMetric(metric2);
-    
-    // Total symptom count
-    const totalCount = daily.map(d => {
-        return selectedSymptoms.reduce((sum, s) => sum + (d[s.key] ? 1 : 0), 0);
-    });
-    
-    // Build datasets array
-    const datasets = [];
-
-    // Individual symptom dots
-    selectedSymptoms.forEach((symptom, idx) => {
-        const yOffset = idx * 0.3;
-        datasets.push({
-            label: symptom.key.replace('_', ' '),
-            data: daily.map(d => d[symptom.key] ? yOffset : null),
-            borderColor: symptom.color,
-            backgroundColor: symptom.color,
-            pointRadius: 4,
-            pointStyle: 'circle',
-            showLine: false,
-            yAxisID: 'ySymptoms',
-        });
-    });
-
-    // Total symptom count line (only if symptoms selected)
-    if (selectedSymptoms.length > 0) {
-        datasets.push({
-            label: 'total symptom count',
-            data: totalCount,
-            borderColor: getComputedStyle(document.documentElement).getPropertyValue('--color-flare').trim(),
-            backgroundColor: 'rgba(255,255,255,0.1)',
-            borderWidth: 2,
-            pointRadius: 0,
-            tension: 0.3,
-            fill: false,
-            yAxisID: 'ySymptoms',
-        });
-    }
-
-    // Metric 1
-    if (m1) {
-        datasets.push({
-            label: m1.label,
-            data: m1.data,
-            borderColor: m1.color,
-            backgroundColor: metric === 'uv_dose' ? 'rgba(212,184,74,0.1)' : 'transparent',
-            borderWidth: 2,
-            pointRadius: 3,
-            fill: metric === 'uv_dose',
-            spanGaps: true,
-            yAxisID: 'yMetric',
-        });
-    }
-
-    // Metric 2
-    if (m2) {
-        datasets.push({
-            label: m2.label,
-            data: m2.data,
-            borderColor: m2.color,
-            backgroundColor: 'transparent',
-            borderWidth: 2,
-            pointRadius: 3,
-            fill: false,
-            spanGaps: true,
-            yAxisID: 'yMetric2',
-        });
-    }
-    
-    // Destroy previous chart
-    if (comparisonChart) {
-        comparisonChart.destroy();
-    }
-
-    // Create new chart
-    comparisonChart = new Chart(document.getElementById('comparison-chart'), {
+    new Chart(document.getElementById('chartBurdenDelta'), {
         type: 'line',
+        plugins: [flarePlugin],
         data: {
-            labels: dateLabels,
-            datasets: datasets  
+            labels: dates,
+            datasets: [{
+                data: burdenVals,
+                borderColor: '#5b9bd5',
+                backgroundColor: 'rgba(91,155,213,0.1)',
+                borderWidth: 1.5,
+                pointRadius: 0,
+                pointHoverRadius: 3,
+                fill: { target: 'origin', above: 'rgba(91,155,213,0.1)', below: 'transparent' },
+                tension: 0.3,
+                spanGaps: true,
+            }]
         },
         options: {
             responsive: true,
-        maintainAspectRatio: false,
-        interaction: { mode: 'index', intersect: false },
-        plugins: {
-            verticalLines: {
-                dates: dates,  
-                lines: [
-                    ...(INTERVENTION_DATE && dates.includes(INTERVENTION_DATE) ? [{
-                        date: INTERVENTION_DATE,
-                        color: getComputedStyle(document.documentElement).getPropertyValue(
-                            INTERVENTION_CATEGORY === 'supplement' ? '--color-intervention-supplement' : '--color-intervention'
-                        ).trim(),
-                        width: 2,
-                        dash: [5, 3],
-                        label: INTERVENTION_NAME ? INTERVENTION_NAME.substring(0, 12) : 'Intervention'
-                    }] : []),
-                    ...SECONDARY_INTERVENTIONS
-                        .filter(si => dates.includes(si.start_date))
-                        .map(si => ({
-                            date: si.start_date,
-                            color: getComputedStyle(document.documentElement).getPropertyValue(
-                                si.category === 'supplement' ? '--color-intervention-supplement' : '--color-intervention-secondary'
-                            ).trim(),
-                            width: 1.5,
-                            label: si.drug_name.substring(0, 10)
-                        })),
-                    ...FLARE_DAYS.filter(d => dates.includes(d)).map(d => {
-                        const sev = FLARE_SEVERITY[d] || 'major';
-                        const color = sev === 'er_visit' ? 'rgba(255, 68, 68, 0.5)'
-                                    : sev === 'major' ? 'rgba(255, 255, 255, 0.3)'
-                                    : 'rgba(255, 255, 255, 0.15)';
-                        const width = sev === 'er_visit' ? 2 : 1;
-                        return { date: d, color, width };
-                    })
-                ]
+            interaction: { mode: 'index', intersect: false },
+            scales: {
+                x: {
+                    grid: { color: GRID },
+                    ticks: { maxTicksLimit: 8, callback: (v,i) => dates[i] ? dates[i].slice(5) : '' }
+                },
+                y: {
+                    grid: { color: GRID },
+                    title: { display: true, text: 'delta (symptoms)', color: '#9994a8' }
+                }
             },
-            legend: {
-                labels: { color: '#9994a8', boxWidth: 12, padding: 16 }
-            },
-            tooltip: {
-                backgroundColor: '#1e1e28',
-                borderColor: '#2a2a38',
-                borderWidth: 1,
-                padding: 10,
-                cornerRadius: 6,
-                callbacks: {
-                    afterLabel: (context) => {
-                        const date = dates[context.dataIndex];
-                        const labels = [];
-                        
-                        if (FLARE_DAYS.includes(date)) {
-                            const sev = FLARE_SEVERITY[date] || 'major';
-                            const sevLabel = sev === 'er_visit' ? 'emojione-monotone:ambulance ER visit'
-                                           : sev === 'major' ? '☣ Major flare'
-                                           : '☣ Minor flare';
-                            labels.push(sevLabel);
-                        }
-                        if (date === INTERVENTION_DATE) {
-                            labels.push(`⚕️ ${INTERVENTION_NAME} started`);
-                        }
-
-                        return labels.length > 0 ? '\n' + labels.join('\n') : '';
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    backgroundColor: '#1e1e28', borderColor: '#2a2a38', borderWidth: 1,
+                    padding: 8, cornerRadius: 6,
+                    callbacks: {
+                        label: ctx => ctx.parsed.y !== null ? 'delta: ' + ctx.parsed.y.toFixed(1) : 'no data'
                     }
                 }
             }
-        },
-        scales: {
-            x: {
-                grid: { color: 'rgba(255,255,255,0.06)' },
-                ticks: { color: '#9994a8', maxTicksLimit: 12, maxRotation: 45 }
-            },
-            ySymptoms: {
-                type: 'linear',
-                position: 'left',
-                display: selectedSymptoms.length > 0,
-                grid: { color: 'rgba(255,255,255,0.06)' },
-                ticks: { color: '#9994a8' }
-            },
-            yMetric: m1 ? Object.assign({ type: 'linear', ticks: { color: m1.color }, grid: { drawOnChartArea: !m2 } }, m1.axis) : { display: false },
-            yMetric2: m2 ? Object.assign({ type: 'linear', ticks: { color: m2.color }, grid: { drawOnChartArea: false } }, m2.axis) : { display: false }
         }
-    }
-});
-
-    
-    // Update title
-    const parts = [];
-    if (selectedSymptoms.length > 0) parts.push(selectedSymptoms.map(s => s.key.replace('_', ' ')).join(', '));
-    if (m1) parts.push(m1.label);
-    if (m2) parts.push(m2.label);
-    document.getElementById('chart-title').textContent = parts.join(' vs ') || 'comparison';
-
-    // Show chart
-    document.getElementById('chart-container').style.display = 'block';
-}
-
-// ============================================================
-// Chart presets
-// ============================================================
-const CHART_PRESETS = {
-    uv:           { symptoms: 'all',  metric1: 'uv_dose',     metric2: 'none' },
-    hrv_sleep:    { symptoms: 'all',  metric1: 'hrv',         metric2: 'hours_slept' },
-    pain_fatigue: { symptoms: 'none', metric1: 'pain_scale',  metric2: 'fatigue_scale' },
-    all_symptoms: { symptoms: 'all',  metric1: 'none',        metric2: 'none' },
-};
-
-function applyChartPreset(name) {
-    const p = CHART_PRESETS[name];
-    document.querySelectorAll('.symptom-checkbox input').forEach(cb => {
-        cb.checked = p.symptoms === 'all';
-    });
-    document.getElementById('metric-select').value = p.metric1;
-    document.getElementById('metric-select-2').value = p.metric2;
-    document.querySelectorAll('.chart-preset-btn').forEach(b =>
-        b.classList.toggle('active', b.dataset.preset === name));
-    generateComparison();
-}
-
-function clearActiveChartPreset() {
-    document.querySelectorAll('.chart-preset-btn').forEach(b => b.classList.remove('active'));
-}
-
-// Auto-update on control change (debounced 200ms)
-let _chartUpdateTimer = null;
-function scheduleChartUpdate() {
-    clearTimeout(_chartUpdateTimer);
-    _chartUpdateTimer = setTimeout(generateComparison, 200);
-}
-
-window.addEventListener('DOMContentLoaded', () => {
-    document.querySelectorAll('.symptom-checkbox input').forEach(cb => {
-        cb.addEventListener('change', () => { clearActiveChartPreset(); scheduleChartUpdate(); });
-    });
-    document.getElementById('metric-select').addEventListener('change', () => {
-        clearActiveChartPreset(); scheduleChartUpdate();
-    });
-    document.getElementById('metric-select-2').addEventListener('change', () => {
-        clearActiveChartPreset(); scheduleChartUpdate();
-    });
-    document.querySelectorAll('.chart-preset-btn').forEach(btn => {
-        btn.addEventListener('click', () => applyChartPreset(btn.dataset.preset));
     });
 
-    // Auto-apply UV preset on load
-    applyChartPreset('uv');
-});
+    // ── 3. RMSSD deviation line chart ──
+    const rmssdVals = D.map(d => d.rmssd_deviation_raw);
 
-// Restore active button state based on current date range
-window.addEventListener('DOMContentLoaded', () => {
-    const start = document.getElementById('start-date').value;
-    const end = document.getElementById('end-date').value;
-    
-    const endDate = new Date(end);
-    const startDate = new Date(start);
-    const daysDiff = Math.round((endDate - startDate) / (1000 * 60 * 60 * 24));
-    
-    // Remove all active states first
-    document.querySelectorAll('.preset-btn').forEach(b => b.classList.remove('active'));
-    
-    // Highlight the matching button
-    const buttons = document.querySelectorAll('.preset-btn');
-    if (daysDiff <= 35) {
-        buttons[0].classList.add('active'); // 30 days
-    } else if (daysDiff <= 95) {
-        buttons[1].classList.add('active'); // 90 days
-    } else if (daysDiff <= 185) {
-        buttons[2].classList.add('active'); // 180 days
-    } else {
-        buttons[3].classList.add('active'); // all
-    }
-    
-});
+    new Chart(document.getElementById('chartRmssdDev'), {
+        type: 'line',
+        plugins: [flarePlugin],
+        data: {
+            labels: dates,
+            datasets: [{
+                data: rmssdVals,
+                borderColor: '#66bb6a',
+                backgroundColor: 'rgba(102,187,106,0.1)',
+                borderWidth: 1.5,
+                pointRadius: 0,
+                pointHoverRadius: 3,
+                fill: { target: 'origin', above: 'transparent', below: 'rgba(255,68,68,0.08)' },
+                tension: 0.3,
+                spanGaps: true,
+            }]
+        },
+        options: {
+            responsive: true,
+            interaction: { mode: 'index', intersect: false },
+            scales: {
+                x: {
+                    grid: { color: GRID },
+                    ticks: { maxTicksLimit: 8, callback: (v,i) => dates[i] ? dates[i].slice(5) : '' }
+                },
+                y: {
+                    grid: { color: GRID },
+                    title: { display: true, text: 'deviation %', color: '#9994a8' }
+                }
+            },
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    backgroundColor: '#1e1e28', borderColor: '#2a2a38', borderWidth: 1,
+                    padding: 8, cornerRadius: 6,
+                    callbacks: {
+                        label: ctx => ctx.parsed.y !== null ? ctx.parsed.y.toFixed(1) + '%' : 'no data'
+                    }
+                }
+            }
+        }
+    });
 
-// Call on page load
-window.addEventListener('DOMContentLoaded', displayFlareStats);
+    // ── 4. Prediction accuracy strip ──
+    const strip = document.getElementById('accuracyStrip');
+    const stats = { correct: 0, missed: 0, falseAlarm: 0 };
 
+    D.forEach(d => {
+        const predicted = d.total >= THRESHOLD;
+        const actual = d.flare;
+        let color, title;
+
+        if (predicted && actual) {
+            color = '#66bb6a'; title = d.date + ': caught flare'; stats.correct++;
+        } else if (!predicted && !actual) {
+            color = '#4a4a5a'; title = d.date + ': correct (no flare)'; stats.correct++;
+        } else if (!predicted && actual) {
+            color = '#ff4444'; title = d.date + ': MISSED ' + (d.severity || 'flare'); stats.missed++;
+        } else {
+            color = '#ff8c00'; title = d.date + ': false alarm'; stats.falseAlarm++;
+        }
+
+        const dot = document.createElement('div');
+        dot.style.cssText = 'width:8px; height:8px; border-radius:50%; cursor:default;';
+        dot.style.backgroundColor = color;
+        dot.title = title;
+        strip.appendChild(dot);
+    });
+
+    const total = D.length;
+    const acc = total > 0 ? ((stats.correct / total) * 100).toFixed(1) : 0;
+    document.getElementById('accuracyStats').textContent =
+        acc + '% accurate — ' + stats.correct + ' correct, ' +
+        stats.missed + ' missed, ' + stats.falseAlarm + ' false alarms (' + total + ' days)';
+})();
 </script>
-
-<style>
-.range-controls {
-    margin-bottom: var(--space-lg);
-}
-
-.range-presets {
-    display: flex;
-    gap: var(--space-sm);
-    margin-bottom: var(--space-md);
-}
-
-.preset-btn {
-    padding: var(--space-xs) var(--space-md);
-    border: 1px solid var(--border-medium);
-    border-radius: var(--radius-sm);
-    background: transparent;
-    color: var(--text-secondary);
-    font-family: var(--font-body);
-    font-size: 0.875rem;
-    cursor: pointer;
-    transition: all 0.15s;
-}
-
-.preset-btn:hover,
-.preset-btn.active {
-    background: var(--bg-elevated);
-    color: var(--text-primary);
-    border-color: var(--color-accent);
-}
-
-.chart-preset-btn {
-    padding: var(--space-xs) var(--space-md);
-    border: 1px solid var(--border-medium);
-    border-radius: var(--radius-sm);
-    background: transparent;
-    color: var(--text-secondary);
-    font-family: var(--font-body);
-    font-size: 0.875rem;
-    cursor: pointer;
-    transition: all 0.15s;
-}
-
-.chart-preset-btn:hover,
-.chart-preset-btn.active {
-    background: var(--bg-elevated);
-    color: var(--text-primary);
-    border-color: var(--color-accent);
-}
-
-.date-inputs {
-    display: flex;
-    gap: var(--space-md);
-    align-items: flex-end;
-}
-
-.date-inputs .form-group {
-    margin: 0;
-    flex: 1;
-    min-width: 140px;
-}
-
-.comparison-instructions {
-    margin-bottom: var(--space-md);
-    padding: var(--space-sm) var(--space-md);
-    background: var(--bg-elevated);
-    border-left: 2px solid var(--color-accent);
-    border-radius: var(--radius-sm);
-}
-
-.symptom-selectors {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--space-sm);
-    margin-bottom: var(--space-lg);
-}
-
-.symptom-checkbox {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--space-xs);
-    padding: var(--space-xs) var(--space-md);
-    border: 1px solid var(--border-medium);
-    border-radius: var(--radius-sm);
-    cursor: pointer;
-    transition: background 0.15s, border-color 0.15s;
-}
-
-.symptom-checkbox:hover {
-    background: var(--bg-elevated);
-}
-
-.symptom-checkbox input {
-    margin: 0;
-    accent-color: var(--color-accent);
-}
-
-.symptom-checkbox input:checked + .checkbox-label {
-    font-weight: 600;
-}
-
-.checkbox-label.neuro       { color: #4a90d9; }
-.checkbox-label.cognitive   { color: #9b72cf; }
-.checkbox-label.muscle      { color: #d4a054; }
-.checkbox-label.migraine    { color: #c94040; }
-.checkbox-label.air         { color: #4ab8b8; }
-.checkbox-label.rheumatic   { color: #e85d9e; }
-.checkbox-label.derm        { color: #d4784a; }
-.checkbox-label.word        { color: #b8aee8; }
-
-.comparison-controls {
-    display: flex;
-    gap: var(--space-md);
-    align-items: flex-end;
-    flex-wrap: wrap;
-}
-
-.checkbox-toggle {
-    display: flex;
-    align-items: center;
-    gap: var(--space-xs);
-    cursor: pointer;
-    color: var(--text-secondary);
-    font-size: 0.9rem;
-}
-
-.checkbox-toggle input {
-    margin: 0;
-    accent-color: var(--color-accent);
-}
-
-@media (max-width: 600px) {
-    .date-inputs {
-        flex-direction: column;
-        align-items: stretch;
-    }
-    
-    .comparison-controls {
-        flex-direction: column;
-        align-items: stretch;
-    }
-    
-    .symptom-selectors {
-        flex-direction: column;
-    }
-}
-
-.flare-card {
-    background: var(--bg-elevated);
-    border: 1px solid var(--border-medium);
-    border-left: 3px solid rgba(255,255,255,0.3);
-    border-radius: var(--radius-sm);
-    padding: var(--space-md);
-    margin-bottom: var(--space-md);
-}
-
-.flare-card-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: var(--space-sm);
-    flex-wrap: wrap;
-    gap: var(--space-sm);
-}
-
-.flare-date {
-    font-weight: 600;
-    color: var(--text-primary);
-    font-size: 1rem;
-}
-
-.flare-metrics {
-    display: flex;
-    gap: var(--space-md);
-    font-size: 0.85rem;
-    color: var(--text-muted);
-    font-family: var(--font-mono);
-}
-
-.flare-symptoms {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--space-xs);
-    margin-bottom: var(--space-xs);
-}
-
-.symptom-badge {
-    display: inline-block;
-    padding: 2px 8px;
-    border-radius: var(--radius-sm);
-    font-size: 0.8rem;
-    font-weight: 500;
-}
-
-.flare-notes {
-    margin-top: var(--space-sm);
-    padding: var(--space-sm);
-    background: var(--bg-card);
-    border-radius: var(--radius-sm);
-    font-size: 0.9rem;
-    color: var(--text-secondary);
-    white-space: pre-wrap;
-}
-</style>
+{% endif %}
 {% endblock %}

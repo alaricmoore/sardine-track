@@ -5,3 +5,4 @@
 - [project_next_session.md](project_next_session.md) - Queued: timeline overhaul, cycle calendar redesign, RMSSD backfill + flare overlay
 - [project_hrv_flare_hypothesis.md](project_hrv_flare_hypothesis.md) - Hypothesis: HRV/RMSSD may elevate before lupus flares (not drop)
 - [project_cycle_phase_not_predictive.md](project_cycle_phase_not_predictive.md) - Cycle phase has no flare predictive signal; weight zeroed 2026-04-03
+- [feedback_baseline_relative_scoring.md](feedback_baseline_relative_scoring.md) - Use baseline-relative deltas, not raw values, for chronic metrics in scoring
