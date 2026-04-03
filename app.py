@@ -107,19 +107,49 @@ _SYMPTOM_KEYS = [
 ]
 
 
-def _compute_symptom_burden_3d(obs_date: str, obs_by_date: dict) -> int:
-    """Count total symptom flags across the prior 3 days (day-1, day-2, day-3)."""
+def _daily_symptom_count(obs: dict | None) -> int | None:
+    """Count binary symptom flags for a single day's observation."""
+    if not obs:
+        return None
+    return sum(1 for sym in _SYMPTOM_KEYS if obs.get(sym))
+
+
+def _compute_symptom_burden_delta(obs_date: str, obs_by_date: dict) -> float | None:
+    """Symptom burden as deviation from personal rolling baseline.
+
+    Returns the delta between the 3-day recent average symptom count and
+    the 14-day rolling baseline (days -17 through -3, avoiding pre-flare
+    contamination). Positive = symptoms accelerating above normal.
+    Returns None if insufficient baseline data (< 7 days).
+    """
     target = datetime.strptime(obs_date, "%Y-%m-%d").date()
-    count = 0
+
+    # 3-day recent window: days -1, -2, -3
+    recent = []
     for offset in range(1, 4):
         d = (target - timedelta(days=offset)).isoformat()
-        prior = obs_by_date.get(d)
-        if not prior:
-            continue
-        for sym in _SYMPTOM_KEYS:
-            if prior.get(sym):
-                count += 1
-    return count
+        c = _daily_symptom_count(obs_by_date.get(d))
+        if c is not None:
+            recent.append(c)
+
+    if not recent:
+        return None
+
+    # 14-day baseline window: days -17 through -3 (avoids pre-flare ramp)
+    baseline = []
+    for offset in range(3, 18):
+        d = (target - timedelta(days=offset)).isoformat()
+        c = _daily_symptom_count(obs_by_date.get(d))
+        if c is not None:
+            baseline.append(c)
+
+    if len(baseline) < 7:
+        return None
+
+    recent_avg = sum(recent) / len(recent)
+    baseline_avg = sum(baseline) / len(baseline)
+
+    return round(recent_avg - baseline_avg, 2)
 
 
 def _compute_rmssd_deviation(obs_date: str, obs_by_date: dict) -> float | None:
@@ -162,14 +192,14 @@ def _inject_scoring_context(obs_list: list, obs_by_date: dict, loc_key: str,
                             n: int | None = None) -> None:
     """Inject multi-day scoring context into observations in-place.
 
-    Enriches each obs with _uv_row, _cumulative_uv_dose, _symptom_burden_3d,
+    Enriches each obs with _uv_row, _cumulative_uv_dose, _symptom_burden_delta,
     and _rmssd_deviation so calculate_flare_prime_score() has full context.
     """
     subset = obs_list[:n] if n else obs_list
     for obs in subset:
         obs['_uv_row'] = db.get_uv_data(loc_key, obs['date'])
         obs['_cumulative_uv_dose'] = _compute_cumulative_uv(obs['date'], obs_by_date, loc_key)
-        obs['_symptom_burden_3d'] = _compute_symptom_burden_3d(obs['date'], obs_by_date)
+        obs['_symptom_burden_delta'] = _compute_symptom_burden_delta(obs['date'], obs_by_date)
         obs['_rmssd_deviation'] = _compute_rmssd_deviation(obs['date'], obs_by_date)
 
 
@@ -341,11 +371,25 @@ SCORING CATEGORIES
        With post-steroid cycles averaging 15.7 days vs the 28-day model
        assumption, 90% of days were flagged, adding constant bias.
 
-  10. 3-Day Symptom Burden (strongest predictor, Cohen's d = +1.70)
-      Pre-flare days average 8.9 symptom flags over 3 days vs 1.7 for
-      non-flare days. Flares build — they don't appear from nowhere.
-      • Burden >= 6 flags: +3.0 x symptom_burden_weight
-      • Burden >= 3 flags: +1.5 x symptom_burden_weight
+  10. Symptom Burden Delta (acceleration above personal baseline)
+      Raw symptom count saturates when you have chronic daily symptoms
+      (e.g., neuro 76%, rheumatic 82%, derm 62% of days). What predicts
+      a flare isn't having symptoms — it's having MORE than your usual
+      number. The delta captures acceleration, not presence.
+
+      Computation:
+      • 3-day recent average: mean daily symptom count over days -1, -2, -3
+      • 14-day rolling baseline: mean daily count over days -17 through -3
+        (gap avoids pre-flare ramp contaminating the baseline)
+      • Delta = recent_avg - baseline_avg
+
+      Scoring:
+      • Delta >= 3.0: +3.0 x symptom_burden_weight (sharp acceleration)
+      • Delta >= 2.0: +2.0 x symptom_burden_weight (moderate acceleration)
+      • Delta >= 1.0: +1.0 x symptom_burden_weight (mild acceleration)
+      • Delta < 1.0: no contribution (at or below baseline)
+
+      Requires >= 7 days of baseline history; falls back to 0 if sparse.
 
   11. RMSSD Baseline Deviation (vagal withdrawal signal, d = -0.35)
       Compares 7-day rolling RMSSD average to 30-day personal baseline.
@@ -3262,14 +3306,16 @@ def calculate_flare_prime_score(obs, weights_override=None):
     if obs.get('cycle_in_high_risk_phase'):
         score += weights.get('cycle_phase', 1.0)
 
-    # 10. 3-day symptom burden (multi-day accumulation signal, d=1.70)
+    # 10. Symptom burden delta (acceleration above personal baseline)
     burden_w = weights.get('symptom_burden_weight', 1.0)
-    symptom_burden = obs.get('_symptom_burden_3d')
-    if symptom_burden is not None:
-        if symptom_burden >= 6:
+    burden_delta = obs.get('_symptom_burden_delta')
+    if burden_delta is not None:
+        if burden_delta >= 3.0:
             score += 3.0 * burden_w
-        elif symptom_burden >= 3:
-            score += 1.5 * burden_w
+        elif burden_delta >= 2.0:
+            score += 2.0 * burden_w
+        elif burden_delta >= 1.0:
+            score += 1.0 * burden_w
 
     # 11. RMSSD baseline deviation (vagal withdrawal signal, d=-0.35)
     rmssd_w = weights.get('rmssd_deviation_weight', 0.5)
