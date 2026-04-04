@@ -188,12 +188,48 @@ def _compute_rmssd_deviation(obs_date: str, obs_by_date: dict) -> float | None:
     return round((recent_avg - baseline_avg) / baseline_avg * 100, 1)
 
 
+def _compute_resp_rate_deviation(obs_date: str, obs_by_date: dict) -> float | None:
+    """Percentage deviation of 3-day respiratory rate average from 14-day baseline.
+
+    Returns positive values when recent respiratory rate is elevated.
+    Returns None if insufficient data in either window.
+    """
+    target = datetime.strptime(obs_date, "%Y-%m-%d").date()
+
+    # 3-day recent window (day-1 through day-3)
+    recent = []
+    for offset in range(1, 4):
+        d = (target - timedelta(days=offset)).isoformat()
+        obs = obs_by_date.get(d)
+        if obs and obs.get('respiratory_rate') is not None:
+            recent.append(float(obs['respiratory_rate']))
+
+    # 14-day baseline window (day-4 through day-17, avoids pre-event contamination)
+    baseline = []
+    for offset in range(4, 18):
+        d = (target - timedelta(days=offset)).isoformat()
+        obs = obs_by_date.get(d)
+        if obs and obs.get('respiratory_rate') is not None:
+            baseline.append(float(obs['respiratory_rate']))
+
+    if len(recent) < 2 or len(baseline) < 4:
+        return None
+
+    recent_avg = sum(recent) / len(recent)
+    baseline_avg = sum(baseline) / len(baseline)
+
+    if baseline_avg == 0:
+        return None
+
+    return round((recent_avg - baseline_avg) / baseline_avg * 100, 1)
+
+
 def _inject_scoring_context(obs_list: list, obs_by_date: dict, loc_key: str,
                             n: int | None = None) -> None:
     """Inject multi-day scoring context into observations in-place.
 
-    Enriches each obs with _uv_row, _cumulative_uv_dose, _symptom_burden_delta,
-    and _rmssd_deviation so calculate_flare_prime_score() has full context.
+    Enriches each obs with multi-day context so calculate_flare_prime_score()
+    has access to rolling baselines and cumulative metrics.
     """
     subset = obs_list[:n] if n else obs_list
     for obs in subset:
@@ -201,6 +237,7 @@ def _inject_scoring_context(obs_list: list, obs_by_date: dict, loc_key: str,
         obs['_cumulative_uv_dose'] = _compute_cumulative_uv(obs['date'], obs_by_date, loc_key)
         obs['_symptom_burden_delta'] = _compute_symptom_burden_delta(obs['date'], obs_by_date)
         obs['_rmssd_deviation'] = _compute_rmssd_deviation(obs['date'], obs_by_date)
+        obs['_resp_rate_deviation'] = _compute_resp_rate_deviation(obs['date'], obs_by_date)
 
 
 # Default weights (factory settings)
@@ -220,6 +257,7 @@ DEFAULT_WEIGHTS = {
     # Multi-day predictors
     'symptom_burden_weight': 1.0,
     'rmssd_deviation_weight': 0.5,  # speculative, conservative
+    'resp_rate_deviation_weight': 0.5,  # speculative, conservative
     # Category multipliers
     'uv_weight': 1.0,
     'exertion_weight': 1.0,
@@ -399,6 +437,16 @@ SCORING CATEGORIES
       not yet statistically significant.
       • Deviation <= -25%: +1.5 x rmssd_deviation_weight
       • Deviation <= -15%: +0.75 x rmssd_deviation_weight
+
+  12. Respiratory Rate Baseline Deviation (pre-event elevation signal)
+      Compares 3-day rolling respiratory rate average to 14-day personal
+      baseline (days -4 through -17, gap avoids pre-event contamination).
+      Elevated breathing rate may precede inflammatory events. Literature
+      shows OR=1.15 per breath/min increase for clinical deterioration
+      (Barfod et al. 2017). Conservative weight (0.5) pending validation
+      on personal data.
+      • Deviation >= 15%: +1.5 x resp_rate_deviation_weight
+      • Deviation >= 10%: +0.75 x resp_rate_deviation_weight
 
   Threshold: 8.0 points = flare risk
 
@@ -1537,6 +1585,17 @@ def _score_components(obs: dict) -> dict:
             r_pts = 0.75 * rmssd_w
     c['rmssd'] = round(r_pts, 2)
 
+    # Respiratory rate deviation
+    resp_w = weights.get('resp_rate_deviation_weight', 0.5)
+    resp_dev = obs.get('_resp_rate_deviation')
+    rr_pts = 0
+    if resp_dev is not None:
+        if resp_dev >= 15:
+            rr_pts = 1.5 * resp_w
+        elif resp_dev >= 10:
+            rr_pts = 0.75 * resp_w
+    c['resp_rate'] = round(rr_pts, 2)
+
     c['total'] = round(sum(c.values()), 1)
     return c
 
@@ -1584,11 +1643,13 @@ def timeline():
             'pain_fatigue': comp['pain_fatigue'],
             'burden_delta': comp['burden_delta'],
             'rmssd': comp['rmssd'],
+            'resp_rate': comp['resp_rate'],
             'flare': flare,
             'severity': severity,
             # Raw values for multi-day predictor panel
             'burden_delta_raw': obs.get('_symptom_burden_delta'),
             'rmssd_deviation_raw': obs.get('_rmssd_deviation'),
+            'resp_rate_deviation_raw': obs.get('_resp_rate_deviation'),
         }
         daily_data.append(entry)
 
@@ -1652,8 +1713,8 @@ def timeline_export():
     writer.writerow([
         'date', 'total_score', 'predicted_flare', 'actual_flare', 'flare_severity',
         'uv', 'exertion', 'temperature', 'symptoms', 'pain_fatigue',
-        'burden_delta', 'rmssd',
-        'burden_delta_raw', 'rmssd_deviation_raw',
+        'burden_delta', 'rmssd', 'resp_rate',
+        'burden_delta_raw', 'rmssd_deviation_raw', 'resp_rate_deviation_raw',
     ])
 
     for obs in reversed(all_obs):
@@ -1666,9 +1727,10 @@ def timeline_export():
             obs.get('flare_severity') or '',
             comp['uv'], comp['exertion'], comp['temperature'],
             comp['symptoms'], comp['pain_fatigue'],
-            comp['burden_delta'], comp['rmssd'],
+            comp['burden_delta'], comp['rmssd'], comp['resp_rate'],
             obs.get('_symptom_burden_delta') or '',
             obs.get('_rmssd_deviation') or '',
+            obs.get('_resp_rate_deviation') or '',
         ])
 
     return Response(
@@ -3528,6 +3590,15 @@ def calculate_flare_prime_score(obs, weights_override=None):
         elif rmssd_dev <= -15:
             score += 0.75 * rmssd_w
 
+    # 12. Respiratory rate baseline deviation (pre-event elevation signal)
+    resp_w = weights.get('resp_rate_deviation_weight', 0.5)
+    resp_dev = obs.get('_resp_rate_deviation')
+    if resp_dev is not None:
+        if resp_dev >= 15:
+            score += 1.5 * resp_w
+        elif resp_dev >= 10:
+            score += 0.75 * resp_w
+
     return round(score, 1)
 
 def calculate_model_stats(observations, custom_weights=None):
@@ -3969,6 +4040,7 @@ def forecast():
         ('pain_fatigue', 'Pain & Fatigue', '#e85d9e'),
         ('burden_delta', 'Burden Delta',   '#5b9bd5'),
         ('rmssd',        'RMSSD',          '#66bb6a'),
+        ('resp_rate',    'Resp Rate',      '#e0a050'),
     ]
 
     # Compute components for each of the 7 days

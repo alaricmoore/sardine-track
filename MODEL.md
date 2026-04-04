@@ -118,7 +118,25 @@ Conservative default weight (0.5) because the signal is mechanistically grounded
 
 Returns no contribution with fewer than 4 values in either window.
 
-### 8. Cycle Phase (Disabled)
+### 8. Respiratory Rate Baseline Deviation
+
+Elevated respiratory rate may precede inflammatory events. Literature shows OR=1.15 per breath/min increase for clinical deterioration within 2 days (Barfod et al. 2017, n=15,724, p=0.002). Michard & Saugel (2025) note vital signs trend abnormal hours before severe adverse events.
+
+**Computation:**
+- **Recent**: 3-day rolling average of respiratory rate (days -1 through -3) -- shorter window than RMSSD because the hypothesis is a 1-3 day signal
+- **Baseline**: 14-day rolling average (days -4 through -17, gap avoids pre-event contamination)
+- **Deviation** = `(recent - baseline) / baseline x 100`
+
+| Condition | Points |
+|-----------|--------|
+| Deviation >= 15% | +1.5 x resp_rate_deviation_weight |
+| Deviation >= 10% | +0.75 x resp_rate_deviation_weight |
+
+15% above baseline is approximately 2-3 extra breaths/min for a typical resting rate of 16 breaths/min, consistent with the literature's 3 breath/min difference between deterioration and control groups.
+
+Conservative default weight (0.5) pending validation on personal data. Returns no contribution with fewer than 2 recent or 4 baseline values.
+
+### 9. Cycle Phase (Disabled)
 
 Weight set to 0.0. Fisher exact tests showed no predictive signal in this patient's data:
 - Bleeding days: lower flare rate than non-bleeding (15.6% vs 20.9%, OR = 0.70, p = 0.24)
@@ -138,6 +156,7 @@ The model doesn't just score today's snapshot. Before `calculate_flare_prime_sco
 | `_cumulative_uv_dose` | Decay-weighted UV dose from prior 3 days |
 | `_symptom_burden_delta` | Symptom acceleration above personal baseline |
 | `_rmssd_deviation` | HRV deviation from 30-day personal baseline |
+| `_resp_rate_deviation` | Respiratory rate deviation from 14-day personal baseline |
 
 This runs at every call site: the forecast page, history view, accuracy analysis, forecast lab simulations, and the daily alert check. All paths get the same context.
 
