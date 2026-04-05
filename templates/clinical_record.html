@@ -2,6 +2,44 @@
 
 {% block title %}medical record — biotracking{% endblock %}
 
+{% block head %}
+<style>
+@media (max-width: 600px) {
+    .tab-nav {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        white-space: nowrap;
+        scrollbar-width: none;
+        flex-wrap: nowrap;
+    }
+    .tab-nav::-webkit-scrollbar { display: none; }
+    .tab-nav .tab-btn { flex-shrink: 0; }
+
+    .add-toggle-row {
+        flex-direction: column !important;
+        gap: var(--space-sm);
+        align-items: stretch !important;
+    }
+
+    .add-toggle-row .btn { width: 100%; }
+
+    .mobile-export-collapse > summary {
+        font-size: 0.85rem;
+        color: var(--text-muted);
+        cursor: pointer;
+        padding: var(--space-xs) 0;
+    }
+
+    .form-grid { grid-template-columns: 1fr !important; }
+}
+
+@media (min-width: 601px) {
+    .mobile-export-collapse { display: contents; }
+    .mobile-export-collapse > summary { display: none; }
+}
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="page-header">
     <h1>medical record</h1>
@@ -48,15 +86,18 @@
     </button>
     
     <!-- Export section -->
-    <div style="display:flex; gap:var(--space-sm); align-items:center;">
-        <label style="font-size:0.85rem; color:var(--text-muted);">Export:</label>
-        <input type="date" id="export-labs-start" style="padding:4px 8px; font-size:0.85rem;">
-        <span style="color:var(--text-muted);">to</span>
-        <input type="date" id="export-labs-end" style="padding:4px 8px; font-size:0.85rem;">
-        <button class="btn btn-primary btn-sm" onclick="exportLabs()">
-            Download CSV ↓
-        </button>
-    </div>
+    <details class="mobile-export-collapse">
+        <summary>export options</summary>
+        <div style="display:flex; gap:var(--space-sm); align-items:center; flex-wrap:wrap;">
+            <label style="font-size:0.85rem; color:var(--text-muted);">Export:</label>
+            <input type="date" id="export-labs-start" style="padding:4px 8px; font-size:0.85rem;">
+            <span style="color:var(--text-muted);">to</span>
+            <input type="date" id="export-labs-end" style="padding:4px 8px; font-size:0.85rem;">
+            <button class="btn btn-primary btn-sm" onclick="exportLabs()">
+                Download CSV ↓
+            </button>
+        </div>
+    </details>
 </div>
 
 
@@ -628,17 +669,20 @@
     
 
 <!-- Export section -->
-    <div style="display:flex; gap:var(--space-sm); align-items:center;">
-        <label style="font-size:0.85rem; color:var(--text-muted);">Export:</label>
-        <select id="export-meds-filter" style="padding:4px 8px; font-size:0.85rem;">
-            <option value="active">Active only</option>
-            <option value="all">All medications</option>
-            <option value="inactive">Inactive only</option>
-        </select>
-        <button class="btn btn-primary btn-sm" onclick="exportMedications()">
-            Download CSV ↓
-        </button>
+    <details class="mobile-export-collapse">
+        <summary>export options</summary>
+        <div style="display:flex; gap:var(--space-sm); align-items:center; flex-wrap:wrap;">
+            <label style="font-size:0.85rem; color:var(--text-muted);">Export:</label>
+            <select id="export-meds-filter" style="padding:4px 8px; font-size:0.85rem;">
+                <option value="active">Active only</option>
+                <option value="all">All medications</option>
+                <option value="inactive">Inactive only</option>
+            </select>
+            <button class="btn btn-primary btn-sm" onclick="exportMedications()">
+                Download CSV ↓
+            </button>
         </div>
+    </details>
     </div>
 
     <div class="add-form-panel" id="form-medication">
@@ -1080,27 +1124,30 @@
         </button>
 
     <!-- Export section -->
-    <div style="display:flex; gap:var(--space-sm); align-items:center;">
-        <label style="font-size:0.85rem; color:var(--text-muted);">Export:</label>
-        <input type="date" id="export-events-start" style="padding:4px 8px; font-size:0.85rem;">
-        <span style="color:var(--text-muted);">to</span>
-        <input type="date" id="export-events-end" style="padding:4px 8px; font-size:0.85rem;">
-        <select id="export-events-type" style="padding:4px 8px; font-size:0.85rem;">
-            <option value="all">All types</option>
-            <option value="encounter">Encounters only</option>
-            <option value="biopsy">Biopsies only</option>
-            <option value="injection">Injections only</option>
-            <option value="procedure">Procedures only</option>
-            <option value="lab draw">Lab draws only</option>
-            <option value="imaging">Imaging only</option>
-            <option value="ER visit">ER visits only</option>
-            <option value="hospitalization">Hospitalizations only</option>
-            <option value="other">Other only</option>
-        </select>
-        <button class="btn btn-primary btn-sm" onclick="exportEvents()">
-            Download CSV ↓
-        </button>
-    </div>
+    <details class="mobile-export-collapse">
+        <summary>export options</summary>
+        <div style="display:flex; gap:var(--space-sm); align-items:center; flex-wrap:wrap;">
+            <label style="font-size:0.85rem; color:var(--text-muted);">Export:</label>
+            <input type="date" id="export-events-start" style="padding:4px 8px; font-size:0.85rem;">
+            <span style="color:var(--text-muted);">to</span>
+            <input type="date" id="export-events-end" style="padding:4px 8px; font-size:0.85rem;">
+            <select id="export-events-type" style="padding:4px 8px; font-size:0.85rem;">
+                <option value="all">All types</option>
+                <option value="encounter">Encounters only</option>
+                <option value="biopsy">Biopsies only</option>
+                <option value="injection">Injections only</option>
+                <option value="procedure">Procedures only</option>
+                <option value="lab draw">Lab draws only</option>
+                <option value="imaging">Imaging only</option>
+                <option value="ER visit">ER visits only</option>
+                <option value="hospitalization">Hospitalizations only</option>
+                <option value="other">Other only</option>
+            </select>
+            <button class="btn btn-primary btn-sm" onclick="exportEvents()">
+                Download CSV ↓
+            </button>
+        </div>
+    </details>
 </div>
 
 

@@ -747,6 +747,55 @@
             font-size: 1.1rem;
         }
 
+        /* ================================================
+           Mobile bottom nav
+           ================================================ */
+        @media (max-width: 600px) {
+            .app-header { display: none; }
+            body { padding-bottom: 70px; }
+
+            .mobile-nav {
+                position: fixed;
+                bottom: 0;
+                left: 0;
+                right: 0;
+                height: 60px;
+                background: var(--bg-elevated);
+                border-top: 1px solid var(--border-subtle);
+                display: flex;
+                justify-content: space-around;
+                align-items: center;
+                z-index: 1000;
+                padding-bottom: env(safe-area-inset-bottom);
+            }
+
+            .mobile-nav-item {
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                text-decoration: none;
+                color: var(--text-muted);
+                font-size: 0.65rem;
+                gap: 2px;
+                padding: var(--space-xs);
+            }
+
+            .mobile-nav-item.active { color: var(--color-accent); }
+
+            .mobile-nav-icon {
+                font-size: 1.1rem;
+                line-height: 1;
+                font-family: var(--font-mono);
+            }
+
+            .page-header h1 { font-size: 1.3rem; }
+            .page-header .page-subtitle { font-size: 0.8rem; }
+        }
+
+        @media (min-width: 601px) {
+            .mobile-nav { display: none; }
+        }
+
     </style>
 
     {% block head %}{% endblock %}
@@ -859,6 +908,51 @@
         {% block content %}{% endblock %}
     </main>
 
+    <nav class="mobile-nav">
+        <a href="{{ url_for('daily_entry') }}"
+           class="mobile-nav-item {% if request.endpoint == 'daily_entry' %}active{% endif %}">
+            <span class="mobile-nav-icon">+</span>
+            <span>log</span>
+        </a>
+        <a href="{{ url_for('forecast') }}"
+           class="mobile-nav-item {% if request.endpoint == 'forecast' %}active{% endif %}">
+            <span class="mobile-nav-icon">~</span>
+            <span>risk</span>
+        </a>
+        <a href="{{ url_for('clinical_record') }}"
+           class="mobile-nav-item {% if request.endpoint == 'clinical_record' %}active{% endif %}">
+            <span class="mobile-nav-icon">#</span>
+            <span>clinical</span>
+        </a>
+        <a href="{{ url_for('timeline') }}"
+           class="mobile-nav-item {% if request.endpoint == 'timeline' %}active{% endif %}">
+            <span class="mobile-nav-icon">|||</span>
+            <span>model</span>
+        </a>
+        <div class="mobile-nav-item {% if request.endpoint in ('hrv_view', 'uv_lag', 'cycle_view', 'search', 'help_page', 'settings', 'clinical_report') %}active{% endif %}"
+             id="mobileMoreBtn" style="cursor:pointer; position:relative;">
+            <span class="mobile-nav-icon">...</span>
+            <span>more</span>
+            <div id="mobileMoreMenu" style="display:none; position:absolute; bottom:60px; right:-10px;
+                        background:var(--bg-elevated); border:1px solid var(--border-subtle);
+                        border-radius:var(--radius-sm); padding:var(--space-sm) 0;
+                        min-width:140px; box-shadow:0 -4px 12px rgba(0,0,0,0.3);">
+                <a href="{{ url_for('hrv_view') }}" style="display:block; padding:var(--space-xs) var(--space-md); color:var(--text-secondary); text-decoration:none; font-size:0.85rem;">hrv</a>
+                <a href="{{ url_for('uv_lag') }}" style="display:block; padding:var(--space-xs) var(--space-md); color:var(--text-secondary); text-decoration:none; font-size:0.85rem;">uv lag</a>
+                {% if track_cycle %}
+                <a href="{{ url_for('cycle_view') }}" style="display:block; padding:var(--space-xs) var(--space-md); color:var(--text-secondary); text-decoration:none; font-size:0.85rem;">cycle</a>
+                {% endif %}
+                <a href="{{ url_for('clinical_report') }}" style="display:block; padding:var(--space-xs) var(--space-md); color:var(--text-secondary); text-decoration:none; font-size:0.85rem;">report</a>
+                <a href="{{ url_for('search') }}" style="display:block; padding:var(--space-xs) var(--space-md); color:var(--text-secondary); text-decoration:none; font-size:0.85rem;">search</a>
+                <a href="{{ url_for('help_page') }}" style="display:block; padding:var(--space-xs) var(--space-md); color:var(--text-secondary); text-decoration:none; font-size:0.85rem;">help</a>
+                {% if current_user.is_authenticated %}
+                <a href="{{ url_for('settings') }}" style="display:block; padding:var(--space-xs) var(--space-md); color:var(--text-secondary); text-decoration:none; font-size:0.85rem;">settings</a>
+                <a href="{{ url_for('logout') }}" style="display:block; padding:var(--space-xs) var(--space-md); color:var(--text-muted); text-decoration:none; font-size:0.85rem;">logout</a>
+                {% endif %}
+            </div>
+        </div>
+    </nav>
+
 </div>
 
 {% block scripts %}{% endblock %}
@@ -926,6 +1020,20 @@ function updateToggleUI(theme) {
         options.headers = Object.assign({'X-CSRFToken': token}, options.headers || {});
         return fetch(url, options);
     };
+})();
+</script>
+
+<script>
+// Mobile "more" menu toggle
+(function() {
+    const btn = document.getElementById('mobileMoreBtn');
+    const menu = document.getElementById('mobileMoreMenu');
+    if (!btn || !menu) return;
+    btn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
+    });
+    document.addEventListener('click', function() { menu.style.display = 'none'; });
 })();
 </script>
 
