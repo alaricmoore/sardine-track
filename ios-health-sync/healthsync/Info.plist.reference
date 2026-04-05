@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Background Task Scheduler -->
+	<key>BGTaskSchedulerPermittedIdentifiers</key>
+	<array>
+		<string>com.biotracking.healthsync.daily</string>
+	</array>
+	
+	<!-- HealthKit Usage Description -->
+	<key>NSHealthShareUsageDescription</key>
+	<string>Biotracker needs access to your health data to sync steps, heart rate, HRV, sleep temperature, and sun exposure to your personal health tracker.</string>
+	
+	<!-- If you plan to write health data in the future -->
+	<key>NSHealthUpdateUsageDescription</key>
+	<string>Biotracker may write corrected health data back to HealthKit.</string>
+</dict>
+</plist>
