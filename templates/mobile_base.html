@@ -1,8 +1,12 @@
 <!DOCTYPE html>
 <html lang="en" data-theme="dark">
 <head>
-    <link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}">
-    <link rel="apple-touch-icon" sizes="180x180" href="{{ url_for('static', filename='apple-touch-icon.png') }}">
+    <link rel="icon" type="image/png" href="/favicon/favicon-96x96.png" sizes="96x96" />
+    <link rel="icon" type="image/svg+xml" href="/favicon/favicon.svg" />
+    <link rel="shortcut icon" href="/favicon/favicon.ico" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/favicon/apple-touch-icon.png" />
+    <meta name="apple-mobile-web-app-title" content="Sardines" />
+    <link rel="manifest" href="/favicon/site.webmanifest" />
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <meta name="apple-mobile-web-app-capable" content="yes">
@@ -20,6 +24,9 @@
             --border-subtle: #2a2a38; --border-medium: #38384a;
             --text-primary: #f1efeaff; --text-secondary: #b8b3cbff; --text-muted: #8987a3ff;
             --color-accent: #7c6fef; --color-danger: #c94040; --color-success: #4a9e6e; --color-warning: #d4a054;
+            --color-neuro: #4a90d9; --color-muscle: #d4a054; --color-migraine: #c94040;
+            --color-cognitive: #9b72cf; --color-derm: #d4784a; --color-pulmonary: #4ab8b8;
+            --color-gastro: #a8d46f; --color-mucosal: #d4c4a0; --color-rheum: #e85d9e;
             --font-body: 'Source Serif 4', serif; --font-mono: 'IBM Plex Mono', monospace;
             --space-xs: 0.25rem; --space-sm: 0.5rem; --space-md: 1rem; --space-lg: 1.5rem; --space-xl: 2rem;
             --radius-sm: 6px; --radius-md: 10px;

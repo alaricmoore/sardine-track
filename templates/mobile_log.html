@@ -9,7 +9,7 @@
         grid-template-columns: repeat(3, 1fr);
         gap: var(--space-xs);
     }
-    .symptom-toggle {
+    .symptom-btn {
         display: flex; align-items: center; justify-content: center;
         padding: var(--space-sm);
         background: var(--bg-elevated);
@@ -22,11 +22,23 @@
         transition: all 0.15s;
         -webkit-tap-highlight-color: transparent;
     }
-    .symptom-toggle input { display: none; }
-    .symptom-toggle.active {
-        background: var(--color-accent);
-        color: #fff;
-        border-color: var(--color-accent);
+    .symptom-btn input[type="checkbox"] { display: none; }
+    .symptom-btn.active {
+        border-width: 2px;
+    }
+    .symptom-note {
+        grid-column: 1 / -1;
+        margin-top: -2px;
+    }
+    .symptom-note input {
+        width: 100%;
+        background: var(--bg-input);
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-sm);
+        padding: var(--space-xs) var(--space-sm);
+        color: var(--text-primary);
+        font-family: var(--font-body);
+        font-size: 0.8rem;
     }
 
     .range-row {
@@ -138,24 +150,32 @@
     <!-- Symptoms -->
     <div class="card">
         <div class="card-title">symptoms</div>
-        <div class="symptom-grid">
-            {% for sym, label in [
-                ('neurological', 'neuro'),
-                ('cognitive', 'cognitive'),
-                ('musculature', 'muscle'),
-                ('migraine', 'migraine'),
-                ('pulmonary', 'pulmonary'),
-                ('rheumatic', 'rheumatic'),
-                ('dermatological', 'derm'),
-                ('gastro', 'GI'),
-                ('mucosal', 'mucosal')
+        <div class="symptom-grid" id="symptomGrid">
+            {% for sym, label, color_var, notes_field in [
+                ('neurological', 'neuro', '--color-neuro', 'neuro_notes'),
+                ('cognitive', 'cognitive', '--color-cognitive', 'cognitive_notes'),
+                ('musculature', 'muscle', '--color-muscle', 'musculature_notes'),
+                ('migraine', 'migraine', '--color-migraine', 'migraine_notes'),
+                ('pulmonary', 'pulmonary', '--color-pulmonary', 'pulmonary_notes'),
+                ('rheumatic', 'rheumatic', '--color-rheum', 'rheumatic_notes'),
+                ('dermatological', 'derm', '--color-derm', 'derm_notes'),
+                ('gastro', 'GI', '--color-gastro', 'gastro_notes'),
+                ('mucosal', 'mucosal', '--color-mucosal', 'mucosal_notes')
             ] %}
-            <label class="symptom-toggle {% if existing and existing[sym] %}active{% endif %}"
-                   onclick="this.classList.toggle('active')">
+            <div class="symptom-btn {% if existing and existing[sym] %}active{% endif %}"
+                 data-sym="{{ sym }}" data-notes="{{ notes_field }}"
+                 style="{% if existing and existing[sym] %}background: color-mix(in srgb, var({{ color_var }}) 20%, var(--bg-elevated)); border-color: var({{ color_var }}); color: var({{ color_var }});{% endif %}"
+                 data-color="var({{ color_var }})">
                 <input type="checkbox" name="{{ sym }}"
                        {% if existing and existing[sym] %}checked{% endif %}>
                 {{ label }}
-            </label>
+            </div>
+            {% if existing and existing[sym] %}
+            <div class="symptom-note" data-for="{{ sym }}">
+                <input type="text" name="{{ notes_field }}" placeholder="{{ label }} notes..."
+                       value="{{ existing[notes_field] or '' }}">
+            </div>
+            {% endif %}
             {% endfor %}
         </div>
     </div>
