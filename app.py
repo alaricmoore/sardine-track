@@ -19,7 +19,7 @@ import os
 import statistics
 from datetime import date, datetime, timedelta
 
-from flask import Flask, jsonify, render_template, request, redirect, url_for, Response, session
+from flask import Flask, jsonify, render_template, request, redirect, url_for, Response, session, send_from_directory
 
 import bcrypt
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
@@ -769,10 +769,16 @@ def load_user(user_id):
     return None
 
 
+@app.route('/favicon/<path:filename>')
+def favicon_files(filename):
+    """Serve favicon assets from images/favicon/."""
+    return send_from_directory(os.path.join(app.root_path, 'images', 'favicon'), filename)
+
+
 @app.before_request
 def require_login():
     """Redirect unauthenticated users to login page."""
-    if request.endpoint in ('login', 'register', 'static', 'api_health_sync'):
+    if request.endpoint in ('login', 'register', 'static', 'favicon_files', 'api_health_sync'):
         return
     if not current_user.is_authenticated:
         return redirect(url_for('login'))
