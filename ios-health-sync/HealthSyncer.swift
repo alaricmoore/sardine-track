@@ -156,6 +156,20 @@ class HealthSyncer: ObservableObject {
         store.execute(query)
     }
 
+    private func queryMostRecentInRange(_ typeID: HKQuantityTypeIdentifier, unit: HKUnit,
+                                         start: Date, end: Date,
+                                         completion: @escaping (Double?) -> Void) {
+        let type = HKQuantityType(typeID)
+        let predicate = HKQuery.predicateForSamples(withStart: start, end: end)
+        let sort = NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: false)
+        let query = HKSampleQuery(sampleType: type, predicate: predicate,
+                                   limit: 1, sortDescriptors: [sort]) { _, samples, _ in
+            let val = (samples?.first as? HKQuantitySample)?.quantity.doubleValue(for: unit)
+            completion(val)
+        }
+        store.execute(query)
+    }
+
     private func queryRMSSD(start: Date, end: Date, completion: @escaping (Double?) -> Void) {
         let predicate = HKQuery.predicateForSamples(withStart: start, end: end)
         let seriesType = HKSeriesType.heartbeat()
@@ -213,7 +227,8 @@ class HealthSyncer: ObservableObject {
 
     // MARK: - Backfill
 
-    func backfillRMSSD(serverURL: String, apiToken: String, userID: Int, days: Int) {
+    /// Backfill all metrics for each day — same data as daily sync, for historical dates.
+    func backfillAll(serverURL: String, apiToken: String, userID: Int, days: Int) {
         guard !isBackfilling else { return }
         DispatchQueue.main.async {
             self.isBackfilling = true
@@ -224,7 +239,6 @@ class HealthSyncer: ObservableObject {
         let cal = Calendar.current
         let today = cal.startOfDay(for: Date())
 
-        // Build list of dates to process (yesterday back to N days ago)
         var dates: [Date] = []
         for offset in 1...days {
             if let d = cal.date(byAdding: .day, value: -offset, to: today) {
@@ -242,16 +256,17 @@ class HealthSyncer: ObservableObject {
                 DispatchQueue.main.async {
                     self.isBackfilling = false
                     self.backfillProgress = 1.0
-                    self.backfillStatus = "done: \(synced) days synced, \(skipped) skipped (no data)"
+                    self.backfillStatus = "done: \(synced) days synced, \(skipped) skipped"
                 }
                 return
             }
 
             let targetDate = dates[processed]
-            let dateStr = Self.isoDate(targetDate)
+            let nextDay = cal.date(byAdding: .day, value: 1, to: targetDate)!
             let prevDay = cal.date(byAdding: .day, value: -1, to: targetDate)!
+            let dateStr = Self.isoDate(targetDate)
 
-            // Overnight window: previous day 10pm → target day 8am
+            // Overnight window for RMSSD: previous day 10pm → target day 8am
             let overnightStart = prevDay.addingTimeInterval(22 * 3600)
             let overnightEnd = targetDate.addingTimeInterval(8 * 3600)
 
@@ -259,36 +274,102 @@ class HealthSyncer: ObservableObject {
                 self.backfillStatus = "querying \(dateStr)..."
             }
 
-            queryRMSSD(start: overnightStart, end: overnightEnd) { [weak self] rmssd in
+            let group = DispatchGroup()
+            var payload: [String: Any] = [
+                "user_id": userID,
+                "date": dateStr,
+            ]
+
+            // Steps — sum for the day
+            group.enter()
+            querySum(.stepCount, unit: .count(), start: targetDate, end: nextDay) { val in
+                if let v = val { payload["steps"] = v }
+                group.leave()
+            }
+
+            // HRV (SDNN) — most recent for that day
+            group.enter()
+            queryMostRecentInRange(.heartRateVariabilitySDNN,
+                                   unit: .secondUnit(with: .milli),
+                                   start: targetDate, end: nextDay) { val in
+                if let v = val { payload["hrv"] = v }
+                group.leave()
+            }
+
+            // Resting heart rate
+            group.enter()
+            queryMostRecentInRange(.restingHeartRate,
+                                   unit: HKUnit.count().unitDivided(by: .minute()),
+                                   start: targetDate, end: nextDay) { val in
+                if let v = val { payload["resting_heart_rate"] = v }
+                group.leave()
+            }
+
+            // Body temperature
+            group.enter()
+            queryMostRecentInRange(.bodyTemperature, unit: .degreeFahrenheit(),
+                                   start: targetDate, end: nextDay) { val in
+                if let v = val { payload["basal_temp_delta"] = v }
+                group.leave()
+            }
+
+            // SpO2
+            group.enter()
+            queryMostRecentInRange(.oxygenSaturation, unit: .percent(),
+                                   start: targetDate, end: nextDay) { val in
+                if let v = val { payload["spo2"] = v * 100.0 }
+                group.leave()
+            }
+
+            // Respiratory rate
+            group.enter()
+            queryMostRecentInRange(.respiratoryRate,
+                                   unit: HKUnit.count().unitDivided(by: .minute()),
+                                   start: targetDate, end: nextDay) { val in
+                if let v = val { payload["respiratory_rate"] = v }
+                group.leave()
+            }
+
+            // Time in daylight
+            group.enter()
+            querySum(.timeInDaylight, unit: .minute(), start: targetDate, end: nextDay) { val in
+                if let v = val { payload["sun_exposure_min"] = v }
+                group.leave()
+            }
+
+            // RMSSD from overnight RR intervals
+            group.enter()
+            queryRMSSD(start: overnightStart, end: overnightEnd) { val in
+                if let v = val { payload["hrv_rmssd"] = v }
+                group.leave()
+            }
+
+            group.notify(queue: .global()) { [weak self] in
                 guard let self = self else { return }
 
-                if let rmssd = rmssd {
-                    let payload: [String: Any] = [
-                        "user_id": userID,
-                        "date": dateStr,
-                        "hrv_rmssd": rmssd,
-                    ]
-                    self.sendPayload(serverURL: serverURL, apiToken: apiToken, payload: payload) { success in
-                        if success { synced += 1 } else { skipped += 1 }
-                        processed += 1
-                        DispatchQueue.main.async {
-                            self.backfillProgress = Double(processed) / Double(total)
-                            self.backfillStatus = "\(processed)/\(total) — \(synced) synced"
-                        }
-                        // Delay 0.5s between requests
-                        DispatchQueue.global().asyncAfter(deadline: .now() + 0.5) {
-                            processNext()
-                        }
-                    }
-                } else {
+                // Only send if we got at least one health metric
+                let healthKeys = payload.keys.filter { $0 != "user_id" && $0 != "date" }
+                if healthKeys.isEmpty {
                     skipped += 1
                     processed += 1
                     DispatchQueue.main.async {
                         self.backfillProgress = Double(processed) / Double(total)
                         self.backfillStatus = "\(processed)/\(total) — \(synced) synced"
                     }
-                    // No delay needed when skipping
                     processNext()
+                } else {
+                    self.sendPayload(serverURL: serverURL, apiToken: apiToken, payload: payload) { success in
+                        if success { synced += 1 } else { skipped += 1 }
+                        processed += 1
+                        DispatchQueue.main.async {
+                            self.backfillProgress = Double(processed) / Double(total)
+                            let fields = healthKeys.count
+                            self.backfillStatus = "\(processed)/\(total) — \(synced) synced (\(fields) fields)"
+                        }
+                        DispatchQueue.global().asyncAfter(deadline: .now() + 0.5) {
+                            processNext()
+                        }
+                    }
                 }
             }
         }

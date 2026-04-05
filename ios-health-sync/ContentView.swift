@@ -8,7 +8,7 @@ struct ContentView: View {
     @AppStorage("apiToken") private var apiToken = ""
     @AppStorage("userID") private var userID = 1
 
-    @State private var backfillDays: Int = 90
+    @State private var backfillDays: Int = 7
 
     var body: some View {
         NavigationView {
@@ -43,17 +43,21 @@ struct ContentView: View {
                     .disabled(apiToken.isEmpty || syncer.isSyncing)
                 }
 
-                Section(header: Text("Backfill RMSSD History")) {
+                Section(header: Text("Backfill History")) {
                     Picker("Range", selection: $backfillDays) {
+                        Text("3 days").tag(3)
+                        Text("7 days").tag(7)
+                        Text("14 days").tag(14)
+                        Text("30 days").tag(30)
                         Text("90 days").tag(90)
                         Text("180 days").tag(180)
                         Text("365 days").tag(365)
                     }
                     Button(action: {
-                        syncer.backfillRMSSD(serverURL: serverURL,
-                                             apiToken: apiToken,
-                                             userID: userID,
-                                             days: backfillDays)
+                        syncer.backfillAll(serverURL: serverURL,
+                                           apiToken: apiToken,
+                                           userID: userID,
+                                           days: backfillDays)
                     }) {
                         HStack {
                             Text("Start Backfill")
@@ -95,6 +99,10 @@ struct ContentView: View {
                         .foregroundColor(.secondary)
 
                     Text("RMSSD is computed from overnight RR intervals (10pm-8am)")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+
+                    Text("Backfill pulls all metrics for each historical day: steps, HRV, RMSSD, resting HR, BBT, SpO2, respiratory rate, daylight")
                         .font(.caption)
                         .foregroundColor(.secondary)
 
