@@ -778,7 +778,7 @@ def favicon_files(filename):
 @app.before_request
 def require_login():
     """Redirect unauthenticated users to login page."""
-    if request.endpoint in ('login', 'register', 'static', 'favicon_files', 'api_health_sync'):
+    if request.endpoint in ('login', 'register', 'static', 'favicon_files', 'api_health_sync', 'api_flare_status'):
         return
     if not current_user.is_authenticated:
         return redirect(url_for('login'))
@@ -5445,6 +5445,7 @@ def clinical_report():
         correlations_json=json.dumps(correlations),
         today=date.today().strftime("%B %d, %Y"),
     )
+
 # ============================================================
 # Health-sync API (iOS Shortcut / programmatic ingest)
 # ============================================================
@@ -5511,6 +5512,115 @@ def api_health_sync():
 
     db.upsert_daily_observations(user_id, data)
     return jsonify({"ok": True, "date": obs_date, "fields_updated": fields_updated})
+
+
+@app.route("/api/flare-status")
+@csrf.exempt
+def api_flare_status():
+    """JSON flare status for iOS companion app."""
+    # --- auth (same pattern as health-sync) ---
+    token = CONFIG.get("api_token")
+    if not token:
+        return jsonify({"error": "api_token not configured"}), 500
+    auth = request.headers.get("Authorization", "")
+    if not auth.startswith("Bearer ") or auth[7:] != token:
+        return jsonify({"error": "unauthorized"}), 401
+
+    user_id = request.args.get("user_id")
+    if not user_id:
+        return jsonify({"error": "user_id required"}), 400
+    try:
+        user_id = int(user_id)
+    except (ValueError, TypeError):
+        return jsonify({"error": "user_id must be an integer"}), 400
+
+    # --- load observations ---
+    all_obs = db.get_all_daily_observations(user_id)
+    if not all_obs or len(all_obs) < 7:
+        return jsonify({"ok": False, "reason": "insufficient_data"})
+
+    all_obs.sort(key=lambda x: x['date'], reverse=True)
+
+    # Inject multi-day scoring context (UV, burden delta, RMSSD/resp baselines)
+    prefs = db.get_user_preferences(user_id) or {}
+    lat = prefs.get('location_lat') or CONFIG.get('location_lat')
+    lon = prefs.get('location_lon') or CONFIG.get('location_lon')
+    loc_key = db.make_location_key(float(lat), float(lon)) if lat and lon else 'default'
+
+    obs_by_date = {o['date']: o for o in all_obs}
+    _inject_scoring_context(all_obs, obs_by_date, loc_key, n=7)
+
+    last_7 = all_obs[:7]
+    today_obs = last_7[0]
+
+    # Calculate scores with user's weights
+    weights = get_current_weights(user_id)
+    threshold = weights.get('flare_threshold', 8.0)
+
+    scores_7day = []
+    for obs in last_7:
+        score = calculate_flare_prime_score(obs, weights_override=weights)
+        scores_7day.append({'date': obs['date'], 'score': score})
+
+    today_score = scores_7day[0]['score']
+    if len(scores_7day) >= 3:
+        weighted_score = (
+            scores_7day[0]['score'] * 1.0 +
+            scores_7day[1]['score'] * 0.75 +
+            scores_7day[2]['score'] * 0.5
+        ) / 2.25
+    else:
+        weighted_score = today_score
+
+    weighted_score = round(weighted_score, 1)
+    risk_info = get_risk_level(weighted_score, threshold)
+    predicted_flare = weighted_score >= threshold
+
+    # Score delta vs yesterday
+    score_delta = round(weighted_score - scores_7day[1]['score'], 1) if len(scores_7day) >= 2 else 0.0
+
+    # Contributing factors (scoring context already injected so current_user fallbacks won't trigger)
+    try:
+        factors = get_contributing_factors(today_obs)
+    except Exception:
+        factors = []
+
+    # Map risk level to simplified label
+    level_map = {'Low Risk': 'low', 'Moderate Risk': 'moderate', 'High Risk': 'high', 'Critical Risk': 'critical'}
+    risk_level = level_map.get(risk_info['level'], 'unknown')
+
+    # Today's untaken doses
+    today_str = date.today().isoformat()
+    raw_doses = db.get_todays_doses(user_id, today_str)
+    doses_due = []
+    for d in raw_doses:
+        if not d.get('taken'):
+            sched_dt = d.get('scheduled_datetime', '')
+            # Extract HH:MM from "YYYY-MM-DD HH:MM:SS" or "YYYY-MM-DD HH:MM"
+            time_part = sched_dt.split(' ', 1)[1][:5] if ' ' in sched_dt else '00:00'
+            doses_due.append({
+                'id': d['id'],
+                'drug_name': d.get('drug_name', ''),
+                'dose_label': d.get('dose_label', ''),
+                'scheduled_time': time_part,
+                'taken': False,
+            })
+
+    return jsonify({
+        "ok": True,
+        "date": today_str,
+        "score": today_score,
+        "weighted_score": weighted_score,
+        "max_score": 25,
+        "threshold": round(threshold, 1),
+        "predicted_flare": predicted_flare,
+        "risk_level": risk_level,
+        "risk_color": risk_info['color'],
+        "score_delta": score_delta,
+        "delta_direction": "up" if score_delta > 0 else ("down" if score_delta < 0 else "flat"),
+        "factors": [{"name": f["name"], "points": f["points"], "color": f["color"]} for f in factors],
+        "doses_due": doses_due,
+    })
 
 
 # ============================================================

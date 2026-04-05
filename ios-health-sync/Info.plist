@@ -6,5 +6,14 @@
     <string>Health Sync reads your health data to send it to your personal biotracker for flare pattern analysis. Data goes only to your private server.</string>
     <key>NSHealthUpdateUsageDescription</key>
     <string>This app does not write to Apple Health.</string>
+    <key>BGTaskSchedulerPermittedIdentifiers</key>
+    <array>
+        <string>com.biotracking.healthsync.daily</string>
+    </array>
+    <key>UIBackgroundModes</key>
+    <array>
+        <string>fetch</string>
+        <string>processing</string>
+    </array>
 </dict>
 </plist>
