@@ -1,0 +1,92 @@
+{% extends "mobile_base.html" %}
+
+{% block title %}risk — biotracking{% endblock %}
+
+{% block content %}
+
+{% if not has_data %}
+<div class="card" style="text-align:center; padding:var(--space-xl);">
+    <p style="color:var(--text-muted);">Need at least 7 days of data for risk assessment.</p>
+    <a href="{{ url_for('mobile_log') }}" class="btn btn-primary" style="margin-top:var(--space-md);">
+        log today
+    </a>
+</div>
+
+{% else %}
+
+<!-- Binary prediction banner -->
+<div style="text-align:center; padding:var(--space-md) var(--space-sm);
+            margin-bottom:var(--space-md); border-radius:var(--radius-md);
+            background:{% if predicted_flare %}#c9404022{% else %}#4a9e6e22{% endif %};
+            border:2px solid {% if predicted_flare %}#c94040{% else %}#4a9e6e{% endif %};">
+    <div style="font-size:1.3rem; font-weight:600;
+                color:{% if predicted_flare %}#c94040{% else %}#4a9e6e{% endif %};">
+        {% if predicted_flare %}FLARE PREDICTED{% else %}no flare predicted{% endif %}
+    </div>
+</div>
+
+<!-- Score + delta -->
+<div class="card" style="text-align:center;">
+    <div style="font-family:var(--font-mono); font-size:2.5rem; font-weight:600;
+                color:{{ risk_color }}; line-height:1;">
+        {{ today_score }}
+    </div>
+    <div style="font-size:0.8rem; color:var(--text-muted);">/ {{ max_score }}</div>
+    {% if score_delta is not none %}
+    <div style="font-size:0.85rem; margin-top:var(--space-xs);
+                color:{% if score_delta > 0 %}#c94040{% elif score_delta < 0 %}#4a9e6e{% else %}var(--text-muted){% endif %};">
+        {% if score_delta > 0 %}+{{ score_delta }}{% elif score_delta < 0 %}{{ score_delta }}{% else %}unchanged{% endif %}
+        from yesterday
+    </div>
+    {% endif %}
+    <div style="font-size:1rem; color:{{ risk_color }}; margin-top:var(--space-sm); font-weight:600;">
+        {{ risk_level }}
+    </div>
+</div>
+
+<!-- 14-day risk strip -->
+<div class="card">
+    <div class="card-title">14-day risk</div>
+    <div style="display:flex; gap:2px; justify-content:center;">
+        {% for day in risk_strip %}
+        <div style="width:18px; height:28px; border-radius:3px;
+                    background:{{ day.color }};
+                    {% if day.flare %}border:2px solid #fff;{% endif %}"
+             title="{{ day.date }}: {{ day.score }}{% if day.flare %} (flare){% endif %}">
+        </div>
+        {% endfor %}
+    </div>
+    <div style="font-size:0.7rem; color:var(--text-muted); text-align:center; margin-top:var(--space-xs);">
+        oldest &larr; &rarr; today
+        <span style="margin-left:var(--space-sm);">white border = flare day</span>
+    </div>
+</div>
+
+<!-- Contributing factors -->
+{% if factors %}
+<div class="card">
+    <div class="card-title">contributing factors</div>
+    {% for factor in factors %}
+    <div style="display:flex; justify-content:space-between; align-items:center;
+                padding:var(--space-xs) var(--space-sm); margin-bottom:2px;
+                background:var(--bg-elevated); border-radius:var(--radius-sm);
+                border-left:3px solid {{ factor.color }};">
+        <span style="font-size:0.85rem; color:var(--text-secondary);">{{ factor.name }}</span>
+        <span style="font-family:var(--font-mono); font-weight:600; color:{{ factor.color }};">+{{ factor.points }}</span>
+    </div>
+    {% endfor %}
+</div>
+{% endif %}
+
+<!-- Quick actions -->
+<div style="display:flex; gap:var(--space-sm); margin-top:var(--space-md);">
+    <a href="{{ url_for('mobile_log') }}" class="btn btn-primary" style="flex:1; text-align:center;">
+        log today
+    </a>
+    <a href="{{ url_for('forecast') }}" class="btn btn-secondary" style="flex:1; text-align:center;">
+        full dashboard
+    </a>
+</div>
+
+{% endif %}
+{% endblock %}

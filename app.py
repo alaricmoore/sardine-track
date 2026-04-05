@@ -5647,6 +5647,125 @@ def settings():
 
 
 # ============================================================
+# Mobile Quick Log & Status
+# ============================================================
+
+@app.route("/mobile/log", methods=["GET", "POST"])
+@login_required
+def mobile_log():
+    """Ultra-minimal daily entry for mobile quick logging."""
+    today = date.today().isoformat()
+    existing = db.get_daily_observations(uid(), today)
+
+    if request.method == "POST":
+        form = request.form
+
+        def get_bool(key):
+            return 1 if form.get(key) == "on" else 0
+
+        def get_float(key):
+            val = form.get(key, "").strip()
+            try:
+                return float(val) if val else None
+            except ValueError:
+                return None
+
+        # Only include fields present on this form — merge, don't overwrite
+        data = {"date": today}
+
+        # Biometrics — only include if field was submitted with a value
+        for field in ("hours_slept", "hrv", "hrv_rmssd", "basal_temp_delta",
+                      "steps", "sun_exposure_min"):
+            val = get_float(field)
+            if val is not None:
+                data[field] = val
+
+        # UV protection
+        uv_prot = form.get("uv_protection_level")
+        if uv_prot:
+            data["uv_protection_level"] = uv_prot
+
+        # Symptoms — always include (unchecked = 0, checked = 1)
+        for sym in ("neurological", "cognitive", "musculature", "migraine",
+                    "pulmonary", "dermatological", "rheumatic", "mucosal", "gastro"):
+            data[sym] = get_bool(sym)
+
+        # Pain + fatigue
+        for field in ("pain_scale", "fatigue_scale"):
+            val = get_float(field)
+            if val is not None:
+                data[field] = val
+
+        # Flare
+        data["flare_occurred"] = get_bool("flare_occurred")
+        if data["flare_occurred"]:
+            data["flare_severity"] = form.get("flare_severity")
+
+        db.upsert_daily_observations(uid(), data)
+        return redirect(url_for("mobile_status"))
+
+    return render_template("mobile_log.html", entry_date=today, existing=existing)
+
+
+@app.route("/mobile/status")
+@login_required
+def mobile_status():
+    """Mobile home screen — current risk at a glance."""
+    all_obs = db.get_all_daily_observations(uid())
+    if not all_obs or len(all_obs) < 7:
+        return render_template("mobile_status.html", has_data=False)
+
+    all_obs.sort(key=lambda x: x['date'], reverse=True)
+    _inject_cycle_phase(all_obs)
+
+    obs_by_date = {o['date']: o for o in all_obs}
+    _inject_scoring_context(all_obs, obs_by_date, get_location_key(), n=14)
+
+    scores = [calculate_flare_prime_score(obs) for obs in all_obs[:14]]
+    today_score = scores[0]
+
+    _fw = get_current_weights(uid())
+    threshold = _fw.get('flare_threshold', 8.0)
+    risk_info = get_risk_level(today_score, threshold)
+    factors = get_contributing_factors(all_obs[0])
+    score_delta = round(today_score - scores[1], 1) if len(scores) >= 2 else None
+
+    # 14-day risk strip data
+    risk_strip = []
+    for i, obs in enumerate(all_obs[:14]):
+        s = scores[i]
+        if s >= threshold:
+            color = '#c94040'
+        elif s >= threshold * 0.65:
+            color = '#d4a054'
+        elif s >= threshold * 0.4:
+            color = '#d4b84a'
+        else:
+            color = '#4a9e6e'
+        risk_strip.append({
+            'date': obs['date'],
+            'score': s,
+            'color': color,
+            'flare': obs.get('flare_occurred') == 1,
+        })
+
+    return render_template(
+        "mobile_status.html",
+        has_data=True,
+        today_score=round(today_score, 1),
+        max_score=25,
+        risk_level=risk_info['level'],
+        risk_color=risk_info['color'],
+        risk_description=risk_info['description'],
+        predicted_flare=today_score >= threshold,
+        score_delta=score_delta,
+        factors=factors,
+        risk_strip=list(reversed(risk_strip)),
+        threshold=threshold,
+    )
+
+
+# ============================================================
 # Help
 # ============================================================
 

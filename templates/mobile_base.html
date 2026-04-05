@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+    <link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}">
+    <link rel="apple-touch-icon" sizes="180x180" href="{{ url_for('static', filename='apple-touch-icon.png') }}">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
+    <title>{% block title %}biotracking{% endblock %}</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,300;8..60,400;8..60,600&family=IBM+Plex+Mono:wght@300;400&display=swap" rel="stylesheet">
+
+    <style>
+        :root {
+            --bg-base: #0e0e12; --bg-surface: #16161d; --bg-elevated: #1e1e28; --bg-input: #23232f;
+            --border-subtle: #2a2a38; --border-medium: #38384a;
+            --text-primary: #f1efeaff; --text-secondary: #b8b3cbff; --text-muted: #8987a3ff;
+            --color-accent: #7c6fef; --color-danger: #c94040; --color-success: #4a9e6e; --color-warning: #d4a054;
+            --font-body: 'Source Serif 4', serif; --font-mono: 'IBM Plex Mono', monospace;
+            --space-xs: 0.25rem; --space-sm: 0.5rem; --space-md: 1rem; --space-lg: 1.5rem; --space-xl: 2rem;
+            --radius-sm: 6px; --radius-md: 10px;
+        }
+        [data-theme="light"] {
+            --bg-base: #f5f3ef; --bg-surface: #ffffff; --bg-elevated: #f0ede8; --bg-input: #e8e5df;
+            --border-subtle: #d8d4cc; --border-medium: #c5c0b8;
+            --text-primary: #1a1a1a; --text-secondary: #4a4a4a; --text-muted: #7a7a7a;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: var(--font-body);
+            background: var(--bg-base);
+            color: var(--text-primary);
+            padding: 0 var(--space-md) var(--space-md);
+            padding-bottom: 70px;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        .mobile-header {
+            padding: var(--space-md) 0 var(--space-sm);
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            text-align: center;
+        }
+
+        .card {
+            background: var(--bg-surface);
+            border: 1px solid var(--border-subtle);
+            border-radius: var(--radius-md);
+            padding: var(--space-md);
+            margin-bottom: var(--space-md);
+        }
+
+        .card-title {
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: var(--text-muted);
+            margin-bottom: var(--space-sm);
+        }
+
+        .btn {
+            display: inline-block;
+            padding: var(--space-sm) var(--space-md);
+            border-radius: var(--radius-sm);
+            font-family: var(--font-body);
+            font-size: 0.9rem;
+            text-decoration: none;
+            text-align: center;
+            border: none;
+            cursor: pointer;
+        }
+        .btn-primary { background: var(--color-accent); color: #fff; }
+        .btn-secondary { background: var(--bg-elevated); color: var(--text-secondary); border: 1px solid var(--border-subtle); }
+
+        .mobile-nav {
+            position: fixed;
+            bottom: 0; left: 0; right: 0;
+            height: 60px;
+            background: var(--bg-elevated);
+            border-top: 1px solid var(--border-subtle);
+            display: flex;
+            justify-content: space-around;
+            align-items: center;
+            z-index: 1000;
+            padding-bottom: env(safe-area-inset-bottom);
+        }
+        .mobile-nav-item {
+            display: flex; flex-direction: column; align-items: center;
+            text-decoration: none; color: var(--text-muted);
+            font-size: 0.65rem; gap: 2px; padding: var(--space-xs);
+        }
+        .mobile-nav-item.active { color: var(--color-accent); }
+        .mobile-nav-icon { font-size: 1.1rem; line-height: 1; font-family: var(--font-mono); }
+    </style>
+    {% block head %}{% endblock %}
+</head>
+<body>
+    <div class="mobile-header">biotracking</div>
+    {% block content %}{% endblock %}
+
+    <nav class="mobile-nav">
+        <a href="{{ url_for('mobile_log') }}"
+           class="mobile-nav-item {% if request.endpoint == 'mobile_log' %}active{% endif %}">
+            <span class="mobile-nav-icon">+</span><span>log</span>
+        </a>
+        <a href="{{ url_for('mobile_status') }}"
+           class="mobile-nav-item {% if request.endpoint == 'mobile_status' %}active{% endif %}">
+            <span class="mobile-nav-icon">~</span><span>risk</span>
+        </a>
+        <a href="{{ url_for('forecast') }}"
+           class="mobile-nav-item">
+            <span class="mobile-nav-icon">></span><span>full app</span>
+        </a>
+    </nav>
+
+    <script>
+    // Theme
+    const t = localStorage.getItem('theme') || 'dark';
+    document.documentElement.setAttribute('data-theme', t);
+    // CSRF
+    (function() {
+        const token = document.querySelector('meta[name="csrf-token"]')?.content;
+        if (!token) return;
+        document.addEventListener('DOMContentLoaded', function() {
+            document.querySelectorAll('form').forEach(function(form) {
+                if (form.method.toLowerCase() === 'post' && !form.querySelector('[name="csrf_token"]')) {
+                    const inp = document.createElement('input');
+                    inp.type = 'hidden'; inp.name = 'csrf_token'; inp.value = token;
+                    form.appendChild(inp);
+                }
+            });
+        });
+    })();
+    </script>
+    {% block scripts %}{% endblock %}
+</body>
+</html>

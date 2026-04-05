@@ -1,0 +1,211 @@
+{% extends "mobile_base.html" %}
+
+{% block title %}log — biotracking{% endblock %}
+
+{% block head %}
+<style>
+    .symptom-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: var(--space-xs);
+    }
+    .symptom-toggle {
+        display: flex; align-items: center; justify-content: center;
+        padding: var(--space-sm);
+        background: var(--bg-elevated);
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-sm);
+        font-size: 0.8rem;
+        color: var(--text-muted);
+        cursor: pointer;
+        text-align: center;
+        transition: all 0.15s;
+        -webkit-tap-highlight-color: transparent;
+    }
+    .symptom-toggle input { display: none; }
+    .symptom-toggle.active {
+        background: var(--color-accent);
+        color: #fff;
+        border-color: var(--color-accent);
+    }
+
+    .range-row {
+        display: flex; align-items: center; gap: var(--space-sm);
+        margin-bottom: var(--space-sm);
+    }
+    .range-row label { font-size: 0.8rem; color: var(--text-muted); min-width: 55px; }
+    .range-row input[type="range"] { flex: 1; accent-color: var(--color-accent); }
+    .range-row .range-val {
+        font-family: var(--font-mono); font-size: 0.85rem;
+        color: var(--text-primary); min-width: 24px; text-align: right;
+    }
+
+    .bio-grid {
+        display: grid; grid-template-columns: 1fr 1fr;
+        gap: var(--space-xs);
+    }
+    .bio-grid .form-group { display: flex; flex-direction: column; gap: 2px; }
+    .bio-grid label { font-size: 0.7rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; }
+    .bio-grid input {
+        background: var(--bg-input); border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-sm); padding: var(--space-sm);
+        color: var(--text-primary); font-family: var(--font-mono); font-size: 0.9rem;
+    }
+
+    .flare-section {
+        display: flex; align-items: center; gap: var(--space-md);
+        padding: var(--space-sm) 0;
+    }
+    .flare-toggle {
+        display: flex; align-items: center; gap: var(--space-sm);
+        font-size: 0.9rem; color: var(--text-secondary);
+    }
+    .flare-toggle input[type="checkbox"] {
+        width: 20px; height: 20px; accent-color: var(--color-danger);
+    }
+    .severity-radios { display: flex; gap: var(--space-sm); font-size: 0.8rem; }
+    .severity-radios label { color: var(--text-muted); display: flex; align-items: center; gap: 3px; }
+    .severity-radios input { accent-color: var(--color-danger); }
+
+    .save-bar {
+        position: fixed; bottom: 60px; left: 0; right: 0;
+        padding: var(--space-sm) var(--space-md);
+        padding-bottom: calc(var(--space-sm));
+        background: var(--bg-base);
+        border-top: 1px solid var(--border-subtle);
+        z-index: 999;
+    }
+    .save-bar button {
+        width: 100%; padding: var(--space-md);
+        font-size: 1rem; font-weight: 600;
+    }
+
+    body { padding-bottom: 130px; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div style="font-size:0.9rem; color:var(--text-secondary); text-align:center; margin-bottom:var(--space-md);">
+    {{ entry_date }}
+    {% if existing %}<span style="color:var(--color-accent);">(updating)</span>{% endif %}
+</div>
+
+<form method="POST" action="{{ url_for('mobile_log') }}">
+
+    <!-- Biometrics -->
+    <div class="card">
+        <div class="card-title">biometrics</div>
+        <div class="bio-grid">
+            <div class="form-group">
+                <label>sleep (hrs)</label>
+                <input type="number" name="hours_slept" inputmode="decimal" step="0.5"
+                       value="{{ existing.hours_slept if existing and existing.hours_slept is not none else '' }}"
+                       placeholder="--">
+            </div>
+            <div class="form-group">
+                <label>steps</label>
+                <input type="number" name="steps" inputmode="numeric"
+                       value="{{ existing.steps|int if existing and existing.steps is not none else '' }}"
+                       placeholder="--">
+            </div>
+            <div class="form-group">
+                <label>SDNN (ms)</label>
+                <input type="number" name="hrv" inputmode="decimal" step="0.1"
+                       value="{{ existing.hrv if existing and existing.hrv is not none else '' }}"
+                       placeholder="--">
+            </div>
+            <div class="form-group">
+                <label>RMSSD (ms)</label>
+                <input type="number" name="hrv_rmssd" inputmode="decimal" step="0.1"
+                       value="{{ existing.hrv_rmssd if existing and existing.hrv_rmssd is not none else '' }}"
+                       placeholder="--">
+            </div>
+            <div class="form-group">
+                <label>BBT delta (F)</label>
+                <input type="number" name="basal_temp_delta" inputmode="decimal" step="0.01"
+                       value="{{ existing.basal_temp_delta if existing and existing.basal_temp_delta is not none else '' }}"
+                       placeholder="--">
+            </div>
+            <div class="form-group">
+                <label>sun (min)</label>
+                <input type="number" name="sun_exposure_min" inputmode="numeric"
+                       value="{{ existing.sun_exposure_min|int if existing and existing.sun_exposure_min is not none else '' }}"
+                       placeholder="--">
+            </div>
+        </div>
+    </div>
+
+    <!-- Symptoms -->
+    <div class="card">
+        <div class="card-title">symptoms</div>
+        <div class="symptom-grid">
+            {% for sym, label in [
+                ('neurological', 'neuro'),
+                ('cognitive', 'cognitive'),
+                ('musculature', 'muscle'),
+                ('migraine', 'migraine'),
+                ('pulmonary', 'pulmonary'),
+                ('rheumatic', 'rheumatic'),
+                ('dermatological', 'derm'),
+                ('gastro', 'GI'),
+                ('mucosal', 'mucosal')
+            ] %}
+            <label class="symptom-toggle {% if existing and existing[sym] %}active{% endif %}"
+                   onclick="this.classList.toggle('active')">
+                <input type="checkbox" name="{{ sym }}"
+                       {% if existing and existing[sym] %}checked{% endif %}>
+                {{ label }}
+            </label>
+            {% endfor %}
+        </div>
+    </div>
+
+    <!-- Pain + Fatigue -->
+    <div class="card">
+        <div class="card-title">pain & fatigue</div>
+        <div class="range-row">
+            <label>pain</label>
+            <input type="range" name="pain_scale" min="0" max="10" step="1"
+                   value="{{ existing.pain_scale|int if existing and existing.pain_scale is not none else 0 }}"
+                   oninput="this.nextElementSibling.textContent = this.value">
+            <span class="range-val">{{ existing.pain_scale|int if existing and existing.pain_scale is not none else 0 }}</span>
+        </div>
+        <div class="range-row">
+            <label>fatigue</label>
+            <input type="range" name="fatigue_scale" min="0" max="10" step="1"
+                   value="{{ existing.fatigue_scale|int if existing and existing.fatigue_scale is not none else 0 }}"
+                   oninput="this.nextElementSibling.textContent = this.value">
+            <span class="range-val">{{ existing.fatigue_scale|int if existing and existing.fatigue_scale is not none else 0 }}</span>
+        </div>
+    </div>
+
+    <!-- Flare -->
+    <div class="card">
+        <div class="flare-section">
+            <label class="flare-toggle">
+                <input type="checkbox" name="flare_occurred" id="flareCheck"
+                       {% if existing and existing.flare_occurred %}checked{% endif %}
+                       onchange="document.getElementById('severityRow').style.display = this.checked ? 'flex' : 'none'">
+                flare today
+            </label>
+            <div class="severity-radios" id="severityRow"
+                 style="display:{% if existing and existing.flare_occurred %}flex{% else %}none{% endif %};">
+                <label><input type="radio" name="flare_severity" value="minor"
+                       {% if existing and existing.flare_severity == 'minor' %}checked{% endif %}> minor</label>
+                <label><input type="radio" name="flare_severity" value="major"
+                       {% if existing and existing.flare_severity == 'major' %}checked{% endif %}> major</label>
+                <label><input type="radio" name="flare_severity" value="er_visit"
+                       {% if existing and existing.flare_severity == 'er_visit' %}checked{% endif %}> ER</label>
+            </div>
+        </div>
+    </div>
+
+</form>
+
+<!-- Save bar (outside form, uses JS to submit) -->
+<div class="save-bar">
+    <button class="btn btn-primary" onclick="document.querySelector('form').submit()">
+        save entry
+    </button>
+</div>
+{% endblock %}
