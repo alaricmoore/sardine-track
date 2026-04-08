@@ -71,7 +71,7 @@ The app follows Apple's best practices for health apps: background delivery, pri
                             ▼
 ┌─────────────────────────────────────────────────────────────┐
 │              Flask Biotracker Server                        │
-│              (https://<YOUR_SERVER>)                │
+│              (https://<YOUR_SERVER>)                 │
 │                                                             │
 │  ┌──────────────────┐   ┌────────────────────────────────┐ │
 │  │ /api/health-sync │   │  /api/flare-status             │ │

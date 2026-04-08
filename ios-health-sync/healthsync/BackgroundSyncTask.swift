@@ -23,7 +23,7 @@ enum BackgroundSyncTask {
     }
 
     /// Schedule the next background sync around the configured hour.
-    static func scheduleNextSync() {
+    static func scheduleNext() {
         let syncHour = UserDefaults.standard.integer(forKey: "syncHour")
         let targetHour = syncHour > 0 ? syncHour : 20
 
@@ -42,17 +42,23 @@ enum BackgroundSyncTask {
 
     /// Handle the background task execution.
     static func handle(task: BGAppRefreshTask) {
+        print("🔄 Background sync task started")
+
         // Schedule next run immediately so it's always queued
-        scheduleNextSync()
+        scheduleNext()
+        print("📅 Next sync scheduled")
 
         let serverURL = UserDefaults.standard.string(forKey: "serverURL") ?? ""
         let apiToken = UserDefaults.standard.string(forKey: "apiToken") ?? ""
         let userID = UserDefaults.standard.integer(forKey: "userID")
 
         guard !serverURL.isEmpty, !apiToken.isEmpty, userID > 0 else {
+            print("❌ Missing server configuration")
             task.setTaskCompleted(success: false)
             return
         }
+
+        print("✅ Configuration OK, starting sync")
 
         // Set expiration handler
         task.expirationHandler = {
@@ -62,9 +68,11 @@ enum BackgroundSyncTask {
         // Step 1: Sync health data silently
         let syncer = HealthSyncer()
         syncer.syncNowSilent(serverURL: serverURL, apiToken: apiToken, userID: userID) { syncSuccess in
+            print(syncSuccess ? "✅ Health sync completed" : "❌ Health sync failed")
 
             // Step 2: Fetch flare status
             FlareChecker.shared.fetchStatus(serverURL: serverURL, apiToken: apiToken, userID: userID) { status in
+                print(status != nil ? "✅ Flare status fetched" : "❌ Flare status fetch failed")
 
                 let notificationsEnabled = UserDefaults.standard.bool(forKey: "notificationsEnabled")
 
@@ -104,6 +112,7 @@ enum BackgroundSyncTask {
                 f.dateFormat = "yyyy-MM-dd HH:mm"
                 f.timeZone = .current
                 UserDefaults.standard.set(f.string(from: Date()), forKey: "lastSyncTimestamp")
+                print("✅ Background sync task completed")
 
                 task.setTaskCompleted(success: syncSuccess)
             }

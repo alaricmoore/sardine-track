@@ -1937,7 +1937,7 @@ def uv_lag():
 
 def compute_hrv_data(observations: list, intervention_date: str = None) -> dict:
     """Compute HRV trend with 7-day rolling average and intervention split.
-    Includes both SDNN (hrv) and RMSSD (hrv_rmssd) when available.
+    Includes SDNN (hrv), RMSSD (hrv_rmssd), and respiratory rate when available.
     """
     import numpy as np
 
@@ -1948,8 +1948,7 @@ def compute_hrv_data(observations: list, intervention_date: str = None) -> dict:
     dates    = [o["date"] for o in hrv_obs]
     hrv_vals = [float(o["hrv"]) for o in hrv_obs]
     rmssd_vals = [float(o["hrv_rmssd"]) if o.get("hrv_rmssd") is not None else None for o in hrv_obs]
-    fatigue  = [o.get("fatigue_scale") for o in hrv_obs]
-    pain     = [o.get("pain_scale") for o in hrv_obs]
+    resp_vals = [float(o["respiratory_rate"]) if o.get("respiratory_rate") is not None else None for o in hrv_obs]
 
     def _rolling_avg(vals):
         result = []
@@ -1960,17 +1959,22 @@ def compute_hrv_data(observations: list, intervention_date: str = None) -> dict:
 
     rolling = _rolling_avg(hrv_vals)
     rmssd_rolling = _rolling_avg(rmssd_vals)
+    resp_rolling = _rolling_avg(resp_vals)
 
     # Split stats only if intervention date is provided
     pre_vals  = []
     post_vals = []
     pre_rmssd = []
     post_rmssd = []
+    pre_resp = []
+    post_resp = []
     if intervention_date:
         pre_vals  = [v for d, v in zip(dates, hrv_vals) if d < intervention_date]
         post_vals = [v for d, v in zip(dates, hrv_vals) if d >= intervention_date]
         pre_rmssd = [v for d, v in zip(dates, rmssd_vals) if d < intervention_date and v is not None]
         post_rmssd = [v for d, v in zip(dates, rmssd_vals) if d >= intervention_date and v is not None]
+        pre_resp = [v for d, v in zip(dates, resp_vals) if d < intervention_date and v is not None]
+        post_resp = [v for d, v in zip(dates, resp_vals) if d >= intervention_date and v is not None]
 
     def stats_dict(vals):
         if not vals:
@@ -1986,6 +1990,10 @@ def compute_hrv_data(observations: list, intervention_date: str = None) -> dict:
     pre_stats["rmssd_std"] = stats_dict(pre_rmssd)["std"]
     post_stats["rmssd_mean"] = stats_dict(post_rmssd)["mean"]
     post_stats["rmssd_std"] = stats_dict(post_rmssd)["std"]
+    pre_stats["resp_mean"] = stats_dict(pre_resp)["mean"]
+    pre_stats["resp_std"] = stats_dict(pre_resp)["std"]
+    post_stats["resp_mean"] = stats_dict(post_resp)["mean"]
+    post_stats["resp_std"] = stats_dict(post_resp)["std"]
 
     return {
         "dates":          dates,
@@ -1993,8 +2001,8 @@ def compute_hrv_data(observations: list, intervention_date: str = None) -> dict:
         "hrv_rolling":    rolling,
         "rmssd_raw":      rmssd_vals,
         "rmssd_rolling":  rmssd_rolling,
-        "fatigue":        fatigue,
-        "pain":           pain,
+        "resp_raw":       resp_vals,
+        "resp_rolling":   resp_rolling,
         "pre_intervention":  pre_stats,
         "post_intervention": post_stats,
     }
@@ -2552,7 +2560,6 @@ def hrv_view():
     ]
 
     hrv_data = compute_hrv_data(observations, intervention_date)
-    sleep_bbt_uv = compute_sleep_bbt_uv(observations, get_location_key())
 
     # Flare events for overlay markers on charts
     flare_events = [
@@ -2565,7 +2572,6 @@ def hrv_view():
         "hrv.html",
         has_data=bool(hrv_data),
         hrv_json=json.dumps(hrv_data, default=lambda x: int(x) if isinstance(x, bool) else str(x)),
-        sleep_json=json.dumps(sleep_bbt_uv, default=lambda x: int(x) if isinstance(x, bool) else str(x)),
         flare_events_json=json.dumps(flare_events),
         primary_intervention_name=intervention_name,
         primary_intervention_date=intervention_date,

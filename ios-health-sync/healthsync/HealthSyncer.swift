@@ -9,11 +9,11 @@ class HealthSyncer: ObservableObject {
 
     @Published var lastResult: String = ""
     @Published var isSyncing: Bool = false
-    
+
     // Backfill state
-    @Published var isBackfilling: Bool = false
-    @Published var backfillProgress: Double = 0.0
+    @Published var backfillProgress: Double = 0
     @Published var backfillStatus: String = ""
+    @Published var isBackfilling: Bool = false
 
     // All the HealthKit types we want to read
     private var readTypes: Set<HKObjectType> {
@@ -21,12 +21,11 @@ class HealthSyncer: ObservableObject {
             HKQuantityType(.stepCount),
             HKQuantityType(.heartRateVariabilitySDNN),
             HKQuantityType(.restingHeartRate),
-            HKQuantityType(.appleWalkingSteadiness),
+            HKQuantityType(.appleWalkingSteadiness), // placeholder — see below
             HKQuantityType(.bodyTemperature),
             HKQuantityType(.oxygenSaturation),
             HKQuantityType(.respiratoryRate),
             HKQuantityType(.timeInDaylight),
-            HKQuantityType(.appleSleepingWristTemperature), // Wrist temperature
         ]
         // Heartbeat series for RR intervals → RMSSD
         types.insert(HKSeriesType.heartbeat())
@@ -70,16 +69,16 @@ class HealthSyncer: ObservableObject {
             group.leave()
         }
 
-        // HRV (SDNN) — daily average
+        // HRV (SDNN) — most recent
         group.enter()
-        queryAverage(.heartRateVariabilitySDNN, unit: .secondUnit(with: .milli), start: today, end: tomorrow) { val in
+        queryMostRecent(.heartRateVariabilitySDNN, unit: .secondUnit(with: .milli)) { val in
             if let v = val { payload["hrv"] = v }
             group.leave()
         }
 
-        // Resting heart rate — daily average
+        // Resting heart rate — most recent
         group.enter()
-        queryAverage(.restingHeartRate, unit: HKUnit.count().unitDivided(by: .minute()), start: today, end: tomorrow) { val in
+        queryMostRecent(.restingHeartRate, unit: HKUnit.count().unitDivided(by: .minute())) { val in
             if let v = val { payload["resting_heart_rate"] = v }
             group.leave()
         }
@@ -115,10 +114,77 @@ class HealthSyncer: ObservableObject {
             group.leave()
         }
 
-        // Wrist temperature — daily average (Celsius relative change)
+        // RMSSD from overnight RR intervals (yesterday 10pm → today 8am)
         group.enter()
-        queryAverage(.appleSleepingWristTemperature, unit: .degreeCelsius(), start: today, end: tomorrow) { val in
-            if let v = val { payload["wrist_temp"] = v }
+        queryRMSSD(start: yesterday.addingTimeInterval(22 * 3600),
+                   end: today.addingTimeInterval(8 * 3600)) { val in
+            if let v = val { payload["hrv_rmssd"] = v }
+            group.leave()
+        }
+
+        group.notify(queue: .main) {
+            self.postToServer(serverURL: serverURL, apiToken: apiToken, payload: payload)
+        }
+    }
+
+    /// Silent sync for background tasks — doesn't update UI state.
+    func syncNowSilent(serverURL: String, apiToken: String, userID: Int, completion: @escaping (Bool) -> Void) {
+        let today = Calendar.current.startOfDay(for: Date())
+        let tomorrow = Calendar.current.date(byAdding: .day, value: 1, to: today)!
+        let yesterday = Calendar.current.date(byAdding: .day, value: -1, to: today)!
+
+        let group = DispatchGroup()
+        var payload: [String: Any] = [
+            "user_id": userID,
+            "date": Self.isoDate(today),
+        ]
+
+        // Steps — sum for the day
+        group.enter()
+        querySum(.stepCount, unit: .count(), start: today, end: tomorrow) { val in
+            if let v = val { payload["steps"] = v }
+            group.leave()
+        }
+
+        // HRV (SDNN) — most recent
+        group.enter()
+        queryMostRecent(.heartRateVariabilitySDNN, unit: .secondUnit(with: .milli)) { val in
+            if let v = val { payload["hrv"] = v }
+            group.leave()
+        }
+
+        // Resting heart rate — most recent
+        group.enter()
+        queryMostRecent(.restingHeartRate, unit: HKUnit.count().unitDivided(by: .minute())) { val in
+            if let v = val { payload["resting_heart_rate"] = v }
+            group.leave()
+        }
+
+        // Body temperature (BBT delta) — most recent
+        group.enter()
+        queryMostRecent(.bodyTemperature, unit: .degreeFahrenheit()) { val in
+            if let v = val { payload["basal_temp_delta"] = v }
+            group.leave()
+        }
+
+        // SpO2 — most recent
+        group.enter()
+        queryMostRecent(.oxygenSaturation, unit: .percent()) { val in
+            if let v = val { payload["spo2"] = v * 100.0 }
+            group.leave()
+        }
+
+        // Respiratory rate — most recent
+        group.enter()
+        queryMostRecent(.respiratoryRate, unit: HKUnit.count().unitDivided(by: .minute())) { val in
+            if let v = val { payload["respiratory_rate"] = v }
+            group.leave()
+        }
+
+        // Time in daylight — sum for the day (minutes)
+        group.enter()
+        querySum(.timeInDaylight, unit: .minute(), start: today, end: tomorrow) { val in
+            if let v = val { payload["sun_exposure_min"] = v }
             group.leave()
         }
 
@@ -130,8 +196,8 @@ class HealthSyncer: ObservableObject {
             group.leave()
         }
 
-        group.notify(queue: .main) {
-            self.postToServer(serverURL: serverURL, apiToken: apiToken, payload: payload)
+        group.notify(queue: .global()) {
+            self.sendPayload(serverURL: serverURL, apiToken: apiToken, payload: payload, completion: completion)
         }
     }
 
@@ -150,24 +216,25 @@ class HealthSyncer: ObservableObject {
         store.execute(query)
     }
 
-    private func queryAverage(_ typeID: HKQuantityTypeIdentifier, unit: HKUnit,
-                              start: Date, end: Date, completion: @escaping (Double?) -> Void) {
-        let type = HKQuantityType(typeID)
-        let predicate = HKQuery.predicateForSamples(withStart: start, end: end)
-
-        let query = HKStatisticsQuery(quantityType: type, quantitySamplePredicate: predicate,
-                                       options: .discreteAverage) { _, stats, _ in
-            let val = stats?.averageQuantity()?.doubleValue(for: unit)
-            completion(val)
-        }
-        store.execute(query)
-    }
-
     private func queryMostRecent(_ typeID: HKQuantityTypeIdentifier, unit: HKUnit,
                                   completion: @escaping (Double?) -> Void) {
         let type = HKQuantityType(typeID)
         let sort = NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: false)
         let query = HKSampleQuery(sampleType: type, predicate: nil,
+                                   limit: 1, sortDescriptors: [sort]) { _, samples, _ in
+            let val = (samples?.first as? HKQuantitySample)?.quantity.doubleValue(for: unit)
+            completion(val)
+        }
+        store.execute(query)
+    }
+
+    private func queryMostRecentInRange(_ typeID: HKQuantityTypeIdentifier, unit: HKUnit,
+                                         start: Date, end: Date,
+                                         completion: @escaping (Double?) -> Void) {
+        let type = HKQuantityType(typeID)
+        let predicate = HKQuery.predicateForSamples(withStart: start, end: end)
+        let sort = NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: false)
+        let query = HKSampleQuery(sampleType: type, predicate: predicate,
                                    limit: 1, sortDescriptors: [sort]) { _, samples, _ in
             let val = (samples?.first as? HKQuantitySample)?.quantity.doubleValue(for: unit)
             completion(val)
@@ -230,82 +297,186 @@ class HealthSyncer: ObservableObject {
         store.execute(query)
     }
 
-    // MARK: - Silent Sync (for background tasks and Shortcuts)
+    // MARK: - Backfill
 
-    /// Sync today's data without updating @Published UI state.
-    /// Calls completion(true) on success, completion(false) on failure.
-    func syncNowSilent(serverURL: String, apiToken: String, userID: Int, completion: @escaping (Bool) -> Void) {
-        let today = Calendar.current.startOfDay(for: Date())
-        let tomorrow = Calendar.current.date(byAdding: .day, value: 1, to: today)!
-        let yesterday = Calendar.current.date(byAdding: .day, value: -1, to: today)!
-
-        let group = DispatchGroup()
-        var payload: [String: Any] = [
-            "user_id": userID,
-            "date": Self.isoDate(today),
-        ]
-
-        group.enter()
-        querySum(.stepCount, unit: .count(), start: today, end: tomorrow) { val in
-            if let v = val { payload["steps"] = v }
-            group.leave()
+    /// Backfill all metrics for each day — same data as daily sync, for historical dates.
+    func backfillHealthData(days: Int, serverURL: String, apiToken: String, userID: Int) {
+        guard !isBackfilling else { return }
+        DispatchQueue.main.async {
+            self.isBackfilling = true
+            self.backfillProgress = 0
+            self.backfillStatus = "starting backfill..."
         }
 
-        group.enter()
-        queryAverage(.heartRateVariabilitySDNN, unit: .secondUnit(with: .milli), start: today, end: tomorrow) { val in
-            if let v = val { payload["hrv"] = v }
-            group.leave()
+        let cal = Calendar.current
+        let today = cal.startOfDay(for: Date())
+
+        var dates: [Date] = []
+        for offset in 1...days {
+            if let d = cal.date(byAdding: .day, value: -offset, to: today) {
+                dates.append(d)
+            }
         }
 
-        group.enter()
-        queryAverage(.restingHeartRate, unit: HKUnit.count().unitDivided(by: .minute()), start: today, end: tomorrow) { val in
-            if let v = val { payload["resting_heart_rate"] = v }
-            group.leave()
+        let total = dates.count
+        var processed = 0
+        var synced = 0
+        var skipped = 0
+
+        func processNext() {
+            guard processed < total else {
+                DispatchQueue.main.async {
+                    self.isBackfilling = false
+                    self.backfillProgress = 1.0
+                    self.backfillStatus = "done: \(synced) days synced, \(skipped) skipped"
+                }
+                return
+            }
+
+            let targetDate = dates[processed]
+            let nextDay = cal.date(byAdding: .day, value: 1, to: targetDate)!
+            let prevDay = cal.date(byAdding: .day, value: -1, to: targetDate)!
+            let dateStr = Self.isoDate(targetDate)
+
+            // Overnight window for RMSSD: previous day 10pm → target day 8am
+            let overnightStart = prevDay.addingTimeInterval(22 * 3600)
+            let overnightEnd = targetDate.addingTimeInterval(8 * 3600)
+
+            DispatchQueue.main.async {
+                self.backfillStatus = "querying \(dateStr)..."
+            }
+
+            let group = DispatchGroup()
+            var payload: [String: Any] = [
+                "user_id": userID,
+                "date": dateStr,
+            ]
+
+            // Steps — sum for the day
+            group.enter()
+            querySum(.stepCount, unit: .count(), start: targetDate, end: nextDay) { val in
+                if let v = val { payload["steps"] = v }
+                group.leave()
+            }
+
+            // HRV (SDNN) — most recent for that day
+            group.enter()
+            queryMostRecentInRange(.heartRateVariabilitySDNN,
+                                   unit: .secondUnit(with: .milli),
+                                   start: targetDate, end: nextDay) { val in
+                if let v = val { payload["hrv"] = v }
+                group.leave()
+            }
+
+            // Resting heart rate
+            group.enter()
+            queryMostRecentInRange(.restingHeartRate,
+                                   unit: HKUnit.count().unitDivided(by: .minute()),
+                                   start: targetDate, end: nextDay) { val in
+                if let v = val { payload["resting_heart_rate"] = v }
+                group.leave()
+            }
+
+            // Body temperature
+            group.enter()
+            queryMostRecentInRange(.bodyTemperature, unit: .degreeFahrenheit(),
+                                   start: targetDate, end: nextDay) { val in
+                if let v = val { payload["basal_temp_delta"] = v }
+                group.leave()
+            }
+
+            // SpO2
+            group.enter()
+            queryMostRecentInRange(.oxygenSaturation, unit: .percent(),
+                                   start: targetDate, end: nextDay) { val in
+                if let v = val { payload["spo2"] = v * 100.0 }
+                group.leave()
+            }
+
+            // Respiratory rate
+            group.enter()
+            queryMostRecentInRange(.respiratoryRate,
+                                   unit: HKUnit.count().unitDivided(by: .minute()),
+                                   start: targetDate, end: nextDay) { val in
+                if let v = val { payload["respiratory_rate"] = v }
+                group.leave()
+            }
+
+            // Time in daylight
+            group.enter()
+            querySum(.timeInDaylight, unit: .minute(), start: targetDate, end: nextDay) { val in
+                if let v = val { payload["sun_exposure_min"] = v }
+                group.leave()
+            }
+
+            // RMSSD from overnight RR intervals
+            group.enter()
+            queryRMSSD(start: overnightStart, end: overnightEnd) { val in
+                if let v = val { payload["hrv_rmssd"] = v }
+                group.leave()
+            }
+
+            group.notify(queue: .global()) { [weak self] in
+                guard let self = self else { return }
+
+                // Only send if we got at least one health metric
+                let healthKeys = payload.keys.filter { $0 != "user_id" && $0 != "date" }
+                if healthKeys.isEmpty {
+                    skipped += 1
+                    processed += 1
+                    DispatchQueue.main.async {
+                        self.backfillProgress = Double(processed) / Double(total)
+                        self.backfillStatus = "\(processed)/\(total) — \(synced) synced"
+                    }
+                    processNext()
+                } else {
+                    self.sendPayload(serverURL: serverURL, apiToken: apiToken, payload: payload) { success in
+                        if success { synced += 1 } else { skipped += 1 }
+                        processed += 1
+                        DispatchQueue.main.async {
+                            self.backfillProgress = Double(processed) / Double(total)
+                            let fields = healthKeys.count
+                            self.backfillStatus = "\(processed)/\(total) — \(synced) synced (\(fields) fields)"
+                        }
+                        DispatchQueue.global().asyncAfter(deadline: .now() + 0.5) {
+                            processNext()
+                        }
+                    }
+                }
+            }
         }
 
-        group.enter()
-        queryMostRecent(.bodyTemperature, unit: .degreeFahrenheit()) { val in
-            if let v = val { payload["basal_temp_delta"] = v }
-            group.leave()
-        }
-
-        group.enter()
-        queryMostRecent(.oxygenSaturation, unit: .percent()) { val in
-            if let v = val { payload["spo2"] = v * 100.0 }
-            group.leave()
-        }
-
-        group.enter()
-        queryMostRecent(.respiratoryRate, unit: HKUnit.count().unitDivided(by: .minute())) { val in
-            if let v = val { payload["respiratory_rate"] = v }
-            group.leave()
-        }
-
-        group.enter()
-        querySum(.timeInDaylight, unit: .minute(), start: today, end: tomorrow) { val in
-            if let v = val { payload["sun_exposure_min"] = v }
-            group.leave()
-        }
-
-        group.enter()
-        queryAverage(.appleSleepingWristTemperature, unit: .degreeCelsius(), start: today, end: tomorrow) { val in
-            if let v = val { payload["wrist_temp"] = v }
-            group.leave()
-        }
-
-        group.enter()
-        queryRMSSD(start: yesterday.addingTimeInterval(22 * 3600),
-                   end: today.addingTimeInterval(8 * 3600)) { val in
-            if let v = val { payload["hrv_rmssd"] = v }
-            group.leave()
-        }
-
-        group.notify(queue: .global()) {
-            self.sendPayload(serverURL: serverURL, apiToken: apiToken, payload: payload, completion: completion)
+        DispatchQueue.global().async {
+            processNext()
         }
     }
 
     // MARK: - Network
+
+    /// Reusable POST that reports success/failure via completion handler.
+    private func sendPayload(serverURL: String, apiToken: String,
+                             payload: [String: Any],
+                             completion: @escaping (Bool) -> Void) {
+        guard let url = URL(string: serverURL.trimmingCharacters(in: .whitespacesAndNewlines)) else {
+            completion(false)
+            return
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(apiToken)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try? JSONSerialization.data(withJSONObject: payload)
+
+        URLSession.shared.dataTask(with: request) { data, response, error in
+            if error != nil {
+                completion(false)
+                return
+            }
+            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+            completion(status == 200)
+        }.resume()
+    }
 
     private func postToServer(serverURL: String, apiToken: String, payload: [String: Any]) {
         guard let url = URL(string: serverURL.trimmingCharacters(in: .whitespacesAndNewlines)) else {
@@ -334,7 +505,6 @@ class HealthSyncer: ObservableObject {
                 let status = (response as? HTTPURLResponse)?.statusCode ?? 0
                 if let data = data, let body = String(data: data, encoding: .utf8) {
                     if status == 200 {
-                        // Parse fields_updated from response
                         if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                            let fields = json["fields_updated"] as? [String] {
                             self.lastResult = "synced \(fields.count) fields: \(fields.joined(separator: ", "))"
@@ -348,215 +518,6 @@ class HealthSyncer: ObservableObject {
                     self.lastResult = "no response (status \(status))"
                 }
             }
-        }.resume()
-    }
-
-    // MARK: - Backfill
-    
-    func backfillHealthData(days: Int, serverURL: String, apiToken: String, userID: Int) {
-        guard !isBackfilling else { return }
-        
-        DispatchQueue.main.async {
-            self.isBackfilling = true
-            self.backfillProgress = 0.0
-            self.backfillStatus = "Starting backfill for \(days) days..."
-        }
-        
-        let calendar = Calendar.current
-        let today = calendar.startOfDay(for: Date())
-        
-        // Process days in reverse chronological order (most recent first)
-        var datesToProcess: [Date] = []
-        for daysAgo in 0..<days {
-            if let date = calendar.date(byAdding: .day, value: -daysAgo, to: today) {
-                datesToProcess.append(date)
-            }
-        }
-        
-        // Process one day at a time sequentially
-        processNextBackfillDay(
-            dates: datesToProcess,
-            index: 0,
-            serverURL: serverURL,
-            apiToken: apiToken,
-            userID: userID,
-            successCount: 0,
-            skipCount: 0
-        )
-    }
-    
-    private func processNextBackfillDay(
-        dates: [Date],
-        index: Int,
-        serverURL: String,
-        apiToken: String,
-        userID: Int,
-        successCount: Int,
-        skipCount: Int
-    ) {
-        // Check if we're done
-        guard index < dates.count else {
-            DispatchQueue.main.async {
-                self.isBackfilling = false
-                self.backfillProgress = 1.0
-                self.backfillStatus = "Completed! Synced \(successCount) days, skipped \(skipCount) (no data)"
-            }
-            return
-        }
-        
-        let date = dates[index]
-        let progress = Double(index) / Double(dates.count)
-        
-        DispatchQueue.main.async {
-            self.backfillProgress = progress
-            self.backfillStatus = "Processing \(Self.isoDate(date)) (\(index + 1)/\(dates.count))..."
-        }
-        
-        let calendar = Calendar.current
-        let tomorrow = calendar.date(byAdding: .day, value: 1, to: date)!
-        
-        // For overnight data (RMSSD): previous day 10pm → this day 8am
-        guard let previousDay = calendar.date(byAdding: .day, value: -1, to: date) else {
-            // Skip and continue
-            processNextBackfillDay(
-                dates: dates,
-                index: index + 1,
-                serverURL: serverURL,
-                apiToken: apiToken,
-                userID: userID,
-                successCount: successCount,
-                skipCount: skipCount + 1
-            )
-            return
-        }
-        
-        let overnightStart = previousDay.addingTimeInterval(22 * 3600) // 10pm
-        let overnightEnd = date.addingTimeInterval(8 * 3600) // 8am
-        
-        // Query ALL metrics for this day (same as syncNow but for historical date)
-        let group = DispatchGroup()
-        var payload: [String: Any] = [
-            "user_id": userID,
-            "date": Self.isoDate(date),
-        ]
-        
-        // Steps — sum for the day
-        group.enter()
-        querySum(.stepCount, unit: .count(), start: date, end: tomorrow) { val in
-            if let v = val { payload["steps"] = v }
-            group.leave()
-        }
-        
-        // HRV (SDNN) — daily average
-        group.enter()
-        queryAverage(.heartRateVariabilitySDNN, unit: .secondUnit(with: .milli), start: date, end: tomorrow) { val in
-            if let v = val { payload["hrv"] = v }
-            group.leave()
-        }
-        
-        // Resting heart rate — daily average
-        group.enter()
-        queryAverage(.restingHeartRate, unit: HKUnit.count().unitDivided(by: .minute()), start: date, end: tomorrow) { val in
-            if let v = val { payload["resting_heart_rate"] = v }
-            group.leave()
-        }
-        
-        // Body temperature (BBT delta) — most recent
-        group.enter()
-        queryMostRecent(.bodyTemperature, unit: .degreeFahrenheit()) { val in
-            if let v = val { payload["basal_temp_delta"] = v }
-            group.leave()
-        }
-        
-        // SpO2 — most recent
-        group.enter()
-        queryMostRecent(.oxygenSaturation, unit: .percent()) { val in
-            if let v = val { payload["spo2"] = v * 100.0 }
-            group.leave()
-        }
-        
-        // Respiratory rate — most recent
-        group.enter()
-        queryMostRecent(.respiratoryRate, unit: HKUnit.count().unitDivided(by: .minute())) { val in
-            if let v = val { payload["respiratory_rate"] = v }
-            group.leave()
-        }
-        
-        // Time in daylight — sum for the day (minutes)
-        group.enter()
-        querySum(.timeInDaylight, unit: .minute(), start: date, end: tomorrow) { val in
-            if let v = val { payload["sun_exposure_min"] = v }
-            group.leave()
-        }
-        
-        // Wrist temperature — daily average (Celsius relative change)
-        group.enter()
-        queryAverage(.appleSleepingWristTemperature, unit: .degreeCelsius(), start: date, end: tomorrow) { val in
-            if let v = val { payload["wrist_temp"] = v }
-            group.leave()
-        }
-        
-        // RMSSD from overnight RR intervals
-        group.enter()
-        queryRMSSD(start: overnightStart, end: overnightEnd) { val in
-            if let v = val { payload["hrv_rmssd"] = v }
-            group.leave()
-        }
-        
-        // Wait for all queries to complete
-        group.notify(queue: .global()) { [weak self] in
-            guard let self = self else { return }
-            
-            // If we got at least one metric (more than just user_id and date), send it
-            let hasData = payload.count > 2
-            
-            if hasData {
-                // Send to server
-                self.sendPayload(serverURL: serverURL, apiToken: apiToken, payload: payload) { success in
-                    // Wait 0.5s to avoid overwhelming the server, then process next day
-                    DispatchQueue.global().asyncAfter(deadline: .now() + 0.5) {
-                        self.processNextBackfillDay(
-                            dates: dates,
-                            index: index + 1,
-                            serverURL: serverURL,
-                            apiToken: apiToken,
-                            userID: userID,
-                            successCount: success ? successCount + 1 : successCount,
-                            skipCount: success ? skipCount : skipCount + 1
-                        )
-                    }
-                }
-            } else {
-                // No data for this day, skip it (no delay needed)
-                self.processNextBackfillDay(
-                    dates: dates,
-                    index: index + 1,
-                    serverURL: serverURL,
-                    apiToken: apiToken,
-                    userID: userID,
-                    successCount: successCount,
-                    skipCount: skipCount + 1
-                )
-            }
-        }
-    }
-    
-    private func sendPayload(serverURL: String, apiToken: String, payload: [String: Any], completion: @escaping (Bool) -> Void) {
-        guard let url = URL(string: serverURL.trimmingCharacters(in: .whitespacesAndNewlines)) else {
-            completion(false)
-            return
-        }
-        
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("Bearer \(apiToken)", forHTTPHeaderField: "Authorization")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try? JSONSerialization.data(withJSONObject: payload)
-        
-        URLSession.shared.dataTask(with: request) { data, response, error in
-            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-            let success = (error == nil && status == 200)
-            completion(success)
         }.resume()
     }
 

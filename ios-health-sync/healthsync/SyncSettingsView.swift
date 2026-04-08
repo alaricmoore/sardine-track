@@ -89,7 +89,7 @@ struct SyncSettingsView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     if !lastSyncTimestamp.isEmpty {
-                        Text("Last auto-sync: \(lastSyncTimestamp)")
+                        Text("Last auto-sync: \(formattedSyncTime)")
                             .font(.caption2)
                             .foregroundStyle(.tertiary)
                     }
@@ -136,6 +136,81 @@ struct SyncSettingsView: View {
                                 .frame(width: 60)
                         }
                     }
+                }
+
+                // Automatic Background Sync
+                Section {
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack {
+                            Image(systemName: "clock.arrow.circlepath")
+                                .font(.title2)
+                                .foregroundStyle(.blue)
+
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("Automatic Sync")
+                                    .font(.headline)
+
+                                Text("Daily at \(syncHour > 0 ? syncHour : 20):00")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+
+                            Spacer()
+
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundStyle(.green)
+                                .font(.title3)
+                        }
+
+                        if !lastSyncTimestamp.isEmpty {
+                            Divider()
+
+                            HStack {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text("Last Auto-Sync")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                    Text(formattedSyncTime)
+                                        .font(.subheadline)
+                                        .foregroundStyle(.primary)
+                                }
+
+                                Spacer()
+
+                                Text(nextSyncTime)
+                                    .font(.caption)
+                                    .foregroundStyle(.tertiary)
+                            }
+                        }
+
+                        Divider()
+
+                        // Debug buttons
+                        HStack(spacing: 12) {
+                            Button(action: {
+                                testBackgroundSync()
+                            }) {
+                                Label("Test Now", systemImage: "play.circle")
+                                    .font(.caption)
+                            }
+                            .buttonStyle(.bordered)
+                            .disabled(syncer.isSyncing || apiToken.isEmpty)
+
+                            Button(action: {
+                                BackgroundSyncTask.scheduleNext()
+                            }) {
+                                Label("Reschedule", systemImage: "arrow.clockwise")
+                                    .font(.caption)
+                            }
+                            .buttonStyle(.bordered)
+                        }
+                    }
+                    .padding(.vertical, 8)
+                } header: {
+                    Text("Background Sync")
+                } footer: {
+                    Text("Your health data syncs automatically every evening. Change the time in Notifications settings above.")
+                        .font(.caption)
                 }
 
                 // Backfill Health Data Section
@@ -224,6 +299,86 @@ struct SyncSettingsView: View {
                         .scaledToFit()
                         .frame(width: 32, height: 32)
                         .clipShape(Circle())
+                }
+            }
+        }
+    }
+
+    /// Format the timestamp to a human-readable relative time
+    private var formattedSyncTime: String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd HH:mm"
+        formatter.timeZone = .current
+
+        guard let date = formatter.date(from: lastSyncTimestamp) else {
+            return lastSyncTimestamp
+        }
+
+        let now = Date()
+        let interval = now.timeIntervalSince(date)
+
+        if interval < 60 {
+            return "just now"
+        } else if interval < 3600 {
+            let minutes = Int(interval / 60)
+            return "\(minutes) minute\(minutes == 1 ? "" : "s") ago"
+        } else if interval < 86400 {
+            let hours = Int(interval / 3600)
+            return "\(hours) hour\(hours == 1 ? "" : "s") ago"
+        } else {
+            let days = Int(interval / 86400)
+            return "\(days) day\(days == 1 ? "" : "s") ago"
+        }
+    }
+
+    /// Calculate the next scheduled sync time
+    private var nextSyncTime: String {
+        let targetHour = syncHour > 0 ? syncHour : 20
+        let calendar = Calendar.current
+        var components = calendar.dateComponents([.year, .month, .day], from: Date())
+        components.hour = targetHour
+        components.minute = 0
+
+        guard var target = calendar.date(from: components) else {
+            return "Next: Unknown"
+        }
+
+        // If target is in the past, schedule for tomorrow
+        if target < Date() {
+            target = calendar.date(byAdding: .day, value: 1, to: target)!
+        }
+
+        let interval = target.timeIntervalSinceNow
+
+        if interval < 3600 {
+            let minutes = Int(interval / 60)
+            return "Next: in \(minutes)m"
+        } else if interval < 86400 {
+            let hours = Int(interval / 3600)
+            return "Next: in \(hours)h"
+        } else {
+            return "Next: tomorrow"
+        }
+    }
+
+    /// Test the background sync flow manually
+    private func testBackgroundSync() {
+        print("🧪 Testing background sync manually")
+
+        syncer.syncNowSilent(serverURL: serverURL, apiToken: apiToken, userID: userID) { healthSyncSuccess in
+            print(healthSyncSuccess ? "✅ Health data synced" : "❌ Health sync failed")
+
+            FlareChecker.shared.fetchStatus(serverURL: serverURL, apiToken: apiToken, userID: userID) { flareStatus in
+                if let status = flareStatus {
+                    print("✅ Flare status fetched: score \(status.score ?? 0)")
+
+                    // Update timestamp in the same format as BackgroundSyncTask
+                    let f = DateFormatter()
+                    f.dateFormat = "yyyy-MM-dd HH:mm"
+                    f.timeZone = .current
+                    lastSyncTimestamp = f.string(from: Date())
+                } else {
+                    print("❌ Failed to fetch flare status")
                 }
             }
         }

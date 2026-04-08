@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}hrv — biotracking{% endblock %}
+{% block title %}autonomic — biotracking{% endblock %}
 
 {% block head %}
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
@@ -8,8 +8,8 @@
 
 {% block content %}
 <div class="page-header">
-    <h1>hrv & autonomic</h1>
-    <p class="page-subtitle">heart rate variability trend{% if primary_intervention_name %} · {{ primary_intervention_name }} response{% endif %}</p>
+    <h1>autonomic</h1>
+    <p class="page-subtitle">hrv & respiratory rate{% if primary_intervention_name %} · {{ primary_intervention_name }} response{% endif %}</p>
 </div>
 
 {% if not has_data %}
@@ -59,22 +59,23 @@
     <canvas id="chartHRV" style="max-height:340px;"></canvas>
 </div>
 
-<!-- HRV vs fatigue chart -->
+<!-- Respiratory rate vs HRV chart -->
 <div class="chart-container">
-    <div class="chart-title">hrv vs fatigue</div>
-    <canvas id="chartFatigue" style="max-height:260px;"></canvas>
+    <div class="chart-title">respiratory rate vs hrv</div>
+    <canvas id="chartRespHRV" style="max-height:280px;"></canvas>
 </div>
 
-<!-- HRV vs pain chart -->
+<!-- Respiratory rate vs flares chart -->
 <div class="chart-container">
-    <div class="chart-title">hrv vs pain</div>
-    <canvas id="chartPain" style="max-height:260px;"></canvas>
-</div>
-
-<!-- Sleep / BBT / UV lag-1 chart -->
-<div class="chart-container">
-    <div class="chart-title">sleep · basal temp delta · uv previous day</div>
-    <canvas id="chartSleep" style="max-height:280px;"></canvas>
+    <div class="chart-title">respiratory rate vs flares</div>
+    {% if flare_events_json != '[]' %}
+    <div style="font-size:0.75rem; color:var(--text-muted); margin-bottom:var(--space-sm);">
+        <span style="color:#ff4444;">&#9679;</span> ER visit
+        <span style="color:#ff8c00; margin-left:0.5rem;">&#9679;</span> major
+        <span style="color:#ffcc00; margin-left:0.5rem;">&#9679;</span> minor
+    </div>
+    {% endif %}
+    <canvas id="chartRespFlares" style="max-height:280px;"></canvas>
 </div>
 
 {% endif %}
@@ -84,7 +85,6 @@
 {% if has_data %}
 <script>
 const H = {{ hrv_json | safe }};
-const S = {{ sleep_json | safe }};
 const FLARE_EVENTS = {{ flare_events_json | safe }};
 const PRIMARY_INTERVENTION_DATE = "{{ primary_intervention_date or '' }}";
 const PRIMARY_INTERVENTION_NAME = "{{ primary_intervention_name or 'intervention' }}";
@@ -107,7 +107,6 @@ const interventionLinePlugin = {
         const { ctx, chartArea, scales } = chart;
         if (!chartArea || !scales.x) return;
 
-        // Primary intervention line (teal for Rx, orange for supplements)
         if (PRIMARY_INTERVENTION_DATE) {
             const x = scales.x.getPixelForValue(PRIMARY_INTERVENTION_DATE);
             if (x && x >= chartArea.left && x <= chartArea.right) {
@@ -131,7 +130,6 @@ const interventionLinePlugin = {
             }
         }
 
-        // Other interventions (purple for Rx, orange for supplements)
         OTHER_INTERVENTIONS.forEach((med, i) => {
             const x = scales.x.getPixelForValue(med.start_date);
             if (x && x >= chartArea.left && x <= chartArea.right) {
@@ -281,17 +279,19 @@ function buildHRVChart() {
 }
 
 // ============================================================
-// Build HRV vs fatigue chart
+// Build respiratory rate vs HRV chart
 // ============================================================
-function buildFatigueChart() {
-    new Chart(document.getElementById('chartFatigue'), {
+function buildRespHRVChart() {
+    if (!H.resp_raw || !H.resp_raw.some(v => v !== null)) return;
+
+    new Chart(document.getElementById('chartRespHRV'), {
         type: 'line',
         plugins: [interventionLinePlugin, flareLinePlugin],
         data: {
             labels: H.dates,
             datasets: [
                 {
-                    label: 'HRV (ms)',
+                    label: 'HRV 7d avg (ms)',
                     data: H.hrv_rolling,
                     borderColor: '#4a90d9',
                     backgroundColor: 'transparent',
@@ -301,181 +301,18 @@ function buildFatigueChart() {
                     yAxisID: 'yHRV',
                 },
                 {
-                    label: 'Fatigue (0-10)',
-                    data: H.fatigue,
-                    borderColor: '#d4a054',
-                    backgroundColor: 'transparent',
-                    borderWidth: 2,
-                    pointRadius: 2,
-                    tension: 0.3,
-                    spanGaps: true,
-                    yAxisID: 'yFatigue',
-                }
-            ]
-        },
-        options: {
-            responsive: true,
-            interaction: { mode: 'index', intersect: false },
-            plugins: {
-                legend: { labels: { color: TEXT, boxWidth: 12, padding: 16 } },
-                tooltip: tooltipOpts(),
-            },
-            scales: {
-                x: {
-                    grid: gridOpts(),
-                    ticks: { maxTicksLimit: 12, maxRotation: 45 }
-                },
-                yHRV: {
-                    type: 'linear',
-                    position: 'left',
-                    grid: gridOpts(),
-                    title: { display: true, text: 'HRV (ms)', color: '#4a90d9' },
-                    ticks: { color: '#4a90d9' },
-                },
-                yFatigue: {
-                    type: 'linear',
-                    position: 'right',
-                    min: 0, max: 10,
-                    grid: { display: false },
-                    title: { display: true, text: 'Fatigue', color: '#d4a054' },
-                    ticks: { color: '#d4a054' },
-                }
-            }
-        }
-    });
-}
-
-// ============================================================
-// Build HRV vs pain chart
-// ============================================================
-function buildPainChart() {
-    new Chart(document.getElementById('chartPain'), {
-        type: 'line',
-        plugins: [interventionLinePlugin, flareLinePlugin],
-        data: {
-            labels: H.dates,
-            datasets: [
-                {
-                    label: 'HRV (ms)',
-                    data: H.hrv_rolling,
-                    borderColor: '#4a90d9',
-                    backgroundColor: 'transparent',
-                    borderWidth: 2,
-                    pointRadius: 0,
-                    tension: 0.4,
-                    yAxisID: 'yHRV',
-                },
-                {
-                    label: 'Pain (0-10)',
-                    data: H.pain,
-                    borderColor: '#c94040',
-                    backgroundColor: 'transparent',
-                    borderWidth: 2,
-                    pointRadius: 2,
-                    tension: 0.3,
-                    spanGaps: true,
-                    yAxisID: 'yPain',
-                }
-            ]
-        },
-        options: {
-            responsive: true,
-            interaction: { mode: 'index', intersect: false },
-            plugins: {
-                legend: { labels: { color: TEXT, boxWidth: 12, padding: 16 } },
-                tooltip: tooltipOpts(),
-            },
-            scales: {
-                x: {
-                    grid: gridOpts(),
-                    ticks: { maxTicksLimit: 12, maxRotation: 45 }
-                },
-                yHRV: {
-                    type: 'linear',
-                    position: 'left',
-                    grid: gridOpts(),
-                    title: { display: true, text: 'HRV (ms)', color: '#4a90d9' },
-                    ticks: { color: '#4a90d9' },
-                },
-                yPain: {
-                    type: 'linear',
-                    position: 'right',
-                    min: 0, max: 10,
-                    grid: { display: false },
-                    title: { display: true, text: 'Pain', color: '#c94040' },
-                    ticks: { color: '#c94040' },
-                }
-            }
-        }
-    });
-}
-
-// ============================================================
-// Rolling average helper
-// ============================================================
-function rollingAvg(arr, window) {
-    return arr.map((_, i) => {
-        const slice = arr.slice(Math.max(0, i - window + 1), i + 1)
-                         .filter(v => v !== null && v !== undefined);
-        return slice.length >= 2 
-            ? Math.round((slice.reduce((a, b) => a + b, 0) / slice.length) * 1000) / 1000
-            : null;
-    });
-}
-
-// ============================================================
-// Build sleep/BBT/UV chart
-// ============================================================
-function buildSleepChart() {
-    if (!S.dates || S.dates.length < 3) return;
-
-    const sleepSmooth = rollingAvg(S.sleep, 3);
-    const bbtSmooth   = rollingAvg(S.bbt, 3);
-    const uvSmooth    = rollingAvg(S.uv_lag1, 3);
-
-    new Chart(document.getElementById('chartSleep'), {
-        type: 'line',
-        plugins: [interventionLinePlugin, flareLinePlugin],
-        data: {
-            labels: S.dates,
-            datasets: [
-                {
-                    label: 'hours slept (3d avg)',
-                    data: sleepSmooth,
-                    borderColor: '#9b72cf',
-                    backgroundColor: 'transparent',
+                    label: 'Resp rate 7d avg (bpm)',
+                    data: H.resp_rolling,
+                    borderColor: '#4ab8a0',
+                    backgroundColor: 'rgba(74,184,160,0.08)',
                     borderWidth: 2,
                     pointRadius: 0,
                     pointHoverRadius: 4,
-                    tension: 0.4,
-                    spanGaps: true,
-                    yAxisID: 'ySleep',
-                },
-                {
-                    label: 'temp delta (3d avg)',
-                    data: bbtSmooth,
-                    borderColor: '#d4784a',
-                    backgroundColor: 'transparent',
-                    borderWidth: 1.5,
-                    pointRadius: 0,
-                    pointHoverRadius: 4,
-                    borderDash: [4, 3],
-                    tension: 0.4,
-                    spanGaps: true,
-                    yAxisID: 'yTemp',
-                },
-                {
-                    label: 'uv prev day (3d avg)',
-                    data: uvSmooth,
-                    borderColor: '#d4b84a',
-                    backgroundColor: 'rgba(212,184,74,0.07)',
-                    borderWidth: 1,
-                    pointRadius: 0,
                     tension: 0.4,
                     fill: true,
                     spanGaps: true,
-                    yAxisID: 'yUV',
-                },
+                    yAxisID: 'yResp',
+                }
             ]
         },
         options: {
@@ -490,27 +327,113 @@ function buildSleepChart() {
                     grid: gridOpts(),
                     ticks: { maxTicksLimit: 12, maxRotation: 45 }
                 },
-                ySleep: {
+                yHRV: {
                     type: 'linear',
                     position: 'left',
-                    min: 0, max: 14,
                     grid: gridOpts(),
-                    title: { display: true, text: 'hours slept', color: '#9b72cf' },
-                    ticks: { color: '#9b72cf' },
+                    title: { display: true, text: 'HRV (ms)', color: '#4a90d9' },
+                    ticks: { color: '#4a90d9' },
                 },
-                yTemp: {
+                yResp: {
                     type: 'linear',
                     position: 'right',
                     grid: { display: false },
-                    title: { display: true, text: 'temp delta (°F)', color: '#d4784a' },
-                    ticks: { color: '#d4784a' },
+                    title: { display: true, text: 'Resp rate (bpm)', color: '#4ab8a0' },
+                    ticks: { color: '#4ab8a0' },
+                }
+            }
+        }
+    });
+}
+
+// ============================================================
+// Build respiratory rate vs flares chart
+// ============================================================
+function buildRespFlaresChart() {
+    if (!H.resp_raw || !H.resp_raw.some(v => v !== null)) return;
+
+    // Build flare scatter datasets by severity
+    const flareDateSet = {};
+    FLARE_EVENTS.forEach(e => { flareDateSet[e.date] = e.severity; });
+
+    function flarePoints(severity) {
+        return H.dates.map((d, i) => {
+            if (flareDateSet[d] === severity && H.resp_rolling[i] !== null) {
+                return H.resp_rolling[i];
+            }
+            return null;
+        });
+    }
+
+    new Chart(document.getElementById('chartRespFlares'), {
+        type: 'line',
+        plugins: [interventionLinePlugin],
+        data: {
+            labels: H.dates,
+            datasets: [
+                {
+                    label: 'Resp rate 7d avg',
+                    data: H.resp_rolling,
+                    borderColor: '#4ab8a0',
+                    backgroundColor: 'rgba(74,184,160,0.08)',
+                    borderWidth: 2,
+                    pointRadius: 0,
+                    pointHoverRadius: 4,
+                    tension: 0.4,
+                    fill: true,
+                    spanGaps: true,
                 },
-                yUV: {
-                    type: 'linear',
-                    position: 'right',
-                    min: 0,
-                    grid: { display: false },
-                    display: false,
+                {
+                    label: 'ER visit',
+                    data: flarePoints('er_visit'),
+                    borderColor: 'transparent',
+                    backgroundColor: '#ff4444',
+                    pointRadius: 7,
+                    pointHoverRadius: 9,
+                    pointStyle: 'circle',
+                    showLine: false,
+                    spanGaps: false,
+                },
+                {
+                    label: 'Major flare',
+                    data: flarePoints('major'),
+                    borderColor: 'transparent',
+                    backgroundColor: '#ff8c00',
+                    pointRadius: 6,
+                    pointHoverRadius: 8,
+                    pointStyle: 'circle',
+                    showLine: false,
+                    spanGaps: false,
+                },
+                {
+                    label: 'Minor flare',
+                    data: flarePoints('minor'),
+                    borderColor: 'transparent',
+                    backgroundColor: '#ffcc00',
+                    pointRadius: 5,
+                    pointHoverRadius: 7,
+                    pointStyle: 'circle',
+                    showLine: false,
+                    spanGaps: false,
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            interaction: { mode: 'index', intersect: false },
+            plugins: {
+                legend: { labels: { color: TEXT, boxWidth: 12, padding: 16 } },
+                tooltip: tooltipOpts(),
+            },
+            scales: {
+                x: {
+                    grid: gridOpts(),
+                    ticks: { maxTicksLimit: 12, maxRotation: 45 }
+                },
+                y: {
+                    grid: gridOpts(),
+                    title: { display: true, text: 'Resp rate (bpm)', color: '#4ab8a0' },
+                    ticks: { color: '#4ab8a0' },
                 }
             }
         }
@@ -524,63 +447,48 @@ function populateStats() {
     const pre  = H.pre_intervention;
     const post = H.post_intervention;
 
-    function rmssdLine(stats) {
-        if (stats.rmssd_mean != null) {
-            return `<div style="font-size:0.85rem; color:#9b72cf; margin-top:4px;">
-                RMSSD: ${stats.rmssd_mean} ms (σ ${stats.rmssd_std})
-            </div>`;
+    const preEl = document.getElementById('preStats');
+    const postEl = document.getElementById('postStats');
+
+    function buildStatHTML(stats, isPost) {
+        if (!stats || stats.n === 0) {
+            return '<div style="color:var(--text-muted); font-size:0.9rem;">' + (isPost ? 'no data yet' : 'no data') + '</div>';
         }
-        return '';
+
+        let html = '<div style="font-size:1.6rem; font-weight:600; color:' + (isPost ? '#4ab8b8' : '#4a90d9') + ';">'
+            + stats.mean + ' <span style="font-size:0.9rem; color:var(--text-muted);">ms SDNN</span></div>'
+            + '<div style="font-size:0.85rem; color:var(--text-muted); margin-top:4px;">'
+            + '\u03c3 ' + stats.std + ' \u00b7 n=' + stats.n + '</div>';
+
+        if (isPost && pre && pre.mean && stats.mean) {
+            const delta = stats.mean - pre.mean;
+            html += '<div style="font-size:0.85rem; margin-top:4px; color:' + (delta > 0 ? '#4ab8b8' : '#c94040') + ';">'
+                + (delta > 0 ? '\u2191' : '\u2193') + ' ' + Math.abs(delta).toFixed(1) + ' ms SDNN</div>';
+        }
+
+        if (stats.rmssd_mean != null) {
+            html += '<div style="font-size:0.85rem; color:#9b72cf; margin-top:4px;">'
+                + 'RMSSD: ' + stats.rmssd_mean + ' ms (\u03c3 ' + stats.rmssd_std + ')</div>';
+        }
+
+        if (stats.resp_mean != null) {
+            html += '<div style="font-size:0.85rem; color:#4ab8a0; margin-top:4px;">'
+                + 'Resp: ' + stats.resp_mean + ' bpm (\u03c3 ' + stats.resp_std + ')</div>';
+        }
+
+        return html;
     }
 
-    if (pre && pre.n > 0) {
-        document.getElementById('preStats').innerHTML = `
-            <div style="font-size:1.6rem; font-weight:600; color:#4a90d9;">
-                ${pre.mean} <span style="font-size:0.9rem; color:var(--text-muted);">ms SDNN</span>
-            </div>
-            <div style="font-size:0.85rem; color:var(--text-muted); margin-top:4px;">
-                σ ${pre.std} · n=${pre.n}
-            </div>
-            ${rmssdLine(pre)}
-        `;
-    } else {
-        document.getElementById('preStats').innerHTML = `
-            <div style="color:var(--text-muted); font-size:0.9rem;">no data</div>
-        `;
-    }
-
-    if (post && post.n > 0) {
-        const delta = pre.mean && post.mean ? post.mean - pre.mean : null;
-        const deltaStr = delta !== null
-            ? `<div style="font-size:0.85rem; margin-top:4px; color:${delta > 0 ? '#4ab8b8' : '#c94040'};">
-                 ${delta > 0 ? '↑' : '↓'} ${Math.abs(delta).toFixed(1)} ms SDNN
-               </div>`
-            : '';
-
-        document.getElementById('postStats').innerHTML = `
-            <div style="font-size:1.6rem; font-weight:600; color:#4ab8b8;">
-                ${post.mean} <span style="font-size:0.9rem; color:var(--text-muted);">ms SDNN</span>
-            </div>
-            <div style="font-size:0.85rem; color:var(--text-muted); margin-top:4px;">
-                σ ${post.std} · n=${post.n}
-            </div>
-            ${deltaStr}
-            ${rmssdLine(post)}
-        `;
-    } else {
-        document.getElementById('postStats').innerHTML = `
-            <div style="color:var(--text-muted); font-size:0.9rem;">no data yet</div>
-        `;
-    }
+    preEl.innerHTML = buildStatHTML(pre, false);
+    postEl.innerHTML = buildStatHTML(post, true);
 }
 
 // ============================================================
 // Init
 // ============================================================
 buildHRVChart();
-buildFatigueChart();
-buildPainChart();
-buildSleepChart();
+buildRespHRVChart();
+buildRespFlaresChart();
 if (PRIMARY_INTERVENTION_DATE) {
     populateStats();
 }
