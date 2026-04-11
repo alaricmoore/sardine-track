@@ -47,6 +47,59 @@
     </a>
 </div>
 
+<!-- Recent HealthKit Syncs panel - polled live every 30s -->
+<div class="card" id="syncPanel" style="margin-bottom: var(--space-md);">
+    <div class="card-title" style="display:flex; align-items:center; justify-content:space-between;">
+        <span>recent HealthKit syncs</span>
+        <span id="syncPanelStatus" style="font-size:0.7rem; color:var(--text-muted); font-weight:normal;"></span>
+    </div>
+    <div id="syncPanelBody">
+        {% if recent_syncs %}
+            {% for ev in recent_syncs %}
+            <div class="sync-event" data-posted-at="{{ ev.posted_at }}"
+                 style="padding: var(--space-sm) 0; {% if not loop.last %}border-bottom: 1px solid var(--border-subtle);{% endif %}">
+                <div style="display:flex; align-items:center; gap:var(--space-sm); flex-wrap:wrap;">
+                    <span class="sync-relative" title="{{ ev.posted_at }}"
+                          style="font-size:0.85rem; color:var(--text-primary); font-weight:600;">
+                        {{ ev.posted_at }}
+                    </span>
+                    <span style="font-size:0.7rem; color:var(--text-muted);">
+                        for {{ ev.metric_date }}
+                    </span>
+                    {% if loop.first %}
+                    <span class="sync-new-pill" style="display:none; font-size:0.6rem; padding: 2px 6px;
+                                background: var(--color-accent); color: var(--bg-base);
+                                border-radius: 10px; font-weight:700; letter-spacing:0.05em;">NEW</span>
+                    {% endif %}
+                </div>
+                <div class="sync-fields" style="font-size:0.75rem; color:var(--text-secondary); margin-top:4px;
+                            font-family: var(--font-mono); word-break: break-word;">
+                    {%- set parts = [] -%}
+                    {%- for f in ev.fields_updated -%}
+                        {%- set v = ev.payload[f] -%}
+                        {%- if f == 'steps' -%}{%- set _ = parts.append('steps ' ~ ('{:,}'.format(v|int))) -%}
+                        {%- elif f == 'hrv' -%}{%- set _ = parts.append('hrv ' ~ v ~ 'ms') -%}
+                        {%- elif f == 'hrv_rmssd' -%}{%- set _ = parts.append('rmssd ' ~ v ~ 'ms') -%}
+                        {%- elif f == 'resting_heart_rate' -%}{%- set _ = parts.append('rhr ' ~ v ~ 'bpm') -%}
+                        {%- elif f == 'spo2' -%}{%- set _ = parts.append('spo2 ' ~ v ~ '%') -%}
+                        {%- elif f == 'basal_temp_delta' -%}{%- set _ = parts.append('temp ' ~ v ~ '°F') -%}
+                        {%- elif f == 'respiratory_rate' -%}{%- set _ = parts.append('resp ' ~ v) -%}
+                        {%- elif f == 'sun_exposure_min' -%}{%- set _ = parts.append('daylight ' ~ (v|int) ~ 'min') -%}
+                        {%- else -%}{%- set _ = parts.append(f ~ ' ' ~ v) -%}
+                        {%- endif -%}
+                    {%- endfor -%}
+                    {{ parts | join(' · ') }}
+                </div>
+            </div>
+            {% endfor %}
+        {% else %}
+            <div id="syncPanelEmpty" style="padding: var(--space-sm) 0; font-size:0.85rem; color:var(--text-muted);">
+                No HealthKit syncs yet. Check that iOS HealthSync is configured and has permission to read Apple Health.
+            </div>
+        {% endif %}
+    </div>
+</div>
+
 <!-- UV strip - auto-fetched on page load -->
 {% if uv %}
 <div class="uv-strip" id="uv-strip">
@@ -720,6 +773,144 @@
             }
         });
     }
+
+    // ============================================================
+    // Recent HealthKit Syncs panel - relative timestamps + 30s polling
+    // ============================================================
+    (function() {
+        const panel = document.getElementById('syncPanel');
+        if (!panel) return;
+        const body = document.getElementById('syncPanelBody');
+        const statusEl = document.getElementById('syncPanelStatus');
+        const POLL_MS = 30000;
+
+        function relativeTime(iso) {
+            const then = new Date(iso);
+            if (isNaN(then.getTime())) return iso;
+            const diffSec = Math.floor((Date.now() - then.getTime()) / 1000);
+            if (diffSec < 60)        return diffSec + ' sec ago';
+            if (diffSec < 3600)      return Math.floor(diffSec / 60) + ' min ago';
+            if (diffSec < 86400)     return Math.floor(diffSec / 3600) + ' hour' + (diffSec >= 7200 ? 's' : '') + ' ago';
+            if (diffSec < 172800)    return 'yesterday';
+            return Math.floor(diffSec / 86400) + ' days ago';
+        }
+
+        function formatField(name, val) {
+            if (val == null) return name;
+            switch (name) {
+                case 'steps':              return 'steps ' + Math.round(val).toLocaleString();
+                case 'hrv':                return 'hrv ' + val + 'ms';
+                case 'hrv_rmssd':          return 'rmssd ' + val + 'ms';
+                case 'resting_heart_rate': return 'rhr ' + val + 'bpm';
+                case 'spo2':               return 'spo2 ' + val + '%';
+                case 'basal_temp_delta':   return 'temp ' + val + '\u00b0F';
+                case 'respiratory_rate':   return 'resp ' + val;
+                case 'sun_exposure_min':   return 'daylight ' + Math.round(val) + 'min';
+                default:                   return name + ' ' + val;
+            }
+        }
+
+        function refreshRelativeTimes() {
+            panel.querySelectorAll('.sync-event').forEach(function(el, idx) {
+                const iso = el.getAttribute('data-posted-at');
+                const span = el.querySelector('.sync-relative');
+                if (span && iso) {
+                    span.textContent = relativeTime(iso);
+                    span.title = iso;
+                }
+                if (idx === 0) {
+                    const pill = el.querySelector('.sync-new-pill');
+                    if (pill && iso) {
+                        const ageSec = (Date.now() - new Date(iso).getTime()) / 1000;
+                        pill.style.display = (ageSec < 600) ? 'inline-block' : 'none';
+                    }
+                }
+            });
+        }
+
+        function buildEmptyState() {
+            const empty = document.createElement('div');
+            empty.id = 'syncPanelEmpty';
+            empty.style.cssText = 'padding: var(--space-sm) 0; font-size:0.85rem; color:var(--text-muted);';
+            empty.textContent = 'No HealthKit syncs yet. Check that iOS HealthSync is configured and has permission to read Apple Health.';
+            return empty;
+        }
+
+        function renderEvents(events) {
+            if (!events || events.length === 0) {
+                body.replaceChildren(buildEmptyState());
+                return;
+            }
+            const frag = document.createDocumentFragment();
+            events.forEach(function(ev, idx) {
+                const wrap = document.createElement('div');
+                wrap.className = 'sync-event';
+                wrap.setAttribute('data-posted-at', ev.posted_at);
+                wrap.style.cssText = 'padding: var(--space-sm) 0;' +
+                    (idx < events.length - 1 ? ' border-bottom: 1px solid var(--border-subtle);' : '');
+
+                const headRow = document.createElement('div');
+                headRow.style.cssText = 'display:flex; align-items:center; gap:var(--space-sm); flex-wrap:wrap;';
+
+                const rel = document.createElement('span');
+                rel.className = 'sync-relative';
+                rel.title = ev.posted_at;
+                rel.style.cssText = 'font-size:0.85rem; color:var(--text-primary); font-weight:600;';
+                rel.textContent = relativeTime(ev.posted_at);
+                headRow.appendChild(rel);
+
+                const forDate = document.createElement('span');
+                forDate.style.cssText = 'font-size:0.7rem; color:var(--text-muted);';
+                forDate.textContent = 'for ' + ev.metric_date;
+                headRow.appendChild(forDate);
+
+                if (idx === 0) {
+                    const pill = document.createElement('span');
+                    pill.className = 'sync-new-pill';
+                    const ageSec = (Date.now() - new Date(ev.posted_at).getTime()) / 1000;
+                    pill.style.cssText = 'font-size:0.6rem; padding: 2px 6px; background: var(--color-accent);' +
+                        ' color: var(--bg-base); border-radius: 10px; font-weight:700; letter-spacing:0.05em;' +
+                        ' display:' + (ageSec < 600 ? 'inline-block' : 'none') + ';';
+                    pill.textContent = 'NEW';
+                    headRow.appendChild(pill);
+                }
+                wrap.appendChild(headRow);
+
+                const fieldsRow = document.createElement('div');
+                fieldsRow.className = 'sync-fields';
+                fieldsRow.style.cssText = 'font-size:0.75rem; color:var(--text-secondary); margin-top:4px;' +
+                    ' font-family: var(--font-mono); word-break: break-word;';
+                const parts = (ev.fields_updated || []).map(function(f) {
+                    return formatField(f, ev.payload ? ev.payload[f] : null);
+                });
+                fieldsRow.textContent = parts.join(' \u00b7 ');
+                wrap.appendChild(fieldsRow);
+
+                frag.appendChild(wrap);
+            });
+            body.replaceChildren(frag);
+        }
+
+        async function poll() {
+            try {
+                const res = await fetch('/api/health-sync/recent', { credentials: 'same-origin' });
+                if (!res.ok) throw new Error('http ' + res.status);
+                const json = await res.json();
+                if (json.ok) {
+                    renderEvents(json.events || []);
+                    statusEl.textContent = '';
+                } else {
+                    statusEl.textContent = 'couldn\'t load sync history';
+                }
+            } catch (err) {
+                statusEl.textContent = 'couldn\'t load sync history';
+            }
+        }
+
+        refreshRelativeTimes();
+        setInterval(refreshRelativeTimes, 30000);
+        setInterval(poll, POLL_MS);
+    })();
 </script>
 
 <style>

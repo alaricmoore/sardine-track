@@ -1351,6 +1351,12 @@ def daily_entry():
         except Exception:
             pass
 
+    # Recent HealthKit sync events for the trust panel at the top of /daily
+    try:
+        recent_syncs = db.get_recent_health_sync_events(uid(), limit=10)
+    except Exception:
+        recent_syncs = []
+
     return render_template(
         "daily_entry.html",
         entry_date=entry_date_str,
@@ -1364,6 +1370,7 @@ def daily_entry():
         is_today=is_today,
         quick_mode=quick_mode,
         bbt_hint=bbt_hint,
+        recent_syncs=recent_syncs,
     )
 
 
@@ -5517,7 +5524,31 @@ def api_health_sync():
         return jsonify({"error": "no valid health fields provided"}), 400
 
     db.upsert_daily_observations(user_id, data)
+
+    # Append to sync audit log so /daily can show recent syncs
+    metric_payload = {f: data[f] for f in fields_updated if f in data}
+    db.record_health_sync_event(
+        user_id=user_id,
+        posted_at=datetime.now().isoformat(timespec="seconds"),
+        metric_date=obs_date,
+        fields_updated=fields_updated,
+        payload=metric_payload,
+    )
+
     return jsonify({"ok": True, "date": obs_date, "fields_updated": fields_updated})
+
+
+@app.route("/api/health-sync/recent")
+@login_required
+def api_health_sync_recent():
+    """Return the most recent health sync events for the logged-in user.
+    Used by the /daily page's "Recent HealthKit Syncs" panel for live polling.
+    """
+    try:
+        events = db.get_recent_health_sync_events(uid(), limit=10)
+        return jsonify({"ok": True, "events": events})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 
 @app.route("/api/flare-status")

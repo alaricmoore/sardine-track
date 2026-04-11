@@ -265,6 +265,46 @@ def upsert_daily_observations(user_id: int, data: dict) -> bool:
     return True
 
 
+def record_health_sync_event(user_id: int, posted_at: str, metric_date: str,
+                              fields_updated: list, payload: dict) -> None:
+    """Append a row to health_sync_events for the /api/health-sync POST audit log."""
+    with get_db() as conn:
+        conn.execute(
+            """INSERT INTO health_sync_events
+               (user_id, posted_at, metric_date, fields_updated, payload_json)
+               VALUES (?, ?, ?, ?, ?)""",
+            (user_id, posted_at, metric_date,
+             json.dumps(fields_updated), json.dumps(payload))
+        )
+
+
+def get_recent_health_sync_events(user_id: int, limit: int = 10) -> list[dict]:
+    """Fetch the N most recent health sync events for a user, newest first."""
+    with get_db() as conn:
+        rows = conn.execute(
+            """SELECT id, posted_at, metric_date, fields_updated, payload_json
+               FROM health_sync_events
+               WHERE user_id = ?
+               ORDER BY posted_at DESC
+               LIMIT ?""",
+            (user_id, limit)
+        ).fetchall()
+    events = []
+    for row in rows:
+        d = dict(row)
+        try:
+            d["fields_updated"] = json.loads(d["fields_updated"])
+        except (TypeError, ValueError):
+            d["fields_updated"] = []
+        try:
+            d["payload"] = json.loads(d["payload_json"])
+        except (TypeError, ValueError):
+            d["payload"] = {}
+        del d["payload_json"]
+        events.append(d)
+    return events
+
+
 def get_daily_observations(user_id: int, date_str: str) -> Optional[dict]:
     """Fetch a single daily observation by user and date."""
     with get_db() as conn:

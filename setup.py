@@ -226,6 +226,26 @@ def create_database():
         )
     """)
     
+    # --------------------------------------------------------
+    # health_sync_events
+    # Audit trail for incoming POSTs to /api/health-sync — used by the
+    # /daily page's "recent HealthKit syncs" panel for trust/visibility.
+    # --------------------------------------------------------
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS health_sync_events (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id         INTEGER NOT NULL REFERENCES users(id),
+            posted_at       TEXT NOT NULL,    -- ISO timestamp when the POST landed
+            metric_date     TEXT NOT NULL,    -- the YYYY-MM-DD the sync was for
+            fields_updated  TEXT NOT NULL,    -- JSON array of field names
+            payload_json    TEXT NOT NULL     -- JSON object of {field: value}
+        )
+    """)
+    c.execute("""
+        CREATE INDEX IF NOT EXISTS idx_health_sync_events_user_posted
+        ON health_sync_events(user_id, posted_at DESC)
+    """)
+
     try:
         c.execute("ALTER TABLE daily_observations ADD COLUMN rheumatic INTEGER DEFAULT 0")
     except:
