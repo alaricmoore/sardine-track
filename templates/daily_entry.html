@@ -201,16 +201,37 @@
 
         <div class="form-group">
             <label>HRV / SDNN <span style="color:var(--text-muted)">(from watch)</span></label>
-            <input type="number" name="hrv" step="0.1" min="0"
+            <input type="number" name="hrv" step="0.01" min="0"
                 placeholder="e.g. 28"
-                value="{{ existing.hrv if existing and existing.hrv else '' }}">
+                value="{{ existing.hrv if existing and existing.hrv is not none else '' }}">
         </div>
 
         <div class="form-group">
             <label>RMSSD <span style="color:var(--text-muted)">(parasympathetic)</span></label>
-            <input type="number" name="hrv_rmssd" step="0.1" min="0"
+            <input type="number" name="hrv_rmssd" step="0.01" min="0"
                 placeholder="e.g. 22"
-                value="{{ existing.hrv_rmssd if existing and existing.hrv_rmssd else '' }}">
+                value="{{ existing.hrv_rmssd if existing and existing.hrv_rmssd is not none else '' }}">
+        </div>
+
+        <div class="form-group">
+            <label>resting heart rate <span style="color:var(--text-muted)">(bpm)</span></label>
+            <input type="number" name="resting_heart_rate" step="0.01" min="0"
+                placeholder="e.g. 58"
+                value="{{ existing.resting_heart_rate if existing and existing.resting_heart_rate is not none else '' }}">
+        </div>
+
+        <div class="form-group">
+            <label>SpO2 <span style="color:var(--text-muted)">(blood oxygen %)</span></label>
+            <input type="number" name="spo2" step="0.01" min="0" max="100"
+                placeholder="e.g. 98.2"
+                value="{{ existing.spo2 if existing and existing.spo2 is not none else '' }}">
+        </div>
+
+        <div class="form-group">
+            <label>respiratory rate <span style="color:var(--text-muted)">(breaths/min)</span></label>
+            <input type="number" name="respiratory_rate" step="0.01" min="0"
+                placeholder="e.g. 14"
+                value="{{ existing.respiratory_rate if existing and existing.respiratory_rate is not none else '' }}">
         </div>
 
         <div class="form-group">
@@ -891,13 +912,35 @@
             body.replaceChildren(frag);
         }
 
+        // Form field names that the iOS sync can populate
+        const SYNC_FIELDS = ['steps', 'hrv', 'hrv_rmssd', 'resting_heart_rate',
+                             'spo2', 'respiratory_rate', 'basal_temp_delta',
+                             'sun_exposure_min'];
+
+        function fillEmptyFormFields(event) {
+            if (!event || !event.payload) return;
+            SYNC_FIELDS.forEach(function(name) {
+                const input = document.querySelector('input[name="' + name + '"]:not([type="hidden"])');
+                if (!input) return;
+                if (input.value !== '') return;  // never clobber user input
+                const v = event.payload[name];
+                if (v == null) return;
+                input.value = v;
+                // Subtle visual cue that this was auto-filled
+                input.style.backgroundColor = 'rgba(74,184,160,0.08)';
+                setTimeout(function() { input.style.backgroundColor = ''; }, 2000);
+            });
+        }
+
         async function poll() {
             try {
                 const res = await fetch('/api/health-sync/recent', { credentials: 'same-origin' });
                 if (!res.ok) throw new Error('http ' + res.status);
                 const json = await res.json();
                 if (json.ok) {
-                    renderEvents(json.events || []);
+                    const events = json.events || [];
+                    renderEvents(events);
+                    if (events.length > 0) fillEmptyFormFields(events[0]);
                     statusEl.textContent = '';
                 } else {
                     statusEl.textContent = 'couldn\'t load sync history';

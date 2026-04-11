@@ -1395,6 +1395,9 @@ def daily_entry_submit():
         "hours_slept": get_float("hours_slept"),
         "hrv": get_float("hrv"),
         "hrv_rmssd": get_float("hrv_rmssd"),
+        "resting_heart_rate": get_float("resting_heart_rate"),
+        "spo2": get_float("spo2"),
+        "respiratory_rate": get_float("respiratory_rate"),
         "basal_temp_delta": get_float("basal_temp_delta"),
         "sun_exposure_min": get_float("sun_exposure_min"),
         "pain_scale": get_float("pain_scale"),
@@ -5525,15 +5528,19 @@ def api_health_sync():
 
     db.upsert_daily_observations(user_id, data)
 
-    # Append to sync audit log so /daily can show recent syncs
-    metric_payload = {f: data[f] for f in fields_updated if f in data}
-    db.record_health_sync_event(
-        user_id=user_id,
-        posted_at=datetime.now().isoformat(timespec="seconds"),
-        metric_date=obs_date,
-        fields_updated=fields_updated,
-        payload=metric_payload,
-    )
+    # Append to sync audit log so /daily can show recent syncs.
+    # Wrapped in try/except so a logging failure can never break the actual sync.
+    try:
+        metric_payload = {f: data[f] for f in fields_updated if f in data}
+        db.record_health_sync_event(
+            user_id=user_id,
+            posted_at=datetime.now().isoformat(timespec="seconds"),
+            metric_date=obs_date,
+            fields_updated=fields_updated,
+            payload=metric_payload,
+        )
+    except Exception as e:
+        app.logger.warning("health_sync_events insert failed: %s", e)
 
     return jsonify({"ok": True, "date": obs_date, "fields_updated": fields_updated})
 
