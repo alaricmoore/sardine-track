@@ -1948,28 +1948,36 @@ def uv_lag():
 def compute_hrv_data(observations: list, intervention_date: str = None) -> dict:
     """Compute HRV trend with 7-day rolling average and intervention split.
     Includes SDNN (hrv), RMSSD (hrv_rmssd), and respiratory rate when available.
+
+    Includes any observation that has at least one autonomic metric (hrv,
+    rmssd, or respiratory rate), so resp-only days still appear on the
+    respiratory rate charts even when HRV is missing.
     """
     import numpy as np
 
-    hrv_obs = [o for o in observations if o.get("hrv") is not None]
-    if not hrv_obs:
+    auto_obs = [o for o in observations
+                if o.get("hrv") is not None
+                or o.get("hrv_rmssd") is not None
+                or o.get("respiratory_rate") is not None]
+    if not auto_obs:
         return {}
 
-    dates    = [o["date"] for o in hrv_obs]
-    hrv_vals = [float(o["hrv"]) for o in hrv_obs]
-    rmssd_vals = [float(o["hrv_rmssd"]) if o.get("hrv_rmssd") is not None else None for o in hrv_obs]
-    resp_vals = [float(o["respiratory_rate"]) if o.get("respiratory_rate") is not None else None for o in hrv_obs]
+    dates    = [o["date"] for o in auto_obs]
+    hrv_vals = [float(o["hrv"]) if o.get("hrv") is not None else None for o in auto_obs]
+    rmssd_vals = [float(o["hrv_rmssd"]) if o.get("hrv_rmssd") is not None else None for o in auto_obs]
+    resp_vals = [float(o["respiratory_rate"]) if o.get("respiratory_rate") is not None else None for o in auto_obs]
 
-    def _rolling_avg(vals):
+    def _rolling_avg(vals, min_n=3):
         result = []
         for i in range(len(vals)):
             window = [v for v in vals[max(0, i - 6): i + 1] if v is not None]
-            result.append(round(sum(window) / len(window), 2) if len(window) >= 3 else None)
+            result.append(round(sum(window) / len(window), 2) if len(window) >= min_n else None)
         return result
 
     rolling = _rolling_avg(hrv_vals)
     rmssd_rolling = _rolling_avg(rmssd_vals)
-    resp_rolling = _rolling_avg(resp_vals)
+    # Resp rate can be sparse — accept a single data point so isolated observations still render
+    resp_rolling = _rolling_avg(resp_vals, min_n=1)
 
     # Split stats only if intervention date is provided
     pre_vals  = []
@@ -1979,8 +1987,8 @@ def compute_hrv_data(observations: list, intervention_date: str = None) -> dict:
     pre_resp = []
     post_resp = []
     if intervention_date:
-        pre_vals  = [v for d, v in zip(dates, hrv_vals) if d < intervention_date]
-        post_vals = [v for d, v in zip(dates, hrv_vals) if d >= intervention_date]
+        pre_vals  = [v for d, v in zip(dates, hrv_vals) if d < intervention_date and v is not None]
+        post_vals = [v for d, v in zip(dates, hrv_vals) if d >= intervention_date and v is not None]
         pre_rmssd = [v for d, v in zip(dates, rmssd_vals) if d < intervention_date and v is not None]
         post_rmssd = [v for d, v in zip(dates, rmssd_vals) if d >= intervention_date and v is not None]
         pre_resp = [v for d, v in zip(dates, resp_vals) if d < intervention_date and v is not None]

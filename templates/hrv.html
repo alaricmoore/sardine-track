@@ -4,6 +4,16 @@
 
 {% block head %}
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+.data-count {
+    display: inline-block;
+    margin-left: 0.5rem;
+    font-size: 0.7rem;
+    font-weight: normal;
+    color: var(--text-muted);
+    letter-spacing: 0.02em;
+}
+</style>
 {% endblock %}
 
 {% block content %}
@@ -47,7 +57,9 @@
 
 <!-- HRV trend chart -->
 <div class="chart-container">
-    <div class="chart-title">hrv — raw & 7-day rolling average</div>
+    <div class="chart-title">hrv — raw & 7-day rolling average
+        <span id="countHRV" class="data-count"></span>
+    </div>
     {% if flare_events_json != '[]' %}
     <div style="font-size:0.75rem; color:var(--text-muted); margin-bottom:var(--space-sm);">
         flare markers:
@@ -61,13 +73,17 @@
 
 <!-- Respiratory rate vs HRV chart -->
 <div class="chart-container">
-    <div class="chart-title">respiratory rate vs hrv</div>
+    <div class="chart-title">respiratory rate vs hrv
+        <span id="countRespHRV" class="data-count"></span>
+    </div>
     <canvas id="chartRespHRV" style="max-height:280px;"></canvas>
 </div>
 
 <!-- Respiratory rate vs flares chart -->
 <div class="chart-container">
-    <div class="chart-title">respiratory rate vs flares</div>
+    <div class="chart-title">respiratory rate vs flares
+        <span id="countRespFlares" class="data-count"></span>
+    </div>
     {% if flare_events_json != '[]' %}
     <div style="font-size:0.75rem; color:var(--text-muted); margin-bottom:var(--space-sm);">
         <span style="color:#ff4444;">&#9679;</span> ER visit
@@ -384,6 +400,17 @@ function buildRespFlaresChart() {
                     spanGaps: true,
                 },
                 {
+                    label: 'Resp rate (raw)',
+                    data: H.resp_raw,
+                    borderColor: 'transparent',
+                    backgroundColor: 'rgba(74,184,160,0.45)',
+                    pointRadius: 2,
+                    pointHoverRadius: 4,
+                    pointStyle: 'circle',
+                    showLine: false,
+                    spanGaps: false,
+                },
+                {
                     label: 'ER visit',
                     data: flarePoints('er_visit'),
                     borderColor: 'transparent',
@@ -484,8 +511,56 @@ function populateStats() {
 }
 
 // ============================================================
+// Data-point counts in chart titles
+// ============================================================
+function countNonNull(arr) {
+    if (!Array.isArray(arr)) return 0;
+    let n = 0;
+    for (let i = 0; i < arr.length; i++) {
+        if (arr[i] != null) n++;
+    }
+    return n;
+}
+
+function countBothNonNull(a, b) {
+    if (!Array.isArray(a) || !Array.isArray(b)) return 0;
+    const len = Math.min(a.length, b.length);
+    let n = 0;
+    for (let i = 0; i < len; i++) {
+        if (a[i] != null && b[i] != null) n++;
+    }
+    return n;
+}
+
+function populateCounts() {
+    const sdnnN  = countNonNull(H.hrv_raw);
+    const rmssdN = countNonNull(H.rmssd_raw);
+    const respN  = countNonNull(H.resp_raw);
+    const flareN = Array.isArray(FLARE_EVENTS) ? FLARE_EVENTS.length : 0;
+    const overlapHrvResp = countBothNonNull(H.hrv_raw, H.resp_raw);
+
+    const elHRV = document.getElementById('countHRV');
+    if (elHRV) {
+        const parts = [sdnnN + ' SDNN'];
+        if (rmssdN > 0) parts.push(rmssdN + ' RMSSD');
+        elHRV.textContent = '· ' + parts.join(' · ') + ' days';
+    }
+
+    const elRespHRV = document.getElementById('countRespHRV');
+    if (elRespHRV) {
+        elRespHRV.textContent = '· ' + sdnnN + ' HRV · ' + respN + ' resp · ' + overlapHrvResp + ' both';
+    }
+
+    const elRespFlares = document.getElementById('countRespFlares');
+    if (elRespFlares) {
+        elRespFlares.textContent = '· ' + respN + ' resp days · ' + flareN + ' flare event' + (flareN === 1 ? '' : 's');
+    }
+}
+
+// ============================================================
 // Init
 // ============================================================
+populateCounts();
 buildHRVChart();
 buildRespHRVChart();
 buildRespFlaresChart();
