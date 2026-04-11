@@ -86,9 +86,10 @@
     </div>
     {% if flare_events_json != '[]' %}
     <div style="font-size:0.75rem; color:var(--text-muted); margin-bottom:var(--space-sm);">
-        <span style="color:#ff4444;">&#9679;</span> ER visit
-        <span style="color:#ff8c00; margin-left:0.5rem;">&#9679;</span> major
-        <span style="color:#ffcc00; margin-left:0.5rem;">&#9679;</span> minor
+        flare markers:
+        <span style="color:#ff4444;">|</span> ER visit
+        <span style="color:#ff8c00; margin-left:0.5rem;">|</span> major
+        <span style="color:#ffcc00; margin-left:0.5rem;">|</span> minor
     </div>
     {% endif %}
     <canvas id="chartRespFlares" style="max-height:280px;"></canvas>
@@ -368,22 +369,9 @@ function buildRespHRVChart() {
 function buildRespFlaresChart() {
     if (!H.resp_raw || !H.resp_raw.some(v => v !== null)) return;
 
-    // Build flare scatter datasets by severity
-    const flareDateSet = {};
-    FLARE_EVENTS.forEach(e => { flareDateSet[e.date] = e.severity; });
-
-    function flarePoints(severity) {
-        return H.dates.map((d, i) => {
-            if (flareDateSet[d] === severity && H.resp_rolling[i] !== null) {
-                return H.resp_rolling[i];
-            }
-            return null;
-        });
-    }
-
     new Chart(document.getElementById('chartRespFlares'), {
         type: 'line',
-        plugins: [interventionLinePlugin],
+        plugins: [interventionLinePlugin, flareLinePlugin],
         data: {
             labels: H.dates,
             datasets: [
@@ -406,39 +394,6 @@ function buildRespFlaresChart() {
                     backgroundColor: 'rgba(74,184,160,0.45)',
                     pointRadius: 2,
                     pointHoverRadius: 4,
-                    pointStyle: 'circle',
-                    showLine: false,
-                    spanGaps: false,
-                },
-                {
-                    label: 'ER visit',
-                    data: flarePoints('er_visit'),
-                    borderColor: 'transparent',
-                    backgroundColor: '#ff4444',
-                    pointRadius: 7,
-                    pointHoverRadius: 9,
-                    pointStyle: 'circle',
-                    showLine: false,
-                    spanGaps: false,
-                },
-                {
-                    label: 'Major flare',
-                    data: flarePoints('major'),
-                    borderColor: 'transparent',
-                    backgroundColor: '#ff8c00',
-                    pointRadius: 6,
-                    pointHoverRadius: 8,
-                    pointStyle: 'circle',
-                    showLine: false,
-                    spanGaps: false,
-                },
-                {
-                    label: 'Minor flare',
-                    data: flarePoints('minor'),
-                    borderColor: 'transparent',
-                    backgroundColor: '#ffcc00',
-                    pointRadius: 5,
-                    pointHoverRadius: 7,
                     pointStyle: 'circle',
                     showLine: false,
                     spanGaps: false,
