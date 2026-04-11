@@ -1353,7 +1353,7 @@ def daily_entry():
 
     # Recent HealthKit sync events for the trust panel at the top of /daily
     try:
-        recent_syncs = db.get_recent_health_sync_events(uid(), limit=10)
+        recent_syncs = db.get_recent_health_sync_events(uid(), limit=3)
     except Exception:
         recent_syncs = []
 
@@ -5560,7 +5560,7 @@ def api_health_sync_recent():
     Used by the /daily page's "Recent HealthKit Syncs" panel for live polling.
     """
     try:
-        events = db.get_recent_health_sync_events(uid(), limit=10)
+        events = db.get_recent_health_sync_events(uid(), limit=3)
         return jsonify({"ok": True, "events": events})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
