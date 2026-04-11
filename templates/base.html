@@ -769,6 +769,15 @@
                 align-items: center;
                 z-index: 1000;
                 padding-bottom: env(safe-area-inset-bottom);
+                transition: height 200ms ease;
+            }
+
+            .mobile-nav.mobile-nav--collapsed {
+                height: 42px;
+            }
+
+            .mobile-nav.mobile-nav--collapsed .mobile-nav-item span:not(.mobile-nav-icon) {
+                display: none;
             }
 
             .mobile-nav-item {
@@ -931,6 +940,13 @@
             <span class="mobile-nav-icon">|||</span>
             <span>model</span>
         </a>
+        {% if 'HealthSynciOS' in request.headers.get('User-Agent', '') %}
+        <a href="/ios/sync-healthkit"
+           class="mobile-nav-item">
+            <span class="mobile-nav-icon">&#x21bb;</span>
+            <span>sync</span>
+        </a>
+        {% endif %}
         <div class="mobile-nav-item {% if request.endpoint in ('hrv_view', 'uv_lag', 'cycle_view', 'search', 'help_page', 'settings', 'clinical_report') %}active{% endif %}"
              id="mobileMoreBtn" style="cursor:pointer; position:relative;">
             <span class="mobile-nav-icon">...</span>
@@ -1036,6 +1052,32 @@ function updateToggleUI(theme) {
         menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
     });
     document.addEventListener('click', function() { menu.style.display = 'none'; });
+})();
+</script>
+
+<script>
+// Mobile nav auto-collapse: collapses to icons-only after 2.5s of idle,
+// re-expands on scroll or tap.
+(function() {
+    const nav = document.querySelector('.mobile-nav');
+    if (!nav) return;
+    let idleTimer = null;
+    const IDLE_MS = 2500;
+
+    function scheduleCollapse() {
+        clearTimeout(idleTimer);
+        idleTimer = setTimeout(function() {
+            nav.classList.add('mobile-nav--collapsed');
+        }, IDLE_MS);
+    }
+    function expand() {
+        nav.classList.remove('mobile-nav--collapsed');
+        scheduleCollapse();
+    }
+
+    window.addEventListener('scroll', expand, { passive: true });
+    nav.addEventListener('click', expand);
+    scheduleCollapse();
 })();
 </script>
 
