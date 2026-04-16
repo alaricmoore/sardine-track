@@ -255,42 +255,44 @@ class HealthSyncer: ObservableObject {
                 return
             }
 
-            // Collect all RR intervals from all overnight series
-            var allIntervals: [Double] = []
+            // Collect per-series timestamps, then derive IBIs within each series
+            // to avoid mixing cumulative timestamps across unrelated series.
+            let seriesQueue = DispatchQueue(label: "rmssd.collect")
+            var allIBIs: [Double] = []
             let rrGroup = DispatchGroup()
 
             for sample in series {
                 rrGroup.enter()
+                var timestamps: [Double] = []
                 let rrQuery = HKHeartbeatSeriesQuery(heartbeatSeries: sample) { _, timeSinceStart, precededByGap, done, error in
                     if error == nil && !precededByGap {
-                        allIntervals.append(timeSinceStart * 1000.0) // convert to ms
+                        timestamps.append(timeSinceStart * 1000.0) // convert to ms
                     }
-                    if done { rrGroup.leave() }
+                    if done {
+                        // Compute IBIs within this single series
+                        var seriesIBIs: [Double] = []
+                        for i in 1..<timestamps.count {
+                            let ibi = timestamps[i] - timestamps[i - 1]
+                            if ibi > 200 && ibi < 2000 { // filter physiological range
+                                seriesIBIs.append(ibi)
+                            }
+                        }
+                        seriesQueue.sync { allIBIs.append(contentsOf: seriesIBIs) }
+                        rrGroup.leave()
+                    }
                 }
                 self.store.execute(rrQuery)
             }
 
             rrGroup.notify(queue: .global()) {
-                // Compute RMSSD from successive differences
-                guard allIntervals.count >= 2 else { completion(nil); return }
-
-                // Convert cumulative timestamps to inter-beat intervals
-                var rrDurations: [Double] = []
-                for i in 1..<allIntervals.count {
-                    let ibi = allIntervals[i] - allIntervals[i - 1]
-                    if ibi > 200 && ibi < 2000 { // filter physiological range
-                        rrDurations.append(ibi)
-                    }
-                }
-
-                guard rrDurations.count >= 2 else { completion(nil); return }
+                guard allIBIs.count >= 2 else { completion(nil); return }
 
                 var sumSq: Double = 0
-                for i in 1..<rrDurations.count {
-                    let diff = rrDurations[i] - rrDurations[i - 1]
+                for i in 1..<allIBIs.count {
+                    let diff = allIBIs[i] - allIBIs[i - 1]
                     sumSq += diff * diff
                 }
-                let rmssd = sqrt(sumSq / Double(rrDurations.count - 1))
+                let rmssd = sqrt(sumSq / Double(allIBIs.count - 1))
                 completion((rmssd * 100).rounded() / 100) // round to 2 decimal places
             }
         }
