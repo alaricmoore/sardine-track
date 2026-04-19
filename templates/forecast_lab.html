@@ -283,6 +283,19 @@
             </div>
             <div style="margin-bottom:var(--space-md);">
                 <div class="terminal-line">
+                    RMSSD Instability:
+                    <span id="weight-rmssd_instability_weight-value">{{ current_weights.rmssd_instability_weight }}</span>
+                </div>
+                <input type="range" class="weight-slider" id="weight-rmssd_instability_weight"
+                       min="0" max="3" step="0.25"
+                       value="{{ current_weights.rmssd_instability_weight }}"
+                       oninput="updateWeight('rmssd_instability_weight', this.value)">
+                <div style="font-size:0.75rem; color:#666; margin-top:0.25rem;">
+                    Mean |ΔRMSSD| surge in prior 5 days vs 30-day baseline (autonomic chaos, independent from level)
+                </div>
+            </div>
+            <div style="margin-bottom:var(--space-md);">
+                <div class="terminal-line">
                     Respiratory Rate Deviation:
                     <span id="weight-resp_rate_deviation_weight-value">{{ current_weights.resp_rate_deviation_weight }}</span>
                 </div>

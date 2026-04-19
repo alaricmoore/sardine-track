@@ -124,6 +124,22 @@ Conservative default weight (0.5) because the signal is mechanistically grounded
 
 Returns no contribution with fewer than 4 values in either window.
 
+### 7b. RMSSD Instability (Day-to-Day |Δ|)
+
+Captures autonomic *chaos* rather than level-based withdrawal. Personal pre-flare pattern analysis (post-bugfix rerun, n=8 major/ER clusters) showed that in the week before major flares, RMSSD oscillates wildly — surging at day -6 (~100 ms), crashing at day -4/-3 (~50-60 ms), rebounding at day -2 (~85 ms), then collapsing on flare day (~45 ms). Mean day-to-day |ΔRMSSD| at the day-1 → day-0 transition reached ~120 ms in majors vs ~60-70 ms in minors and non-flare transitions. This instability signature is independent from the level-based deviation above and fires alongside it when both conditions hold.
+
+**Computation:**
+- **Recent**: mean of |RMSSD[d] - RMSSD[d-1]| across days -1 through -5 (yields up to 4 adjacent-day deltas)
+- **Baseline**: same metric across days -6 through -35 (~29 deltas — large window dilutes post-flare steroid oscillation days)
+- **Deviation** = `(recent_mean - baseline_mean) / baseline_mean x 100`
+
+| Condition | Points |
+|-----------|--------|
+| Deviation >= 50% | +1.5 x rmssd_instability_weight |
+| Deviation >= 25% | +0.75 x rmssd_instability_weight |
+
+Conservative default weight (0.5) pending validation. Requires >=3 recent deltas and >=10 baseline deltas to compute.
+
 ### 8. Respiratory Rate Baseline Deviation
 
 Elevated respiratory rate may precede inflammatory events. Literature shows OR=1.15 per breath/min increase for clinical deterioration within 2 days (Barfod et al. 2017, n=15,724, p=0.002). Michard & Saugel (2025) note vital signs trend abnormal hours before severe adverse events.

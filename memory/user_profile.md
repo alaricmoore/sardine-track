@@ -5,8 +5,8 @@ type: user
 ---
 
 - Has lupus (systemic autoimmune rheumatic disease / SARD)
-- Built this biotracker app to determine that sun was making them sick
-- This is their private version with API access and multi-user features (public repo is stripped down)
+- Built this biotracker app to determine that sun was making her sick
+- This is her private version with API access and multi-user features (public repo is stripped down)
 - Shares the app with trusted family members who also have SARDs
 - Tracks menstrual cycle — steroids have made cycles irregular
 - Has persistent tachycardia, elevated D-Dimer, livedo

@@ -192,6 +192,51 @@ def _compute_rmssd_deviation(obs_date: str, obs_by_date: dict) -> float | None:
     return round((recent_avg - baseline_avg) / baseline_avg * 100, 1)
 
 
+def _compute_rmssd_instability(obs_date: str, obs_by_date: dict) -> float | None:
+    """Percentage deviation of recent day-to-day |ΔRMSSD| from a longer baseline.
+
+    Captures autonomic *instability* (wild parasympathetic swings) rather than
+    level-based withdrawal. Empirically, Alaric's major flares show their
+    cleanest signature in this: day-to-day |ΔRMSSD| in the week before onset
+    spikes well above her typical range, peaking at the day-1 → day-0 transition.
+    This is a separate signal from _compute_rmssd_deviation and can fire alongside it.
+
+    Recent: 5-day window (day-1 through day-5), yields 4 adjacent-day deltas.
+    Baseline: 30-day window (day-6 through day-35), yields ~29 deltas — large
+    enough to dilute post-flare-steroid oscillation days without skewing.
+
+    Returns None if insufficient data in either window or baseline is zero.
+    """
+    target = datetime.strptime(obs_date, "%Y-%m-%d").date()
+
+    def adjacent_deltas(start_offset: int, end_offset: int) -> list[float]:
+        """Return |RMSSD[d] - RMSSD[d-1]| for days in [start_offset..end_offset]
+        where both the day and the previous day have RMSSD values."""
+        deltas = []
+        for off in range(start_offset, end_offset + 1):
+            d_curr = (target - timedelta(days=off)).isoformat()
+            d_prev = (target - timedelta(days=off + 1)).isoformat()
+            curr = obs_by_date.get(d_curr)
+            prev = obs_by_date.get(d_prev)
+            if curr and prev and curr.get('hrv_rmssd') is not None and prev.get('hrv_rmssd') is not None:
+                deltas.append(abs(float(curr['hrv_rmssd']) - float(prev['hrv_rmssd'])))
+        return deltas
+
+    recent_deltas = adjacent_deltas(1, 5)
+    baseline_deltas = adjacent_deltas(6, 35)
+
+    if len(recent_deltas) < 3 or len(baseline_deltas) < 10:
+        return None
+
+    recent_mean = sum(recent_deltas) / len(recent_deltas)
+    baseline_mean = sum(baseline_deltas) / len(baseline_deltas)
+
+    if baseline_mean == 0:
+        return None
+
+    return round((recent_mean - baseline_mean) / baseline_mean * 100, 1)
+
+
 def _compute_resp_rate_deviation(obs_date: str, obs_by_date: dict) -> float | None:
     """Percentage deviation of 3-day respiratory rate average from 14-day baseline.
 
@@ -241,6 +286,7 @@ def _inject_scoring_context(obs_list: list, obs_by_date: dict, loc_key: str,
         obs['_cumulative_uv_dose'] = _compute_cumulative_uv(obs['date'], obs_by_date, loc_key)
         obs['_symptom_burden_delta'] = _compute_symptom_burden_delta(obs['date'], obs_by_date)
         obs['_rmssd_deviation'] = _compute_rmssd_deviation(obs['date'], obs_by_date)
+        obs['_rmssd_instability'] = _compute_rmssd_instability(obs['date'], obs_by_date)
         obs['_resp_rate_deviation'] = _compute_resp_rate_deviation(obs['date'], obs_by_date)
 
 
@@ -261,6 +307,7 @@ DEFAULT_WEIGHTS = {
     # Multi-day predictors
     'symptom_burden_weight': 1.0,
     'rmssd_deviation_weight': 0.5,  # speculative, conservative
+    'rmssd_instability_weight': 0.5,  # new, pre-flare |ΔRMSSD| surge — starts conservative pending validation
     'resp_rate_deviation_weight': 0.5,  # speculative, conservative
     # Category multipliers
     'uv_weight': 1.0,
@@ -450,6 +497,16 @@ SCORING CATEGORIES
       not yet statistically significant.
       • Deviation <= -25%: +1.5 x rmssd_deviation_weight
       • Deviation <= -15%: +0.75 x rmssd_deviation_weight
+
+  11b. RMSSD Instability (day-to-day |ΔRMSSD| surge)
+      Compares mean |ΔRMSSD| in prior 5 days to a 30-day baseline.
+      Captures autonomic *chaos* rather than level-based withdrawal.
+      Independent signal — fires alongside rule 11 when both conditions hold.
+      Personal pre-flare pattern: day-1 → day-0 transition in majors averages
+      ~120 ms |Δ| vs 60-70 ms baseline. Conservative weight (0.5) pending
+      validation on live data.
+      • Deviation >= 50%: +1.5 x rmssd_instability_weight
+      • Deviation >= 25%: +0.75 x rmssd_instability_weight
 
   12. Respiratory Rate Baseline Deviation (pre-event elevation signal)
       Compares 3-day rolling respiratory rate average to 14-day personal
@@ -1622,6 +1679,17 @@ def _score_components(obs: dict) -> dict:
             r_pts = 0.75 * rmssd_w
     c['rmssd'] = round(r_pts, 2)
 
+    # RMSSD instability
+    inst_w = weights.get('rmssd_instability_weight', 0.5)
+    rmssd_inst = obs.get('_rmssd_instability')
+    i_pts = 0
+    if rmssd_inst is not None:
+        if rmssd_inst >= 50:
+            i_pts = 1.5 * inst_w
+        elif rmssd_inst >= 25:
+            i_pts = 0.75 * inst_w
+    c['rmssd_instability'] = round(i_pts, 2)
+
     # Respiratory rate deviation
     resp_w = weights.get('resp_rate_deviation_weight', 0.5)
     resp_dev = obs.get('_resp_rate_deviation')
@@ -1680,12 +1748,14 @@ def timeline():
             'pain_fatigue': comp['pain_fatigue'],
             'burden_delta': comp['burden_delta'],
             'rmssd': comp['rmssd'],
+            'rmssd_instability': comp['rmssd_instability'],
             'resp_rate': comp['resp_rate'],
             'flare': flare,
             'severity': severity,
             # Raw values for multi-day predictor panel
             'burden_delta_raw': obs.get('_symptom_burden_delta'),
             'rmssd_deviation_raw': obs.get('_rmssd_deviation'),
+            'rmssd_instability_raw': obs.get('_rmssd_instability'),
             'resp_rate_deviation_raw': obs.get('_resp_rate_deviation'),
         }
         daily_data.append(entry)
@@ -3653,6 +3723,17 @@ def calculate_flare_prime_score(obs, weights_override=None):
         elif rmssd_dev <= -15:
             score += 0.75 * rmssd_w
 
+    # 11b. RMSSD instability — mean |ΔRMSSD| in prior 5 days vs 30-day baseline.
+    # Captures autonomic chaos (oscillation) separately from level-based withdrawal.
+    # Independent signal — can fire alongside _rmssd_deviation.
+    inst_w = weights.get('rmssd_instability_weight', 0.5)
+    rmssd_inst = obs.get('_rmssd_instability')
+    if rmssd_inst is not None:
+        if rmssd_inst >= 50:
+            score += 1.5 * inst_w
+        elif rmssd_inst >= 25:
+            score += 0.75 * inst_w
+
     # 12. Respiratory rate baseline deviation (pre-event elevation signal)
     resp_w = weights.get('resp_rate_deviation_weight', 0.5)
     resp_dev = obs.get('_resp_rate_deviation')
@@ -4290,6 +4371,14 @@ def get_contributing_factors(obs: dict) -> list:
             uid = current_user.id if current_user and current_user.is_authenticated else None
             cycle_weight = get_current_weights(uid).get('cycle_phase', 1.0)
             factors.append({'name': phase_label, 'points': cycle_weight, 'color': '#9563ec'})
+
+        # RMSSD instability (autonomic chaos, independent from level)
+        rmssd_inst = obs.get('_rmssd_instability')
+        if rmssd_inst is not None:
+            if rmssd_inst >= 50:
+                factors.append({'name': 'Severe RMSSD instability', 'points': 1.5, 'color': '#c084fc'})
+            elif rmssd_inst >= 25:
+                factors.append({'name': 'Elevated RMSSD instability', 'points': 0.75, 'color': '#c084fc'})
 
         return factors
     
