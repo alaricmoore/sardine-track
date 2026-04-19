@@ -6,17 +6,33 @@
 <div class="page-header">
     <h1>forecast history</h1>
     <p class="page-subtitle">
-        past 30 days of flare risk predictions
+        {{ n_days }} days of flare risk predictions · threshold = {{ threshold }}{% if date_range %} · {{ date_range }}{% endif %}
     </p>
 </div>
 
-<div style="display:flex; gap:var(--space-md); margin-bottom:var(--space-lg);">
+<div style="display:flex; gap:var(--space-md); margin-bottom:var(--space-lg); align-items:center;">
     <a href="{{ url_for('forecast') }}" class="btn btn-secondary">
         ← Back to Forecast
     </a>
     <a href="{{ url_for('forecast_accuracy') }}" class="btn btn-primary">
         Check Model Accuracy
     </a>
+
+    <div style="margin-left:auto; display:flex; align-items:center; gap:var(--space-sm);">
+        <label style="font-size:0.85rem; color:var(--text-muted);">
+            Window:
+        </label>
+        <select onchange="window.location.href='{{ url_for('forecast_history') }}?days=' + this.value"
+                style="padding:0.5rem 1rem; background:var(--bg-input); border:1px solid var(--border-medium);
+                       border-radius:var(--radius-sm); color:var(--text-primary); font-size:0.9rem;">
+            <option value="30" {% if days == 30 %}selected{% endif %}>30 days</option>
+            <option value="60" {% if days == 60 %}selected{% endif %}>60 days</option>
+            <option value="90" {% if days == 90 %}selected{% endif %}>90 days</option>
+            <option value="180" {% if days == 180 %}selected{% endif %}>180 days</option>
+            <option value="365" {% if days == 365 %}selected{% endif %}>365 days</option>
+            <option value="all" {% if days == 'all' %}selected{% endif %}>All time</option>
+        </select>
+    </div>
 </div>
 
 <div class="card">
@@ -26,25 +42,31 @@
                 <tr>
                     <th>Date</th>
                     <th>Predicted Risk</th>
-                    <th>Score</th>
-                    <th>Actual Flare</th>
-                    <th>Match</th>
+                    <th style="text-align:right;">Score</th>
+                    <th style="text-align:right;">Gap</th>
+                    <th style="text-align:center;">Actual Flare</th>
+                    <th style="text-align:center;">Match</th>
                     <th>Top Factors</th>
                 </tr>
             </thead>
             <tbody>
                 {% for day in history %}
                 <tr>
-                    <td class="mono">{{ day.date }}</td>
+                    <td class="mono"><a href="{{ url_for('daily_entry', date=day.date) }}" style="color:var(--color-accent);">{{ day.date }}</a></td>
                     <td>
-                        <span class="badge" style="background:{{ day.risk_color }}22; 
-                                                     color:{{ day.risk_color }}; 
+                        <span class="badge" style="background:{{ day.risk_color }}22;
+                                                     color:{{ day.risk_color }};
                                                      border:1px solid {{ day.risk_color }};">
                             {{ day.risk_level }}
                         </span>
                     </td>
-                    <td class="mono" style="color:{{ day.risk_color }};">
+                    <td class="mono" style="color:{{ day.risk_color }}; text-align:right;">
                         {{ day.score }}
+                    </td>
+                    <td class="mono" style="text-align:right;
+                               color:{% if day.gap >= 0 %}var(--color-danger){% else %}var(--text-muted){% endif %};
+                               font-weight:{% if day.gap >= 0 %}600{% else %}400{% endif %};">
+                        {% if day.gap >= 0 %}+{% endif %}{{ day.gap }}
                     </td>
                     <td style="text-align:center;">
                         {% if day.flare_occurred %}

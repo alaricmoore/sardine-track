@@ -4330,121 +4330,6 @@ def get_recommendations(risk_level: str, factors: list) -> list:
     return recs[:5]  # Limit to 5 recommendations
 
 
-def get_score_breakdown(obs: dict) -> list:
-    """Break down score by category."""
-    breakdown = []
-    
-    # UV/Environmental
-    sun_min = obs.get('sun_exposure_min') or 0
-    uv_score = 3 if sun_min >= 100 else (1.25 if sun_min >= 70 else 0)
-    breakdown.append({
-        'name': 'UV Exposure',
-        'score': uv_score,
-        'color': '#d4b84a',
-        'description': f'{sun_min} minutes'
-    })
-    
-    # Physical Load
-    steps = obs.get('steps') or 0
-    hours_slept = obs.get('hours_slept') or 8
-    exertion = 0
-    ratio = 0
-    if hours_slept > 0:
-        ratio = steps / hours_slept
-        if ratio >= 2000:
-            exertion = 2.0
-        elif ratio >= 1500:
-            exertion = 1.5
-    breakdown.append({
-        'name': 'Physical Load',
-        'score': exertion,
-        'color': '#d4a054',
-        'description': f'{int(ratio)} steps/hr slept' if hours_slept > 0 else 'N/A'
-    })
-    
-    # Temperature
-    basal_temp = obs.get('basal_temp_delta') or 0
-    temp_score = 0
-    if basal_temp >= 0.8:
-        temp_score = 3
-    elif basal_temp >= 0.5:
-        temp_score = 2
-    elif basal_temp >= 0.3:
-        temp_score = 1
-    breakdown.append({
-        'name': 'Temperature',
-        'score': temp_score,
-        'color': '#c94040',
-        'description': f'+{basal_temp:.1f}°F' if basal_temp > 0 else 'Normal'
-    })
-    
-    # Symptoms
-    symptom_score = 0
-    symptom_count = 0
-    for symptom in ['neurological', 'cognitive', 'musculature', 'migraine', 
-                    'pulmonary', 'dermatological', 'rheumatic', 'mucosal']:
-        if obs.get(symptom):
-            symptom_count += 1
-            if symptom == 'migraine' or symptom == 'musculature' or symptom == 'pulmonary':
-                symptom_score += 1
-            elif symptom == 'dermatological':
-                symptom_score += 0.75
-            elif symptom == 'cognitive' or symptom == 'neurological':
-                symptom_score += 0.5
-            elif symptom == 'mucosal':
-                symptom_score += 0.25
-    # Add rheumatic separately (parsed for joints)
-    if obs.get('rheumatic'):
-        rheum_notes = (obs.get('rheumatic_notes') or '').lower()
-        if any(j in rheum_notes for j in ['hip', 'knee', 'shoulder', 'elbow', 'ankle', 'wrist', 'jaw']):
-            symptom_score += 2
-        elif any(j in rheum_notes for j in ['finger', 'toe', 'hand']):
-            symptom_score += 1
-        else:
-            symptom_score += 0.5
-    
-    breakdown.append({
-        'name': 'Symptoms',
-        'score': round(symptom_score, 1),
-        'color': '#9b72cf',
-        'description': f'{symptom_count} active'
-    })
-    
-    # Pain/Fatigue
-    pain = obs.get('pain_scale') or 0
-    fatigue = obs.get('fatigue_scale') or 0
-    pf_score = 0
-    if pain >= 7:
-        pf_score += 1
-    if fatigue >= 7:
-        pf_score += 3
-    elif fatigue > 5:
-        pf_score += 1
-    elif fatigue > 3:
-        pf_score += 0.5
-    
-    breakdown.append({
-        'name': 'Pain & Fatigue',
-        'score': pf_score,
-        'color': '#e85d9e',
-        'description': f'P:{pain} F:{fatigue}'
-    })
-
-    # Cycle phase (only when tracking enabled)
-    prefs = get_user_prefs()
-    if prefs.get('track_cycle', CONFIG.get('track_cycle')):
-        cw = get_current_weights(current_user.id if current_user.is_authenticated else None)
-        cycle_score = cw.get('cycle_phase', 1.0) if obs.get('cycle_in_high_risk_phase') else 0
-        breakdown.append({
-            'name': 'Cycle Phase',
-            'score': cycle_score,
-            'color': '#9563ec',
-            'description': obs.get('cycle_phase_name') or 'follicular/period'
-        })
-
-    return breakdown
-
-
 def format_date_short(date_str: str) -> str:
     """Format date as 'Mar 4' for chart labels."""
     from datetime import datetime
@@ -4457,20 +4342,32 @@ def format_date_short(date_str: str) -> str:
 
 @app.route("/forecast/history")
 def forecast_history():
-    """Show past 30 days of predictions vs actuals."""
-    
-    # Get last 30 days
+    """Show past N days of predictions vs actuals (N = days query param)."""
+
+    days_param = request.args.get('days', '30')
+
     all_obs = db.get_all_daily_observations(uid())
     if not all_obs:
         return redirect(url_for('forecast'))
-    
+
     all_obs.sort(key=lambda x: x['date'], reverse=True)
     _inject_cycle_phase(all_obs)
 
     obs_by_date = {o['date']: o for o in all_obs}
-    _inject_scoring_context(all_obs, obs_by_date, get_location_key(), n=30)
 
-    last_30 = all_obs[:30]
+    if days_param == 'all':
+        analysis_set = all_obs
+        days_display = 'all'
+        _inject_scoring_context(all_obs, obs_by_date, get_location_key())
+    else:
+        try:
+            days_int = int(days_param)
+        except ValueError:
+            days_int = 30
+        days_int = max(1, min(days_int, len(all_obs)))
+        _inject_scoring_context(all_obs, obs_by_date, get_location_key(), n=days_int)
+        analysis_set = all_obs[:days_int]
+        days_display = days_int
 
     _hist_weights = get_current_weights(uid())
     _hist_threshold = _hist_weights.get('flare_threshold', 8.0)
@@ -4480,7 +4377,7 @@ def forecast_history():
     false_pos = 0
     false_neg = 0
 
-    for obs in last_30:
+    for obs in analysis_set:
         score = calculate_flare_prime_score(obs)
         risk_info = get_risk_level(score, _hist_threshold)
 
@@ -4513,6 +4410,7 @@ def forecast_history():
         history.append({
             'date': obs['date'],
             'score': round(score, 1),
+            'gap': round(score - _hist_threshold, 1),  # positive = above threshold, negative = below
             'risk_level': risk_info['level'],
             'risk_color': risk_info['color'],
             'flare_occurred': flare_occurred,
@@ -4521,18 +4419,28 @@ def forecast_history():
             'prediction_correct': prediction_correct,
             'top_factors': top_factors
         })
-    
+
     # Calculate accuracy
-    total = len(last_30)
+    total = len(analysis_set)
     accuracy = round((correct / total * 100) if total > 0 else 0, 1)
-    
+
+    # Date range for subtitle
+    if history:
+        date_range = f"{history[-1]['date']} to {history[0]['date']}"
+    else:
+        date_range = ''
+
     return render_template(
         "forecast_history.html",
         history=history,
         correct_predictions=correct,
         false_positives=false_pos,
         false_negatives=false_neg,
-        accuracy_percent=accuracy
+        accuracy_percent=accuracy,
+        days=days_display,
+        threshold=_hist_threshold,
+        date_range=date_range,
+        n_days=len(analysis_set),
     )
     
 # ============================================================
