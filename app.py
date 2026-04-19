@@ -1705,9 +1705,10 @@ def _score_components(obs: dict) -> dict:
     return c
 
 
-@app.route("/timeline")
+@app.route("/model")
 def timeline():
-    """Model dashboard — score attribution over time."""
+    """Model dashboard — score attribution over time.
+    Endpoint name preserved as 'timeline' so existing url_for('timeline') calls keep working."""
     days_param = request.args.get("days", "60")
     try:
         n_days = int(days_param)
@@ -1796,7 +1797,7 @@ def timeline():
         days_param=days_param,
     )
 
-@app.route("/timeline/export")
+@app.route("/model/export")
 @login_required
 def timeline_export():
     """Export daily score + component breakdown as CSV."""
@@ -5727,9 +5728,9 @@ def api_flare_status():
 # API endpoints for Chart.js (JSON only)
 # ============================================================
 
-@app.route("/api/timeline")
+@app.route("/api/model")
 def api_timeline():
-    """JSON endpoint for timeline chart data."""
+    """JSON endpoint for model dashboard chart data."""
     end_date = request.args.get("end", date.today().isoformat())
     start_date = request.args.get(
         "start",
@@ -6004,7 +6005,7 @@ def readme_page():
     return render_template("readme.html", content=readme_content)
 
 
-@app.route("/model")
+@app.route("/model/docs")
 @login_required
 def model_explainer():
     """Render MODEL.md as a styled page."""
