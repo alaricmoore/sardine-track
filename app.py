@@ -392,13 +392,19 @@ SCORING CATEGORIES
      • Mucosal: 0.25
      • Rheumatic: 0.5 base, 2.0 major joints, 1.0 minor joints
 
-  6. Pain Scale
-     • Pain >= 7: +1.0 x pain_fatigue_weight
+  6. Pain Scale (laddered — d=+1.01 vs non-flare baseline)
+     Previous cliff at >=7 fired on only 12% of flare days. Data shows
+     pain >=4 already discriminates 75% flare vs 5% non-flare.
+     • Pain >= 7: +3.5 x pain_fatigue_weight
+     • Pain >= 6: +2.5 x pain_fatigue_weight
+     • Pain >= 5: +1.5 x pain_fatigue_weight
+     • Pain >= 4: +0.5 x pain_fatigue_weight
 
-  7. Fatigue Scale
-     • Fatigue >= 7: +3.0 x pain_fatigue_weight
-     • Fatigue > 5:  +1.0 x pain_fatigue_weight
-     • Fatigue > 3:  +0.5 x pain_fatigue_weight
+  7. Fatigue Scale (laddered — d=+0.83 vs non-flare baseline)
+     • Fatigue >= 7: +3.5 x pain_fatigue_weight
+     • Fatigue >= 6: +2.5 x pain_fatigue_weight
+     • Fatigue >= 5: +1.5 x pain_fatigue_weight
+     • Fatigue >= 4: +0.5 x pain_fatigue_weight
 
   8. Emotional State
      • Emotional state <= 4: +2.0 x pain_fatigue_weight
@@ -3577,18 +3583,28 @@ def calculate_flare_prime_score(obs, weights_override=None):
         else:
             score += weights['rheumatic']
     
-    # 6. Pain Scale
+    # 6. Pain Scale (laddered — pain is a strong severity axis, d=+1.01 vs baseline)
+    # Previous cliff at >=7 only fired on 12% of flare days. Data shows >=4
+    # already discriminates 75% flare vs 5% non-flare.
     pain = obs.get('pain_scale') or 0
     if pain >= 7:
-        score += 1 * pf_w
+        score += 3.5 * pf_w
+    elif pain >= 6:
+        score += 2.5 * pf_w
+    elif pain >= 5:
+        score += 1.5 * pf_w
+    elif pain >= 4:
+        score += 0.5 * pf_w
 
-    # 7. Fatigue Scale
+    # 7. Fatigue Scale (laddered to match pain, d=+0.83 vs baseline)
     fatigue = obs.get('fatigue_scale') or 0
     if fatigue >= 7:
-        score += 3 * pf_w
-    elif fatigue > 5:
-        score += 1 * pf_w
-    elif fatigue > 3:
+        score += 3.5 * pf_w
+    elif fatigue >= 6:
+        score += 2.5 * pf_w
+    elif fatigue >= 5:
+        score += 1.5 * pf_w
+    elif fatigue >= 4:
         score += 0.5 * pf_w
 
     # 8. Emotional State
@@ -4224,17 +4240,27 @@ def get_contributing_factors(obs: dict) -> list:
             else:
                 factors.append({'name': 'Rheumatic symptoms', 'points': 0.5, 'color': '#e85d9e'})
         
-        # High fatigue
+        # Fatigue (laddered)
         fatigue = obs.get('fatigue_scale') or 0
         if fatigue >= 7:
-            factors.append({'name': 'Severe fatigue', 'points': 3, 'color': '#d4a054'})
-        elif fatigue > 5:
-            factors.append({'name': 'Moderate fatigue', 'points': 1, 'color': '#d4a054'})
-        
-        # High pain
+            factors.append({'name': 'Severe fatigue', 'points': 3.5, 'color': '#d4a054'})
+        elif fatigue >= 6:
+            factors.append({'name': 'High fatigue', 'points': 2.5, 'color': '#d4a054'})
+        elif fatigue >= 5:
+            factors.append({'name': 'Moderate fatigue', 'points': 1.5, 'color': '#d4a054'})
+        elif fatigue >= 4:
+            factors.append({'name': 'Mild fatigue', 'points': 0.5, 'color': '#d4a054'})
+
+        # Pain (laddered)
         pain = obs.get('pain_scale') or 0
         if pain >= 7:
-            factors.append({'name': 'High pain', 'points': 1, 'color': '#c94040'})
+            factors.append({'name': 'Severe pain', 'points': 3.5, 'color': '#c94040'})
+        elif pain >= 6:
+            factors.append({'name': 'High pain', 'points': 2.5, 'color': '#c94040'})
+        elif pain >= 5:
+            factors.append({'name': 'Moderate pain', 'points': 1.5, 'color': '#c94040'})
+        elif pain >= 4:
+            factors.append({'name': 'Mild pain', 'points': 0.5, 'color': '#c94040'})
         
         # Low emotional state
         emotional = obs.get('emotional_state') or 5

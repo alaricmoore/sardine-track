@@ -73,12 +73,18 @@ Rheumatic scoring parses the notes field for joint names to differentiate severi
 
 ### 5. Pain & Fatigue
 
+Pain and fatigue are the strongest single-day predictors in this dataset (Cohen's d = +1.01 and +0.83 respectively vs non-flare baseline). The previous cliff-at-7 threshold only fired on 12-25% of flare days; the laddered version below captures the full discrimination curve — pain >= 4 already separates flare days (75% hit) from non-flare days (5% hit).
+
 | Condition | Points |
 |-----------|--------|
-| Pain scale >= 7 | +1.0 x pain_fatigue_weight |
-| Fatigue >= 7 | +3.0 x pain_fatigue_weight |
-| Fatigue > 5 | +1.0 x pain_fatigue_weight |
-| Fatigue > 3 | +0.5 x pain_fatigue_weight |
+| Pain scale >= 7 | +3.5 x pain_fatigue_weight |
+| Pain scale >= 6 | +2.5 x pain_fatigue_weight |
+| Pain scale >= 5 | +1.5 x pain_fatigue_weight |
+| Pain scale >= 4 | +0.5 x pain_fatigue_weight |
+| Fatigue >= 7 | +3.5 x pain_fatigue_weight |
+| Fatigue >= 6 | +2.5 x pain_fatigue_weight |
+| Fatigue >= 5 | +1.5 x pain_fatigue_weight |
+| Fatigue >= 4 | +0.5 x pain_fatigue_weight |
 | Emotional state <= 4 | +2.0 x pain_fatigue_weight |
 
 ### 6. Symptom Burden Delta
