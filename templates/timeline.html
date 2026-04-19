@@ -24,6 +24,13 @@
 </div>
 {% else %}
 
+<!-- Model sub-view nav -->
+<div style="display:flex; gap:var(--space-md); margin-bottom:var(--space-md); flex-wrap:wrap;">
+    <a href="{{ url_for('forecast_accuracy') }}" class="btn btn-secondary">accuracy</a>
+    <a href="{{ url_for('forecast_history') }}" class="btn btn-secondary">history</a>
+    <a href="{{ url_for('forecast_patterns') }}" class="btn btn-secondary">pre-flare patterns</a>
+</div>
+
 <!-- Date range controls -->
 <div style="margin-bottom:var(--space-lg); display:flex; gap:var(--space-sm); flex-wrap:wrap;">
     {% for d, label in [(30, '30d'), (60, '60d'), (90, '90d'), (0, 'all')] %}
@@ -164,6 +171,18 @@
               background:var(--bg-secondary); border-radius:4px;">
         export scores as CSV
     </a>
+</div>
+
+<!-- Hacker prompt easter egg -->
+<div style="position:fixed; bottom:20px; right:20px; cursor:pointer;
+            opacity:0.6; transition:opacity 0.2s;"
+     onmouseover="this.style.opacity='1'"
+     onmouseout="this.style.opacity='0.6'"
+     onclick="window.location.href='{{ url_for('forecast_lab') }}'">
+    <div style="font-family:var(--font-mono); font-size:1.5rem;
+                color:#4ade80; text-shadow:0 0 10px rgba(74,222,128,0.5);">
+        &gt;&gt;
+    </div>
 </div>
 
 {% endif %}
