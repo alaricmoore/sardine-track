@@ -428,11 +428,31 @@ def create_database():
         c.execute("ALTER TABLE medications ADD COLUMN is_primary_intervention INTEGER DEFAULT 0")
     except:
         pass  # Column already exists
-    
+
     try:
         c.execute("ALTER TABLE medications ADD COLUMN is_secondary_intervention INTEGER DEFAULT 0")
     except:
         pass  # Column already exists
+
+    # --------------------------------------------------------
+    # medication_events
+    # Dated observations about a medication: side effects, rebound,
+    # efficacy change, dose change, or general note.
+    # --------------------------------------------------------
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS medication_events (
+            id             INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id        INTEGER NOT NULL REFERENCES users(id),
+            medication_id  INTEGER NOT NULL,
+            event_date     TEXT NOT NULL,
+            event_type     TEXT NOT NULL,    -- side_effect | rebound | efficacy_change | dose_change | note
+            severity       INTEGER,           -- 0-10 for side_effect; null otherwise
+            note           TEXT,
+            created_at     TEXT NOT NULL DEFAULT (datetime('now')),
+            FOREIGN KEY (medication_id) REFERENCES medications(id) ON DELETE CASCADE
+        )
+    """)
+    c.execute("CREATE INDEX IF NOT EXISTS idx_med_events_med ON medication_events(medication_id, event_date)")
 
     # --------------------------------------------------------
     # taper_schedules

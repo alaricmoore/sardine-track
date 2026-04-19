@@ -1,0 +1,488 @@
+{% extends "base.html" %}
+
+{% block title %}interventions — biotracking{% endblock %}
+
+{% block head %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+.card-intervention { margin-bottom: var(--space-xl); }
+.stat-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: var(--space-md);
+    margin: var(--space-sm) 0 var(--space-md) 0;
+}
+.stat-box {
+    background: var(--bg-elevated);
+    padding: var(--space-sm) var(--space-md);
+    border-radius: var(--radius-sm);
+    border-left: 3px solid var(--color-accent);
+}
+.stat-box .stat-label {
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-muted);
+}
+.stat-box .stat-value {
+    font-family: var(--font-mono);
+    font-size: 1.2rem;
+    color: var(--text-primary);
+    margin-top: 0.15rem;
+}
+.stat-box .stat-delta {
+    font-size: 0.8rem;
+    margin-top: 0.15rem;
+    font-family: var(--font-mono);
+}
+.delta-pos { color: var(--color-danger); }
+.delta-neg { color: var(--color-success); }
+.delta-neutral { color: var(--text-muted); }
+.section-title {
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-muted);
+    margin-top: var(--space-md);
+    margin-bottom: var(--space-sm);
+}
+.rebound-banner {
+    padding: var(--space-sm) var(--space-md);
+    background: rgba(224,160,80,0.12);
+    border-left: 3px solid #e0a050;
+    border-radius: var(--radius-sm);
+    font-size: 0.85rem;
+    color: #e0a050;
+    margin: var(--space-sm) 0;
+}
+.event-row {
+    display: grid;
+    grid-template-columns: 110px 120px 1fr auto;
+    gap: var(--space-sm);
+    padding: 0.4rem 0;
+    border-bottom: 1px solid var(--border-subtle);
+    font-size: 0.85rem;
+    align-items: center;
+}
+.event-row .event-date { font-family: var(--font-mono); color: var(--text-muted); }
+.event-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    letter-spacing: 0.02em;
+}
+.event-badge.side_effect { background: rgba(192,132,252,0.18); color: #c084fc; border: 1px solid #c084fc; }
+.event-badge.rebound     { background: rgba(224,160,80,0.18); color: #e0a050; border: 1px solid #e0a050; }
+.event-badge.efficacy_change { background: rgba(74,184,184,0.18); color: #4ab8b8; border: 1px solid #4ab8b8; }
+.event-badge.dose_change { background: rgba(91,155,213,0.18); color: #5b9bd5; border: 1px solid #5b9bd5; }
+.event-badge.note { background: rgba(153,148,168,0.15); color: #9994a8; border: 1px solid #9994a8; }
+.severity-dots { color: #c084fc; font-family: var(--font-mono); }
+.event-form { display: none; margin-top: var(--space-sm); padding: var(--space-md);
+              background: var(--bg-elevated); border-radius: var(--radius-sm); }
+.event-form.open { display: block; }
+.events-toggle { cursor: pointer; user-select: none; }
+.events-body { display: none; }
+.events-body.open { display: block; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>interventions</h1>
+    <p class="page-subtitle">
+        per-medication pre/post impact on flares and autonomics
+    </p>
+</div>
+
+{% if not has_data %}
+<div class="card">
+    <p>No interventions flagged yet. In <a href="{{ url_for('clinical_record') }}#medications">clinical &gt; medications</a>,
+       edit a medication and tick the "primary intervention" or "secondary intervention" flag to have it appear here.</p>
+</div>
+{% else %}
+
+<!-- Window selector -->
+<div style="display:flex; gap:var(--space-sm); align-items:center; margin-bottom:var(--space-lg);">
+    <span style="font-size:0.85rem; color:var(--text-muted);">window for one-time interventions:</span>
+    {% for w, label in [(30,'30d'),(60,'60d'),(90,'90d'),(120,'120d'),(0,'all')] %}
+    <a href="?window={{ w }}"
+       style="padding:var(--space-xs) var(--space-sm); border-radius:4px; text-decoration:none; font-size:0.85rem;
+              {% if fixed_window == w %}background:var(--color-accent); color:#fff;
+              {% else %}background:var(--bg-secondary); color:var(--text-secondary);{% endif %}">
+       {{ label }}
+    </a>
+    {% endfor %}
+</div>
+
+<!-- Global HRV trend chart -->
+<div class="card" style="margin-bottom:var(--space-xl);">
+    <div class="card-title">global HRV trend</div>
+    <p style="font-size:0.8rem; color:var(--text-muted); margin-bottom:var(--space-sm);">
+        Raw SDNN and RMSSD with 7-day rolling averages across all time. Intervention starts and flare events overlaid.
+    </p>
+    <canvas id="chartGlobalHRV" style="max-height:340px;"></canvas>
+</div>
+
+{% if cards %}
+<!-- Per-intervention cards -->
+{% for c in cards %}
+<div class="card card-intervention" id="med-{{ c.med.id }}">
+    <div style="display:flex; justify-content:space-between; align-items:baseline; gap:var(--space-md); flex-wrap:wrap;">
+        <div>
+            <div class="card-title" style="margin:0;">
+                {{ c.med.drug_name }}
+                {% if c.med.is_primary_intervention %}
+                <span style="font-size:0.7rem; color:#4ab8b8; margin-left:0.4rem;">· primary</span>
+                {% else %}
+                <span style="font-size:0.7rem; color:#9563ec; margin-left:0.4rem;">· secondary</span>
+                {% endif %}
+            </div>
+            <div style="font-size:0.8rem; color:var(--text-muted); margin-top:0.25rem;">
+                {{ c.med.category or 'prescription' }} ·
+                started {{ c.med.start_date }}{% if c.med.end_date %} · ended {{ c.med.end_date }}{% endif %}
+                · {{ c.window_label }}
+                {% if c.is_ongoing %} · ongoing
+                {% elif c.is_one_time %} · one-time
+                {% else %} · completed course{% endif %}
+            </div>
+        </div>
+    </div>
+
+    {% if c.rebound_flag.show %}
+    <div class="rebound-banner">{{ c.rebound_flag.message }}</div>
+    {% endif %}
+
+    <!-- Flare impact -->
+    <div class="section-title">flare impact</div>
+    <div class="stat-grid">
+        <div class="stat-box">
+            <div class="stat-label">total flares</div>
+            <div class="stat-value">{{ c.flare_stats.pre.count }} &rarr; {{ c.flare_stats.post.count }}</div>
+            <div class="stat-delta {% if c.flare_stats.delta_rate_pct is none %}delta-neutral
+                                  {% elif c.flare_stats.delta_rate_pct < 0 %}delta-neg
+                                  {% elif c.flare_stats.delta_rate_pct > 0 %}delta-pos
+                                  {% else %}delta-neutral{% endif %}">
+                {% if c.flare_stats.delta_rate_pct is not none %}
+                    {% if c.flare_stats.delta_rate_pct > 0 %}+{% endif %}{{ c.flare_stats.delta_rate_pct }}%
+                {% else %}—{% endif %}
+            </div>
+        </div>
+        <div class="stat-box">
+            <div class="stat-label">major / ER</div>
+            <div class="stat-value">
+                {{ c.flare_stats.pre.major + c.flare_stats.pre.er }} &rarr;
+                {{ c.flare_stats.post.major + c.flare_stats.post.er }}
+            </div>
+            <div class="stat-delta delta-neutral">
+                {% if c.flare_stats.pre.er or c.flare_stats.post.er %}
+                incl. ER {{ c.flare_stats.pre.er }} &rarr; {{ c.flare_stats.post.er }}
+                {% endif %}
+            </div>
+        </div>
+        <div class="stat-box">
+            <div class="stat-label">minor</div>
+            <div class="stat-value">{{ c.flare_stats.pre.minor }} &rarr; {{ c.flare_stats.post.minor }}</div>
+            <div class="stat-delta {% if c.flare_stats.delta_minor_pct is none %}delta-neutral
+                                  {% elif c.flare_stats.delta_minor_pct < 0 %}delta-neg
+                                  {% elif c.flare_stats.delta_minor_pct > 0 %}delta-pos
+                                  {% else %}delta-neutral{% endif %}">
+                {% if c.flare_stats.delta_minor_pct is not none %}
+                    {% if c.flare_stats.delta_minor_pct > 0 %}+{% endif %}{{ c.flare_stats.delta_minor_pct }}%
+                {% else %}—{% endif %}
+            </div>
+        </div>
+        <div class="stat-box">
+            <div class="stat-label">mean gap days</div>
+            <div class="stat-value">
+                {{ c.flare_stats.pre.mean_gap_days if c.flare_stats.pre.mean_gap_days is not none else '—' }}
+                &rarr;
+                {{ c.flare_stats.post.mean_gap_days if c.flare_stats.post.mean_gap_days is not none else '—' }}
+            </div>
+            <div class="stat-delta delta-neutral">between flares</div>
+        </div>
+    </div>
+
+    <!-- Autonomic impact -->
+    <div class="section-title">autonomic (pre &rarr; post means ± SD)</div>
+    <div class="stat-grid">
+        {% for k, label, unit in [('rmssd','RMSSD','ms'),('sdnn','SDNN','ms'),('resp','Resp rate','bpm')] %}
+        <div class="stat-box">
+            <div class="stat-label">{{ label }}</div>
+            <div class="stat-value">
+                {% if c.autonomic_stats[k].pre.mean is not none %}{{ c.autonomic_stats[k].pre.mean }}{% else %}—{% endif %}
+                &rarr;
+                {% if c.autonomic_stats[k].post.mean is not none %}{{ c.autonomic_stats[k].post.mean }}{% else %}—{% endif %}
+                {{ unit }}
+            </div>
+            <div class="stat-delta delta-neutral">
+                &sigma; {{ c.autonomic_stats[k].pre.std if c.autonomic_stats[k].pre.std is not none else '—' }}
+                &rarr;
+                {{ c.autonomic_stats[k].post.std if c.autonomic_stats[k].post.std is not none else '—' }}
+                · n={{ c.autonomic_stats[k].pre.n }}/{{ c.autonomic_stats[k].post.n }}
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+
+    {% if c.duration_of_effect %}
+    <!-- Duration of effect (one-time only) -->
+    <div class="section-title">duration of effect</div>
+    <div class="stat-grid">
+        <div class="stat-box">
+            <div class="stat-label">days to next flare</div>
+            <div class="stat-value">
+                {% if c.duration_of_effect.days_to_any_flare is not none %}
+                    {{ c.duration_of_effect.days_to_any_flare }} d
+                {% else %}—{% endif %}
+            </div>
+            <div class="stat-delta delta-neutral">
+                {% if c.duration_of_effect.days_to_next_major is not none %}major in {{ c.duration_of_effect.days_to_next_major }}d
+                {% else %}no major in window{% endif %}
+            </div>
+        </div>
+        <div class="stat-box">
+            <div class="stat-label">RMSSD baseline return</div>
+            <div class="stat-value">
+                {% if c.duration_of_effect.days_to_rmssd_baseline is not none %}
+                    {{ c.duration_of_effect.days_to_rmssd_baseline }} d
+                {% else %}not yet{% endif %}
+            </div>
+            <div class="stat-delta delta-neutral">within ±1σ of pre-mean for 7d</div>
+        </div>
+        <div class="stat-box">
+            <div class="stat-label">SDNN baseline return</div>
+            <div class="stat-value">
+                {% if c.duration_of_effect.days_to_sdnn_baseline is not none %}
+                    {{ c.duration_of_effect.days_to_sdnn_baseline }} d
+                {% else %}not yet{% endif %}
+            </div>
+        </div>
+        <div class="stat-box">
+            <div class="stat-label">Resp baseline return</div>
+            <div class="stat-value">
+                {% if c.duration_of_effect.days_to_resp_baseline is not none %}
+                    {{ c.duration_of_effect.days_to_resp_baseline }} d
+                {% else %}not yet{% endif %}
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Events section -->
+    <div style="margin-top:var(--space-lg); display:flex; justify-content:space-between; align-items:center;">
+        <div class="events-toggle" onclick="toggleEvents('events-{{ c.med.id }}')">
+            <span class="section-title" style="margin:0;">▸ events ({{ c.events|length }})</span>
+        </div>
+        <button type="button" class="btn btn-secondary" style="font-size:0.85rem;"
+                onclick="toggleEventForm('event-form-{{ c.med.id }}')">
+            + log event
+        </button>
+    </div>
+
+    <div id="events-{{ c.med.id }}" class="events-body {% if c.events %}open{% endif %}" style="margin-top:var(--space-sm);">
+        {% if not c.events %}
+        <div style="font-size:0.85rem; color:var(--text-muted); padding:var(--space-sm) 0;">
+            No events logged yet for this intervention.
+        </div>
+        {% else %}
+        {% for e in c.events %}
+        <div class="event-row">
+            <span class="event-date">{{ e.event_date }}</span>
+            <span class="event-badge {{ e.event_type }}">{{ e.event_type.replace('_',' ') }}</span>
+            <span>
+                {% if e.event_type == 'side_effect' and e.severity is not none %}
+                <span class="severity-dots" title="severity">
+                    {% for i in range(10) %}{% if i < e.severity %}●{% else %}○{% endif %}{% endfor %}
+                    ({{ e.severity }})
+                </span>
+                {% endif %}
+                {% if e.note %}<span style="color:var(--text-secondary);">{{ e.note }}</span>{% endif %}
+            </span>
+            <span>
+                <form method="post" action="{{ url_for('delete_medication_event', event_id=e.id) }}"
+                      style="display:inline;"
+                      onsubmit="return confirm('Delete this event?');">
+                    <button type="submit" style="background:none; border:none; color:var(--text-muted);
+                                                   cursor:pointer; font-size:0.8rem;">delete</button>
+                </form>
+            </span>
+        </div>
+        {% endfor %}
+        {% endif %}
+    </div>
+
+    <!-- Add event form -->
+    <form id="event-form-{{ c.med.id }}" class="event-form" method="post"
+          action="{{ url_for('add_medication_event', med_id=c.med.id) }}">
+        <div style="display:grid; grid-template-columns: 130px 140px 1fr; gap:var(--space-sm); align-items:end;">
+            <div>
+                <label style="font-size:0.75rem; color:var(--text-muted);">date</label>
+                <input type="date" name="event_date" value="{{ today_iso }}"
+                       style="width:100%; padding:0.4rem; background:var(--bg-input);
+                              border:1px solid var(--border-medium); border-radius:4px; color:var(--text-primary);">
+            </div>
+            <div>
+                <label style="font-size:0.75rem; color:var(--text-muted);">type</label>
+                <select name="event_type" onchange="toggleSeverity(this)"
+                        style="width:100%; padding:0.4rem; background:var(--bg-input);
+                               border:1px solid var(--border-medium); border-radius:4px; color:var(--text-primary);">
+                    <option value="side_effect">side effect</option>
+                    <option value="rebound">rebound</option>
+                    <option value="efficacy_change">efficacy change</option>
+                    <option value="dose_change">dose change</option>
+                    <option value="note">note</option>
+                </select>
+            </div>
+            <div class="severity-wrap">
+                <label style="font-size:0.75rem; color:var(--text-muted);">severity (0-10)</label>
+                <input type="range" name="severity" min="0" max="10" step="1" value="3"
+                       oninput="this.nextElementSibling.textContent = this.value"
+                       style="width:calc(100% - 3ch);">
+                <span style="font-family:var(--font-mono); color:var(--text-primary); margin-left:0.5rem;">3</span>
+            </div>
+        </div>
+        <div style="margin-top:var(--space-sm);">
+            <label style="font-size:0.75rem; color:var(--text-muted);">note</label>
+            <textarea name="note" rows="2"
+                      style="width:100%; padding:0.4rem; background:var(--bg-input);
+                             border:1px solid var(--border-medium); border-radius:4px;
+                             color:var(--text-primary); font-family:inherit;"></textarea>
+        </div>
+        <div style="margin-top:var(--space-sm); display:flex; gap:var(--space-sm);">
+            <button type="submit" class="btn btn-primary" style="font-size:0.85rem;">save event</button>
+            <button type="button" class="btn btn-secondary" style="font-size:0.85rem;"
+                    onclick="toggleEventForm('event-form-{{ c.med.id }}')">cancel</button>
+        </div>
+    </form>
+</div>
+{% endfor %}
+{% else %}
+<div class="card">
+    <p>No interventions flagged yet. Edit a medication in
+       <a href="{{ url_for('clinical_record') }}#medications">clinical &gt; medications</a>
+       and tick "primary intervention" or "secondary intervention".</p>
+</div>
+{% endif %}
+
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+function toggleEvents(id) {
+    const el = document.getElementById(id);
+    if (el) el.classList.toggle('open');
+}
+function toggleEventForm(id) {
+    const el = document.getElementById(id);
+    if (el) el.classList.toggle('open');
+}
+function toggleSeverity(selectEl) {
+    const wrap = selectEl.closest('form').querySelector('.severity-wrap');
+    if (!wrap) return;
+    wrap.style.display = (selectEl.value === 'side_effect') ? '' : 'none';
+}
+// Hide severity initially for forms whose type isn't side_effect
+document.querySelectorAll('.event-form select[name=event_type]').forEach(sel => {
+    toggleSeverity(sel);
+});
+</script>
+
+{% if has_data %}
+<script>
+(function() {
+    const HRV = {{ global_hrv_json | safe }};
+    const FLARES = {{ flare_events_json | safe }};
+    const INTERVENTIONS = {{ intervention_lines_json | safe }};
+    if (!HRV || !HRV.dates) return;
+
+    Chart.defaults.font.family = "'Source Serif 4', 'Times New Roman', serif";
+    Chart.defaults.font.size = 12;
+    Chart.defaults.color = '#9994a8';
+    const GRID = 'rgba(255,255,255,0.06)';
+
+    const SEVERITY_COLORS = { er_visit: '#ff4444', major: '#ff8c00', minor: '#ffcc00' };
+
+    const flareLinePlugin = {
+        id: 'flareLines',
+        afterDraw(chart) {
+            const { ctx, chartArea, scales } = chart;
+            if (!chartArea || !scales.x) return;
+            FLARES.forEach(ev => {
+                const x = scales.x.getPixelForValue(ev.date);
+                if (!x || x < chartArea.left || x > chartArea.right) return;
+                ctx.save();
+                ctx.strokeStyle = SEVERITY_COLORS[ev.severity] || '#ffcc00';
+                ctx.globalAlpha = 0.5;
+                ctx.lineWidth = 1;
+                ctx.beginPath();
+                ctx.moveTo(x, chartArea.top);
+                ctx.lineTo(x, chartArea.bottom);
+                ctx.stroke();
+                ctx.restore();
+            });
+        }
+    };
+
+    const interventionLinePlugin = {
+        id: 'interventionLines',
+        afterDraw(chart) {
+            const { ctx, chartArea, scales } = chart;
+            if (!chartArea || !scales.x) return;
+            INTERVENTIONS.forEach((iv, idx) => {
+                const x = scales.x.getPixelForValue(iv.date);
+                if (!x || x < chartArea.left || x > chartArea.right) return;
+                const isSup = iv.category === 'supplement';
+                const isPri = iv.is_primary;
+                const color = isPri
+                    ? (isSup ? 'rgba(224,148,58,0.65)' : 'rgba(74,184,184,0.65)')
+                    : (isSup ? 'rgba(224,148,58,0.35)' : 'rgba(157,114,207,0.35)');
+                ctx.save();
+                ctx.strokeStyle = color;
+                ctx.lineWidth = isPri ? 1.5 : 1;
+                ctx.setLineDash(isPri ? [4,3] : [2,2]);
+                ctx.beginPath();
+                ctx.moveTo(x, chartArea.top);
+                ctx.lineTo(x, chartArea.bottom);
+                ctx.stroke();
+                ctx.fillStyle = color.replace(/[\d.]+\)$/, '0.9)');
+                ctx.font = (isPri ? "11px" : "9px") + " 'Source Serif 4', serif";
+                ctx.textAlign = 'left';
+                ctx.fillText(iv.name, x + 4, chartArea.top + 14 + (idx * 10));
+                ctx.restore();
+            });
+        }
+    };
+
+    new Chart(document.getElementById('chartGlobalHRV'), {
+        type: 'line',
+        plugins: [flareLinePlugin, interventionLinePlugin],
+        data: {
+            labels: HRV.dates,
+            datasets: [
+                { label: 'SDNN 7d', data: HRV.hrv_rolling,
+                  borderColor: '#4a90d9', backgroundColor:'transparent',
+                  borderWidth: 2, pointRadius: 0, tension: 0.3, spanGaps: true },
+                { label: 'RMSSD 7d', data: HRV.rmssd_rolling,
+                  borderColor: '#9b72cf', backgroundColor:'transparent',
+                  borderWidth: 2, pointRadius: 0, tension: 0.3, spanGaps: true },
+            ]
+        },
+        options: {
+            responsive: true,
+            interaction: { mode: 'index', intersect: false },
+            scales: {
+                x: { grid: { color: GRID }, ticks: { maxTicksLimit: 12, maxRotation: 45 } },
+                y: { grid: { color: GRID }, title: { display: true, text: 'ms', color: '#9994a8' } }
+            },
+            plugins: {
+                legend: { labels: { color: '#9994a8', boxWidth: 12, padding: 16 } },
+                tooltip: { backgroundColor: '#1e1e28', borderColor: '#2a2a38', borderWidth: 1 }
+            }
+        }
+    });
+})();
+</script>
+{% endif %}
+{% endblock %}

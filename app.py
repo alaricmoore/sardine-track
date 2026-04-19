@@ -2038,6 +2038,262 @@ def uv_lag():
 # ============================================================
 
 
+# ============================================================
+# Intervention evaluation helpers (used by /interventions view)
+# ============================================================
+
+_EVENT_TYPES = ('side_effect', 'rebound', 'efficacy_change', 'dose_change', 'note')
+
+
+def _days_between(d1: str, d2: str) -> int:
+    """Inclusive-exclusive day count from d1 to d2."""
+    a = datetime.strptime(d1, "%Y-%m-%d").date()
+    b = datetime.strptime(d2, "%Y-%m-%d").date()
+    return (b - a).days
+
+
+def _date_plus(d: str, days: int) -> str:
+    return (datetime.strptime(d, "%Y-%m-%d").date() + timedelta(days=days)).isoformat()
+
+
+def _filter_obs(observations: list, start: str, end: str) -> list:
+    """Observations with start <= date < end (half-open)."""
+    return [o for o in observations if start <= o['date'] < end]
+
+
+def _filter_obs_inclusive(observations: list, start: str, end: str) -> list:
+    """Observations with start <= date <= end (closed)."""
+    return [o for o in observations if start <= o['date'] <= end]
+
+
+def compute_flare_stats(pre_obs: list, post_obs: list) -> dict:
+    """Pre/post flare count, severity breakdown, mean gap, and delta percentages."""
+
+    def _severity_counts(obs: list) -> dict:
+        flare_dates = []
+        major = minor = er = 0
+        for o in obs:
+            if o.get('flare_occurred') != 1:
+                continue
+            flare_dates.append(o['date'])
+            sev = o.get('flare_severity')
+            if sev == 'er_visit':
+                er += 1
+            elif sev == 'major':
+                major += 1
+            elif sev == 'minor':
+                minor += 1
+        return {
+            'count': len(flare_dates),
+            'major': major,
+            'minor': minor,
+            'er': er,
+            'dates': sorted(flare_dates),
+        }
+
+    def _mean_gap_days(dates: list) -> Optional[float]:
+        if len(dates) < 2:
+            return None
+        gaps = [_days_between(dates[i], dates[i + 1]) for i in range(len(dates) - 1)]
+        return round(sum(gaps) / len(gaps), 1)
+
+    pre = _severity_counts(pre_obs)
+    post = _severity_counts(post_obs)
+    pre['mean_gap_days'] = _mean_gap_days(pre['dates'])
+    post['mean_gap_days'] = _mean_gap_days(post['dates'])
+
+    def _delta_pct(a: int, b: int) -> Optional[float]:
+        if a == 0:
+            return None
+        return round((b - a) / a * 100, 1)
+
+    return {
+        'pre': pre,
+        'post': post,
+        'delta_rate_pct': _delta_pct(pre['count'], post['count']),
+        'delta_major_pct': _delta_pct(pre['major'], post['major']),
+        'delta_minor_pct': _delta_pct(pre['minor'], post['minor']),
+        'delta_er_pct': _delta_pct(pre['er'], post['er']),
+    }
+
+
+def compute_autonomic_stats(pre_obs: list, post_obs: list) -> dict:
+    """Mean ± SD and n for RMSSD, SDNN, and respiratory rate over pre/post windows."""
+    import numpy as np
+
+    def _stats(obs: list, field: str) -> dict:
+        vals = [o.get(field) for o in obs if o.get(field) is not None]
+        vals = [float(v) for v in vals]
+        if not vals:
+            return {'mean': None, 'std': None, 'n': 0}
+        arr = np.array(vals)
+        return {
+            'mean': round(float(arr.mean()), 2),
+            'std': round(float(arr.std()), 2) if len(vals) > 1 else 0.0,
+            'n': len(vals),
+        }
+
+    return {
+        'rmssd': {'pre': _stats(pre_obs, 'hrv_rmssd'), 'post': _stats(post_obs, 'hrv_rmssd')},
+        'sdnn': {'pre': _stats(pre_obs, 'hrv'), 'post': _stats(post_obs, 'hrv')},
+        'resp': {'pre': _stats(pre_obs, 'respiratory_rate'), 'post': _stats(post_obs, 'respiratory_rate')},
+    }
+
+
+def _days_to_return_to_baseline(pre_obs: list, post_obs: list, field: str,
+                                consecutive_needed: int = 7) -> Optional[int]:
+    """Days post-start until the metric stays within pre-mean ± 1 SD for
+    `consecutive_needed` consecutive daily observations. None if never."""
+    pre_vals = [float(o[field]) for o in pre_obs if o.get(field) is not None]
+    if len(pre_vals) < 4:
+        return None
+    pre_mean = sum(pre_vals) / len(pre_vals)
+    if len(pre_vals) < 2:
+        pre_std = 0.0
+    else:
+        m = pre_mean
+        pre_std = (sum((x - m) ** 2 for x in pre_vals) / len(pre_vals)) ** 0.5
+    lo, hi = pre_mean - pre_std, pre_mean + pre_std
+    post_vals = sorted(
+        [(o['date'], float(o[field])) for o in post_obs if o.get(field) is not None],
+        key=lambda t: t[0]
+    )
+    if not post_vals:
+        return None
+    start = post_vals[0][0]
+    run = 0
+    run_start = None
+    for d, v in post_vals:
+        if lo <= v <= hi:
+            if run == 0:
+                run_start = d
+            run += 1
+            if run >= consecutive_needed:
+                return _days_between(start, run_start)
+        else:
+            run = 0
+            run_start = None
+    return None
+
+
+def compute_duration_of_effect(med: dict, observations: list, window_days: int = 60) -> dict:
+    """For one-time interventions: days-to-next-flare per severity and
+    days-until-autonomic-baseline-return (within ±1 SD of pre-mean for 7 days)."""
+    start = med['start_date']
+    post_end = _date_plus(start, window_days)
+    pre_start = _date_plus(start, -window_days)
+
+    pre_obs = _filter_obs(observations, pre_start, start)
+    post_obs = _filter_obs_inclusive(observations, start, post_end)
+
+    def _days_to_next_flare(severities: tuple) -> Optional[int]:
+        for o in sorted(post_obs, key=lambda x: x['date']):
+            if o.get('flare_occurred') == 1 and o.get('flare_severity') in severities:
+                return _days_between(start, o['date'])
+        return None
+
+    return {
+        'days_to_next_minor': _days_to_next_flare(('minor',)),
+        'days_to_next_major': _days_to_next_flare(('major',)),
+        'days_to_next_er': _days_to_next_flare(('er_visit',)),
+        'days_to_any_flare': _days_to_next_flare(('minor', 'major', 'er_visit')),
+        'days_to_rmssd_baseline': _days_to_return_to_baseline(pre_obs, post_obs, 'hrv_rmssd'),
+        'days_to_sdnn_baseline': _days_to_return_to_baseline(pre_obs, post_obs, 'hrv'),
+        'days_to_resp_baseline': _days_to_return_to_baseline(pre_obs, post_obs, 'respiratory_rate'),
+    }
+
+
+def compute_rebound_flag(med: dict, observations: list) -> dict:
+    """Auto-detect possible rebound: flare rate in days 14-45 post >> baseline,
+    with low rate in days 0-13. Returns {'show': bool, 'message': str}."""
+    start = med['start_date']
+    pre_30 = _filter_obs(observations, _date_plus(start, -30), start)
+    initial = _filter_obs(observations, start, _date_plus(start, 14))
+    rebound = _filter_obs_inclusive(observations, _date_plus(start, 14), _date_plus(start, 45))
+
+    today = date.today().isoformat()
+    if _date_plus(start, 45) > today:
+        return {'show': False}
+
+    baseline_rate = sum(1 for o in pre_30 if o.get('flare_occurred') == 1) / 30
+    initial_rate = sum(1 for o in initial if o.get('flare_occurred') == 1) / 14
+    rebound_n = sum(1 for o in rebound if o.get('flare_occurred') == 1)
+    rebound_rate = rebound_n / 32
+
+    if rebound_rate > 1.5 * baseline_rate and initial_rate < 0.5 * baseline_rate and rebound_n >= 2:
+        pre_n = sum(1 for o in pre_30 if o.get('flare_occurred') == 1)
+        initial_n = sum(1 for o in initial if o.get('flare_occurred') == 1)
+        return {
+            'show': True,
+            'message': (f"Possible rebound: {rebound_n} flares in days 14-45 post-dose vs "
+                        f"{initial_n} in days 0-13 and {pre_n} in the 30 days before.")
+        }
+    return {'show': False}
+
+
+def compute_intervention_card(med: dict, observations: list, events: list,
+                              fixed_window: int) -> dict:
+    """Bundle all pre/post analysis for one intervention into a single dict
+    consumed by the interventions.html template."""
+    start = med['start_date']
+    end = med.get('end_date')
+    today = date.today().isoformat()
+
+    if end is None or end >= today:
+        is_ongoing = True
+        end_effective = today
+    else:
+        is_ongoing = False
+        end_effective = end
+
+    duration_days = _days_between(start, end_effective)
+    is_one_time = (not is_ongoing) and duration_days <= 3
+
+    if is_ongoing:
+        days_active = _days_between(start, today)
+        pre_start = _date_plus(start, -days_active)
+        pre_end = start
+        post_start = start
+        post_end = today
+        window_label = f"matched · {days_active} days"
+    else:
+        w = fixed_window if fixed_window > 0 else 9999
+        pre_start = _date_plus(start, -w)
+        pre_end = start
+        post_start = start
+        post_end = _date_plus(start, w)
+        window_label = f"{fixed_window}-day fixed" if fixed_window > 0 else "all available"
+
+    pre_obs = _filter_obs(observations, pre_start, pre_end)
+    post_obs = _filter_obs_inclusive(observations, post_start, post_end)
+
+    card = {
+        'med': med,
+        'is_ongoing': is_ongoing,
+        'is_one_time': is_one_time,
+        'duration_days': duration_days,
+        'window_label': window_label,
+        'pre_window': [pre_start, pre_end],
+        'post_window': [post_start, post_end],
+        'flare_stats': compute_flare_stats(pre_obs, post_obs),
+        'autonomic_stats': compute_autonomic_stats(pre_obs, post_obs),
+        'duration_of_effect': compute_duration_of_effect(med, observations, fixed_window or 60) if is_one_time else None,
+        'rebound_flag': compute_rebound_flag(med, observations) if is_one_time else {'show': False},
+        'events': events,
+        'event_counts_by_type': _count_events_by_type(events),
+    }
+    return card
+
+
+def _count_events_by_type(events: list) -> dict:
+    counts = {t: 0 for t in _EVENT_TYPES}
+    for e in events:
+        t = e.get('event_type')
+        if t in counts:
+            counts[t] += 1
+    return counts
+
+
 def compute_hrv_data(observations: list, intervention_date: str = None) -> dict:
     """Compute HRV trend with 7-day rolling average and intervention split.
     Includes SDNN (hrv), RMSSD (hrv_rmssd), and respiratory rate when available.
@@ -2641,54 +2897,136 @@ def cycle_flow_log():
     return jsonify({"ok": True})
 
 
-@app.route("/hrv")
+@app.route("/interventions")
 def hrv_view():
-    """HRV trend with rolling average, intervention split, and sleep/BBT/UV."""
-    observations = db.get_all_daily_observations(uid())
-    all_meds = db.get_all_medications(uid())
-    
-    # Find primary intervention (the medication marked as primary)
-    primary_med = next((m for m in all_meds if m.get("is_primary_intervention") == 1), None)
+    """Intervention evaluation: per-medication pre/post flare + autonomic stats,
+    duration-of-effect for one-time doses, and structured side-effect logging.
+    Endpoint name 'hrv_view' preserved so existing url_for calls keep working."""
+    user_id = uid()
+    observations = db.get_all_daily_observations(user_id)
+    all_meds = db.get_all_medications(user_id)
 
-    intervention_name = None
-    intervention_date = None
-    intervention_category = None
+    # Window selector — affects one-time intervention cards only
+    try:
+        fixed_window = int(request.args.get("window", "60"))
+    except ValueError:
+        fixed_window = 60
+    if fixed_window not in (30, 60, 90, 120, 0):
+        fixed_window = 60
 
-    if primary_med:
-        intervention_name = primary_med["drug_name"]
-        intervention_date = primary_med["start_date"]
-        intervention_category = primary_med.get("category", "prescription")
+    # Pick interventions (primary + secondary); primary first, then secondary by start_date desc
+    interventions = [m for m in all_meds
+                     if m.get("is_primary_intervention") or m.get("is_secondary_intervention")]
+    interventions.sort(key=lambda m: (
+        0 if m.get("is_primary_intervention") else 1,
+        # Newest first within each tier
+        "" if m.get("is_primary_intervention") else m.get("start_date", "0")
+    ), reverse=False)
+    # Secondary sorted newest first (above sort mixes ascending start dates; fix for secondaries)
+    primary = [m for m in interventions if m.get("is_primary_intervention")]
+    secondary = sorted(
+        [m for m in interventions if not m.get("is_primary_intervention")],
+        key=lambda m: m.get("start_date", ""), reverse=True
+    )
+    interventions = primary + secondary
 
-    # Find secondary interventions (medications marked as secondary)
-    secondary_interventions = [
-        {
-            "drug_name": m["drug_name"],
-            "start_date": m["start_date"],
-            "category": m.get("category", "prescription"),
-        }
-        for m in all_meds
-        if m.get("is_secondary_intervention") == 1
-    ]
+    cards = []
+    for m in interventions:
+        events = db.get_medication_events(user_id, m["id"])
+        cards.append(compute_intervention_card(m, observations, events, fixed_window))
 
-    hrv_data = compute_hrv_data(observations, intervention_date)
+    # Global HRV trend across all time (preserved from old /autonomic view)
+    global_hrv = compute_hrv_data(observations, intervention_date=None)
 
-    # Flare events for overlay markers on charts
     flare_events = [
         {"date": o["date"], "severity": o.get("flare_severity") or "minor"}
-        for o in observations
-        if o.get("flare_occurred") == 1
+        for o in observations if o.get("flare_occurred") == 1
+    ]
+    intervention_lines = [
+        {"date": m["start_date"], "name": m["drug_name"],
+         "category": m.get("category", "prescription"),
+         "is_primary": bool(m.get("is_primary_intervention"))}
+        for m in interventions
     ]
 
     return render_template(
-        "hrv.html",
-        has_data=bool(hrv_data),
-        hrv_json=json.dumps(hrv_data, default=lambda x: int(x) if isinstance(x, bool) else str(x)),
+        "interventions.html",
+        has_data=bool(global_hrv) or bool(cards),
+        cards=cards,
+        global_hrv_json=json.dumps(global_hrv, default=lambda x: int(x) if isinstance(x, bool) else str(x)),
         flare_events_json=json.dumps(flare_events),
-        primary_intervention_name=intervention_name,
-        primary_intervention_date=intervention_date,
-        primary_intervention_category=intervention_category,
-        other_interventions_json=json.dumps(secondary_interventions),
+        intervention_lines_json=json.dumps(intervention_lines),
+        fixed_window=fixed_window,
+        today_iso=date.today().isoformat(),
     )
+
+
+# ============================================================
+# Medication events CRUD
+# ============================================================
+
+def _parse_event_severity(raw, event_type: str):
+    """Severity is required for side_effect (0-10), null otherwise."""
+    if event_type != 'side_effect':
+        return None
+    if raw in (None, ''):
+        return None
+    try:
+        v = int(raw)
+    except (ValueError, TypeError):
+        return None
+    return max(0, min(10, v))
+
+
+@app.route("/intervention/<int:med_id>/event/add", methods=["POST"])
+def add_medication_event(med_id: int):
+    """Log a new event (side effect, rebound, dose change, etc.) for a medication."""
+    user_id = uid()
+    # Verify the medication belongs to the user
+    med = db.get_medication(user_id, med_id)
+    if not med:
+        return redirect(url_for("hrv_view"))
+
+    event_type = request.form.get("event_type", "note").strip()
+    if event_type not in _EVENT_TYPES:
+        event_type = "note"
+    event_date = request.form.get("event_date") or date.today().isoformat()
+    severity = _parse_event_severity(request.form.get("severity"), event_type)
+    note = (request.form.get("note") or "").strip() or None
+
+    db.add_medication_event(user_id, med_id, event_date, event_type, severity, note)
+    return redirect(url_for("hrv_view") + f"#med-{med_id}")
+
+
+@app.route("/intervention/event/<int:event_id>/update", methods=["POST"])
+def update_medication_event(event_id: int):
+    """Update a medication event, scoped to the current user."""
+    user_id = uid()
+    existing = db.get_medication_event(user_id, event_id)
+    if not existing:
+        return redirect(url_for("hrv_view"))
+
+    event_type = request.form.get("event_type", existing["event_type"]).strip()
+    if event_type not in _EVENT_TYPES:
+        event_type = existing["event_type"]
+    event_date = request.form.get("event_date") or existing["event_date"]
+    severity = _parse_event_severity(request.form.get("severity"), event_type)
+    note = (request.form.get("note") or "").strip() or None
+
+    db.update_medication_event(user_id, event_id, event_date, event_type, severity, note)
+    return redirect(url_for("hrv_view") + f"#med-{existing['medication_id']}")
+
+
+@app.route("/intervention/event/<int:event_id>/delete", methods=["POST"])
+def delete_medication_event(event_id: int):
+    """Delete a medication event, scoped to the current user."""
+    user_id = uid()
+    existing = db.get_medication_event(user_id, event_id)
+    if existing:
+        db.delete_medication_event(user_id, event_id)
+        med_id = existing["medication_id"]
+        return redirect(url_for("hrv_view") + f"#med-{med_id}")
+    return redirect(url_for("hrv_view"))
 
 
 # ============================================================

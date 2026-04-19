@@ -673,6 +673,79 @@ def get_all_medications(user_id: int) -> list[dict]:
     return [dict(row) for row in rows]
 
 
+def get_medication(user_id: int, med_id: int) -> Optional[dict]:
+    """Return a single medication by id, scoped to user."""
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT * FROM medications WHERE id = ? AND user_id = ?",
+            (med_id, user_id)
+        ).fetchone()
+    return dict(row) if row else None
+
+
+# ============================================================
+# medication_events
+# Dated observations about a medication (side effects, rebound, etc.)
+# ============================================================
+
+def add_medication_event(user_id: int, medication_id: int, event_date: str,
+                         event_type: str, severity: Optional[int] = None,
+                         note: Optional[str] = None) -> int:
+    """Add a medication event (side effect, rebound, dose change, note)."""
+    with get_db() as conn:
+        c = conn.cursor()
+        c.execute("""
+            INSERT INTO medication_events
+                (user_id, medication_id, event_date, event_type, severity, note)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (user_id, medication_id, event_date, event_type, severity, note))
+        return c.lastrowid
+
+
+def get_medication_events(user_id: int, medication_id: int) -> list[dict]:
+    """Return events for one medication, newest first, scoped to user."""
+    with get_db() as conn:
+        rows = conn.execute("""
+            SELECT * FROM medication_events
+            WHERE medication_id = ? AND user_id = ?
+            ORDER BY event_date DESC, id DESC
+        """, (medication_id, user_id)).fetchall()
+    return [dict(row) for row in rows]
+
+
+def get_medication_event(user_id: int, event_id: int) -> Optional[dict]:
+    """Return a single event by id, scoped to user."""
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT * FROM medication_events WHERE id = ? AND user_id = ?",
+            (event_id, user_id)
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def update_medication_event(user_id: int, event_id: int, event_date: str,
+                            event_type: str, severity: Optional[int],
+                            note: Optional[str]) -> bool:
+    """Update an existing medication event, scoped to user."""
+    with get_db() as conn:
+        conn.execute("""
+            UPDATE medication_events
+            SET event_date = ?, event_type = ?, severity = ?, note = ?
+            WHERE id = ? AND user_id = ?
+        """, (event_date, event_type, severity, note, event_id, user_id))
+    return True
+
+
+def delete_medication_event(user_id: int, event_id: int) -> bool:
+    """Delete a medication event, scoped to user."""
+    with get_db() as conn:
+        conn.execute(
+            "DELETE FROM medication_events WHERE id = ? AND user_id = ?",
+            (event_id, user_id)
+        )
+    return True
+
+
 # ============================================================
 # Full text search across note fields
 # ============================================================
