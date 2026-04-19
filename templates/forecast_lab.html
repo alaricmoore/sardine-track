@@ -246,6 +246,56 @@
             </div>
         </div>
 
+        <!-- Multi-Day Predictors -->
+        <div class="terminal-line" style="font-size:1.2rem; margin-bottom:1rem;">
+            MULTI-DAY PREDICTORS
+        </div>
+        <div style="font-size:0.75rem; color:#666; margin-bottom:var(--space-md);">
+            Rolling-window signals computed from prior days. 0 = disabled, 1 = default, higher = more influence.
+        </div>
+
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:var(--space-lg); margin-bottom:var(--space-xl); padding-bottom:var(--space-lg); border-bottom:1px solid var(--border-subtle);">
+            <div style="margin-bottom:var(--space-md);">
+                <div class="terminal-line">
+                    Symptom Burden Delta:
+                    <span id="weight-symptom_burden_weight-value">{{ current_weights.symptom_burden_weight }}</span>
+                </div>
+                <input type="range" class="weight-slider" id="weight-symptom_burden_weight"
+                       min="0" max="3" step="0.25"
+                       value="{{ current_weights.symptom_burden_weight }}"
+                       oninput="updateWeight('symptom_burden_weight', this.value)">
+                <div style="font-size:0.75rem; color:#666; margin-top:0.25rem;">
+                    Acceleration of symptom count above 14-day personal baseline
+                </div>
+            </div>
+            <div style="margin-bottom:var(--space-md);">
+                <div class="terminal-line">
+                    RMSSD Deviation:
+                    <span id="weight-rmssd_deviation_weight-value">{{ current_weights.rmssd_deviation_weight }}</span>
+                </div>
+                <input type="range" class="weight-slider" id="weight-rmssd_deviation_weight"
+                       min="0" max="3" step="0.25"
+                       value="{{ current_weights.rmssd_deviation_weight }}"
+                       oninput="updateWeight('rmssd_deviation_weight', this.value)">
+                <div style="font-size:0.75rem; color:#666; margin-top:0.25rem;">
+                    Drop in 7-day RMSSD vs 30-day baseline (vagal withdrawal)
+                </div>
+            </div>
+            <div style="margin-bottom:var(--space-md);">
+                <div class="terminal-line">
+                    Respiratory Rate Deviation:
+                    <span id="weight-resp_rate_deviation_weight-value">{{ current_weights.resp_rate_deviation_weight }}</span>
+                </div>
+                <input type="range" class="weight-slider" id="weight-resp_rate_deviation_weight"
+                       min="0" max="3" step="0.25"
+                       value="{{ current_weights.resp_rate_deviation_weight }}"
+                       oninput="updateWeight('resp_rate_deviation_weight', this.value)">
+                <div style="font-size:0.75rem; color:#666; margin-top:0.25rem;">
+                    Rise in 3-day resp rate vs 14-day baseline (pre-event elevation)
+                </div>
+            </div>
+        </div>
+
         <div class="terminal-line" style="font-size:1.2rem; margin-bottom:1rem;">
             SYMPTOM WEIGHTS
         </div>
