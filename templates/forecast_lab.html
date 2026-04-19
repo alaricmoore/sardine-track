@@ -399,9 +399,9 @@
         <div style="font-size:0.75rem; color:#666; margin-bottom:var(--space-md);">
             Average UV-symptom correlation strength by lag day. Higher = stronger link between UV on day X and symptoms X+N days later.
         </div>
-        {% set lag_labels = ['Same day', '+1 day', '+2 days', '+3 days'] %}
-        {% set max_r = [lag_summary.lag_0, lag_summary.lag_1, lag_summary.lag_2, lag_summary.lag_3] | max %}
-        {% for i in range(4) %}
+        {% set lag_labels = ['Same day', '+1 day', '+2 days', '+3 days', '+4 days'] %}
+        {% set max_r = [lag_summary.lag_0, lag_summary.lag_1, lag_summary.lag_2, lag_summary.lag_3, lag_summary.lag_4] | max %}
+        {% for i in range(5) %}
         {% set lag_key = 'lag_' ~ i %}
         {% set r_val = lag_summary[lag_key] %}
         {% set is_best = i == lag_summary.best_lag %}
@@ -432,9 +432,13 @@
         <div style="font-size:0.75rem; color:#4ade80; margin-top:var(--space-sm);">
             Your strongest link is +2 days — you may have a slower UV response pattern.
         </div>
-        {% else %}
+        {% elif lag_summary.best_lag == 3 %}
         <div style="font-size:0.75rem; color:#4ade80; margin-top:var(--space-sm);">
             Your strongest link is +3 days — a longer-tail UV response.
+        </div>
+        {% else %}
+        <div style="font-size:0.75rem; color:#4ade80; margin-top:var(--space-sm);">
+            Your strongest link is +4 days — a notably long-tail UV response.
         </div>
         {% endif %}
     </div>

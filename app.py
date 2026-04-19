@@ -78,11 +78,15 @@ def compute_rmssd(rr_intervals: list) -> float | None:
 
 
 def _compute_cumulative_uv(obs_date: str, obs_by_date: dict, location_key: str) -> float:
-    """Compute prior-3-day cumulative UV dose.
-    Decay: yesterday 0.7×, day-before 0.4×, 3 days ago 0.2×.
+    """Compute prior-4-day cumulative UV dose.
+    Decay: yesterday 0.8×, day-before 0.6×, 3 days ago 0.4×, 4 days ago 0.2×.
+    Personal data analysis showed UV signal persists 2-4 days before major
+    flares (unprotected ≥60 min days: 79% at day-1, 67% at day-2/-3, 58% at day-4
+    vs 35-40% non-flare baseline). Earlier 3-day window with 0.7/0.4/0.2 decay
+    dropped off too aggressively for a signal that stays visible.
     Same-day UV is already handled by the main scoring block.
     """
-    decay = [(1, 0.7), (2, 0.4), (3, 0.2)]
+    decay = [(1, 0.8), (2, 0.6), (3, 0.4), (4, 0.2)]
     total = 0.0
     target = datetime.strptime(obs_date, "%Y-%m-%d").date()
 
@@ -354,7 +358,7 @@ contributions from several categories. Before scoring, each observation
 is enriched with multi-day context:
 
   _inject_scoring_context() pre-computes:
-  • Cumulative UV dose from the prior 3 days (decay-weighted)
+  • Cumulative UV dose from the prior 4 days (decay-weighted 0.8/0.6/0.4/0.2)
   • 3-day symptom burden (total symptom flags across days -1, -2, -3)
   • RMSSD baseline deviation (7-day rolling avg vs 30-day personal baseline)
 
@@ -369,9 +373,12 @@ SCORING CATEGORIES
      • Dose >= 400: +1.25 x uv_weight
      Cohen's d = +1.29, p < 0.0001 for 3-day cumulative sun exposure.
 
-  2. Cumulative UV Load (prior 3 days, decay-weighted)
-     • Cumulative >= 1500: +1.5 x uv_weight
-     • Cumulative >= 1000: +0.75 x uv_weight
+  2. Cumulative UV Load (prior 4 days, decay-weighted 0.8/0.6/0.4/0.2)
+     • Cumulative >= 2500: +1.5 x uv_weight
+     • Cumulative >= 1500: +0.75 x uv_weight
+     Personal data analysis showed UV signal persists 2-4 days before major
+     flares (unprotected ≥60 min: 79% at day-1, 67% at day-2/-3, 58% at day-4
+     vs 35-40% non-flare baseline). Extended from prior 3-day window.
 
   3. Physical Overexertion (steps relative to baseline / sleep hours)
      • Overexertion ratio >= 1.8: +2.0 x exertion_weight
@@ -1505,9 +1512,9 @@ def _score_components(obs: dict) -> dict:
     elif uv_dose >= 400:
         uv_pts = 1.25 * uv_w
     cum_uv = obs.get('_cumulative_uv_dose')
-    if cum_uv is not None and cum_uv >= 1500:
+    if cum_uv is not None and cum_uv >= 2500:
         uv_pts += 1.5 * uv_w
-    elif cum_uv is not None and cum_uv >= 1000:
+    elif cum_uv is not None and cum_uv >= 1500:
         uv_pts += 0.75 * uv_w
     c['uv'] = round(uv_pts, 2)
 
@@ -1566,18 +1573,26 @@ def _score_components(obs: dict) -> dict:
             sym_pts += weights.get('rheumatic', 0.5)
     c['symptoms'] = round(sym_pts, 2)
 
-    # Pain & fatigue & emotional
+    # Pain & fatigue & emotional (laddered to match calculate_flare_prime_score)
     pf_pts = 0
     pain = obs.get('pain_scale') or 0
     fatigue = obs.get('fatigue_scale') or 0
     emotional = obs.get('emotional_state') or 5
     if pain >= 7:
-        pf_pts += 1 * pf_w
+        pf_pts += 3.5 * pf_w
+    elif pain >= 6:
+        pf_pts += 2.5 * pf_w
+    elif pain >= 5:
+        pf_pts += 1.5 * pf_w
+    elif pain >= 4:
+        pf_pts += 0.5 * pf_w
     if fatigue >= 7:
-        pf_pts += 3 * pf_w
-    elif fatigue > 5:
-        pf_pts += 1 * pf_w
-    elif fatigue > 3:
+        pf_pts += 3.5 * pf_w
+    elif fatigue >= 6:
+        pf_pts += 2.5 * pf_w
+    elif fatigue >= 5:
+        pf_pts += 1.5 * pf_w
+    elif fatigue >= 4:
         pf_pts += 0.5 * pf_w
     if emotional <= 4:
         pf_pts += 2 * pf_w
@@ -1819,7 +1834,7 @@ def compute_lag_correlations(observations: list, uv_data: list) -> dict:
         "flare":         lambda o: o.get("flare_occurred"),
     }
 
-    lag_days = [0, 1, 2, 3]
+    lag_days = [0, 1, 2, 3, 4]
     results = {}
 
     for symptom_name, getter in targets.items():
@@ -1888,7 +1903,8 @@ def compute_lag_correlations(observations: list, uv_data: list) -> dict:
 
 def _compute_personal_lag_summary(user_id: int) -> Optional[dict]:
     """Compute average |r| across all symptoms for each lag day.
-    Returns {lag_0: avg_r, lag_1: ..., lag_2: ..., lag_3: ..., best_lag: int} or None.
+    Returns {lag_0: avg_r, lag_1: ..., lag_2: ..., lag_3: ..., lag_4: ..., best_lag: int} or None.
+    Window matches the 4-day cumulative UV lookback used by the scoring model.
     """
     observations = db.get_all_daily_observations(user_id)
     if not observations or len(observations) < 10:
@@ -1904,7 +1920,7 @@ def _compute_personal_lag_summary(user_id: int) -> Optional[dict]:
         return None
 
     lag_avgs = {}
-    for lag_idx in range(4):
+    for lag_idx in range(5):
         lag_key = f"lag_{lag_idx}"
         r_values = []
         for symptom, lags in correlations.items():
@@ -1913,7 +1929,7 @@ def _compute_personal_lag_summary(user_id: int) -> Optional[dict]:
                 r_values.append(abs(entry['r']))
         lag_avgs[lag_key] = round(sum(r_values) / len(r_values), 3) if r_values else 0
 
-    best_lag = max(range(4), key=lambda i: lag_avgs[f"lag_{i}"])
+    best_lag = max(range(5), key=lambda i: lag_avgs[f"lag_{i}"])
     lag_avgs['best_lag'] = best_lag
     return lag_avgs
 
@@ -3513,11 +3529,12 @@ def calculate_flare_prime_score(obs, weights_override=None):
     elif uv_dose >= 400:
         score += 1.25 * uv_w
 
-    # Cumulative UV load bonus (prior 2 days)
+    # Cumulative UV load bonus (prior 4 days, decay-weighted 0.8/0.6/0.4/0.2)
+    # Thresholds scaled 1.5x from old 3-day window to account for extended lookback.
     cum_uv = obs.get('_cumulative_uv_dose')
-    if cum_uv is not None and cum_uv >= 1500:
+    if cum_uv is not None and cum_uv >= 2500:
         score += 1.5 * uv_w
-    elif cum_uv is not None and cum_uv >= 1000:
+    elif cum_uv is not None and cum_uv >= 1500:
         score += 0.75 * uv_w
 
     # 2. Physical Overexertion (steps / hours slept)

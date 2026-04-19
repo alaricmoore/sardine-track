@@ -68,10 +68,11 @@ const correlations = {{ correlations_json | safe }};
 // Purple family for lag windows
 // ============================================================
 const LAG_COLORS = {
-    lag_0: '#b8aee8',   // light lavender  - same day
-    lag_1: '#9b8dd4',   // medium purple   - 1 day
-    lag_2: '#7c6fd4',   // anchor purple   - 2 days
-    lag_3: '#5c4fb8',   // deep indigo     - 3 days
+    lag_0: '#c5bdec',   // light lavender  - same day
+    lag_1: '#a89bd9',   // medium-light    - 1 day
+    lag_2: '#8b7ac6',   // medium purple   - 2 days
+    lag_3: '#6d58b0',   // deep purple     - 3 days
+    lag_4: '#4a3a8f',   // deep indigo     - 4 days
 };
 
 const LAG_LABELS = {
@@ -79,6 +80,7 @@ const LAG_LABELS = {
     lag_1: '24h lag',
     lag_2: '48h lag',
     lag_3: '72h lag',
+    lag_4: '96h lag',
 };
 
 // Symptom display names and their badge colors
@@ -106,7 +108,7 @@ Chart.defaults.color = '#9994a8';
 // ============================================================
 function buildLagChart() {
     const symptoms = Object.keys(correlations);
-    const lags = ['lag_0', 'lag_1', 'lag_2', 'lag_3'];
+    const lags = ['lag_0', 'lag_1', 'lag_2', 'lag_3', 'lag_4'];
 
     const datasets = lags.map(lag => ({
         label: LAG_LABELS[lag],
@@ -185,7 +187,7 @@ function buildLagChart() {
 // ============================================================
 function buildDetailCards() {
     const container = document.getElementById('detailCards');
-    const lags = ['lag_0', 'lag_1', 'lag_2', 'lag_3'];
+    const lags = ['lag_0', 'lag_1', 'lag_2', 'lag_3', 'lag_4'];
 
     Object.entries(correlations).forEach(([sym, lagData]) => {
         const meta = SYMPTOM_META[sym] || { label: sym, color: '#9994a8' };

@@ -24,10 +24,10 @@ The dose is computed as an interaction: `(weighted_UV_index ^ 1.5) x sun_exposur
 |-----------|--------|
 | UV dose >= 800 | +3.0 x uv_weight |
 | UV dose >= 400 | +1.25 x uv_weight |
-| 3-day cumulative UV >= 1500 | +1.5 x uv_weight |
-| 3-day cumulative UV >= 1000 | +0.75 x uv_weight |
+| 4-day cumulative UV >= 2500 | +1.5 x uv_weight |
+| 4-day cumulative UV >= 1500 | +0.75 x uv_weight |
 
-The cumulative UV load uses a decay-weighted sum of the prior 3 days (yesterday 0.7x, 2 days ago 0.4x, 3 days ago 0.2x). UV lag analysis shows 24-hour lag has the strongest flare correlation in this dataset.
+The cumulative UV load uses a decay-weighted sum of the prior 4 days (yesterday 0.8x, 2 days ago 0.6x, 3 days ago 0.4x, 4 days ago 0.2x). Personal data analysis showed UV signal persists 2-4 days before major flares — unprotected ≥60 min exposure on day -1 fires on 79% of major flares vs 35% of non-flare baseline, dropping to 58% at day -4 (still well above baseline). The older 3-day window with 0.7/0.4/0.2 decay dropped off too aggressively for a signal that stays visible this long. UV lag analysis shows 24-hour lag has the strongest single-day flare correlation.
 
 Protection factors: none (1.0), SPF + hat (0.3), full cover (0.1), indoors only (0.0).
 
