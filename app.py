@@ -4533,121 +4533,134 @@ def forecast_accuracy():
     false_positives = 0  # Predicted flare, no flare (false alarm)
     false_negatives = 0  # Predicted no flare, but flare occurred (missed)
 
-    # Track which factors appear in false predictions
     _acc_weights = get_current_weights(uid())
     _acc_threshold = _acc_weights.get('flare_threshold', 8.0)
+
+    # Per-severity counters
+    caught_minor = caught_major = caught_er = caught_unspec = 0
+    missed_minor = missed_major = missed_er = missed_unspec = 0
+
+    # Factor appearance on caught vs missed majors (for signal quality comparison)
+    caught_major_factors = Counter()
+    missed_major_factors = Counter()
     false_pos_factors = Counter()
-    false_neg_factors = Counter()
-    problem_cases = []
-    missed_minor = 0
-    missed_major = 0
-    missed_er = 0
-    caught_minor = 0
-    caught_major = 0
-    caught_er = 0
+
+    # Full ranked lists (not capped)
+    missed_majors = []   # major + er lumped here, tagged by severity
+    missed_minors = []
+    false_alarms = []
+
+    def _case(obs, score, factors):
+        return {
+            'date': obs['date'],
+            'score': round(score, 1),
+            'gap': round(_acc_threshold - score, 1),  # how far below threshold (positive = worse miss)
+            'factors': ', '.join([f['name'] for f in factors[:3]]) if factors else '(none fired)',
+            'notes': (obs.get('notes') or '').strip()[:200],
+            'severity': obs.get('flare_severity') or 'unspecified',
+            'pain': obs.get('pain_scale'),
+            'fatigue': obs.get('fatigue_scale'),
+        }
 
     for obs in analysis_set:
         score = calculate_flare_prime_score(obs)
         predicted_flare = score >= _acc_threshold
         actual_flare = obs.get('flare_occurred') == 1
         severity = obs.get('flare_severity')
+        factors = get_contributing_factors(obs)
 
         if predicted_flare and actual_flare:
             true_positives += 1
             if severity == 'er_visit':
                 caught_er += 1
+                for f in factors: caught_major_factors[f['name']] += 1
             elif severity == 'major':
                 caught_major += 1
+                for f in factors: caught_major_factors[f['name']] += 1
             elif severity == 'minor':
                 caught_minor += 1
+            else:
+                caught_unspec += 1
         elif not predicted_flare and not actual_flare:
             true_negatives += 1
         elif predicted_flare and not actual_flare:
             false_positives += 1
-            # Track factors present in false alarm
-            factors = get_contributing_factors(obs)
             for f in factors:
                 false_pos_factors[f['name']] += 1
-
-            # Add to problem cases
-            if len(problem_cases) < 10:
-                problem_cases.append({
-                    'date': obs['date'],
-                    'type': 'False Alarm',
-                    'type_color': '#d4784a',
-                    'score': round(score, 1),
-                    'factors': ', '.join([f['name'] for f in factors[:3]])
-                })
+            false_alarms.append(_case(obs, score, factors))
         elif not predicted_flare and actual_flare:
             false_negatives += 1
             if severity == 'er_visit':
                 missed_er += 1
+                missed_majors.append(_case(obs, score, factors))
+                for f in factors: missed_major_factors[f['name']] += 1
             elif severity == 'major':
                 missed_major += 1
+                missed_majors.append(_case(obs, score, factors))
+                for f in factors: missed_major_factors[f['name']] += 1
             elif severity == 'minor':
                 missed_minor += 1
-            # Track factors present in missed flare
-            factors = get_contributing_factors(obs)
-            for f in factors:
-                false_neg_factors[f['name']] += 1
+                missed_minors.append(_case(obs, score, factors))
+            else:
+                missed_unspec += 1
+                missed_minors.append(_case(obs, score, factors))
 
-            # Add to problem cases
-            if len(problem_cases) < 10:
-                problem_cases.append({
-                    'date': obs['date'],
-                    'type': 'Missed Flare',
-                    'type_color': '#c94040',
-                    'score': round(score, 1),
-                    'factors': ', '.join([f['name'] for f in factors[:3]]),
-                    'severity': severity or 'unknown'
-                })
-    
+    # Rank missed lists worst-first (largest gap = worst miss)
+    missed_majors.sort(key=lambda c: -c['gap'])
+    missed_minors.sort(key=lambda c: -c['gap'])
+    # False alarms: largest score first (most confident wrong)
+    false_alarms.sort(key=lambda c: -c['score'])
+
     # Calculate metrics
     total = len(analysis_set)
     correct = true_positives + true_negatives
     accuracy = round((correct / total * 100) if total > 0 else 0, 1)
-    
+
     # Precision: Of all predicted flares, how many were correct?
     predicted_pos = true_positives + false_positives
     precision = round((true_positives / predicted_pos * 100) if predicted_pos > 0 else 0, 1)
-    
-    # Recall: Of all actual flares, how many did we catch?
+
+    # Combined recall: Of all actual flares, how many did we catch?
     actual_pos = true_positives + false_negatives
     recall = round((true_positives / actual_pos * 100) if actual_pos > 0 else 0, 1)
-    
+
+    # Per-severity recall — major is the primary metric (function-limiting flares)
+    major_total = caught_major + missed_major + caught_er + missed_er
+    minor_total = caught_minor + missed_minor
+    major_recall = round((caught_major + caught_er) / major_total * 100, 1) if major_total else None
+    minor_recall = round(caught_minor / minor_total * 100, 1) if minor_total else None
+
     # False alarm rate
     predicted_pos_total = true_positives + false_positives
     false_alarm_rate = round((false_positives / predicted_pos_total * 100) if predicted_pos_total > 0 else 0, 1)
-    
-    # Assign grade
-    if accuracy >= 85:
-        grade = 'A'
-        grade_color = '#4a9e6e'
-        grade_desc = 'Excellent - Model is highly accurate'
-    elif accuracy >= 75:
-        grade = 'B'
-        grade_color = '#4ab8b8'
-        grade_desc = 'Good - Model performs well with minor issues'
-    elif accuracy >= 65:
-        grade = 'C'
-        grade_color = '#d4b84a'
-        grade_desc = 'Fair - Model needs improvement'
-    elif accuracy >= 50:
-        grade = 'D'
-        grade_color = '#d4784a'
-        grade_desc = 'Poor - Significant adjustments needed'
-    else:
-        grade = 'F'
-        grade_color = '#c94040'
-        grade_desc = 'Failing - Model requires major revision'
-    
-    # Generate weight adjustment suggestions
+
+    # Factor signal quality: for each factor, compare appearance rate on caught vs missed majors
+    # (higher = factor correctly discriminates; lower = factor is absent when we need it)
+    factor_signal = []
+    all_major_factors = set(caught_major_factors) | set(missed_major_factors)
+    caught_major_n = caught_major + caught_er
+    missed_major_n = missed_major + missed_er
+    for fname in all_major_factors:
+        c = caught_major_factors.get(fname, 0)
+        m = missed_major_factors.get(fname, 0)
+        c_rate = (c / caught_major_n * 100) if caught_major_n else 0
+        m_rate = (m / missed_major_n * 100) if missed_major_n else 0
+        factor_signal.append({
+            'factor': fname,
+            'caught_rate': round(c_rate, 0),
+            'missed_rate': round(m_rate, 0),
+            'caught_count': c,
+            'missed_count': m,
+            'lift': round(c_rate - m_rate, 0),  # positive = fires more on caught than missed
+        })
+    # Sort: most useful discriminators first (factor that fires on caught but NOT missed)
+    factor_signal.sort(key=lambda x: -x['lift'])
+
+    # Generate weight adjustment suggestions (unchanged logic, now uses severity-aware signals)
     suggestions = []
-    
-    # If too many false alarms, suggest reducing weights of common factors
     if false_positives > 5:
         for factor, count in false_pos_factors.most_common(3):
-            if count >= 3:  # Factor appears in 3+ false alarms
+            if count >= 3:
                 suggestions.append({
                     'factor': factor,
                     'current_weight': 'Current',
@@ -4655,48 +4668,36 @@ def forecast_accuracy():
                     'reason': f'Appears in {count} false alarms. May be over-weighted.',
                     'color': '#d4784a'
                 })
-    
-    # If too many missed flares, suggest increasing weights of common factors
-    if false_negatives > 3:
-        for factor, count in false_neg_factors.most_common(3):
-            if count >= 2:  # Factor appears in 2+ missed flares
+    if missed_major + missed_er > 0:
+        # Suggest based on factors that fire on caught but not missed majors
+        for fs in factor_signal[:3]:
+            if fs['lift'] >= 25 and fs['missed_count'] == 0:
                 suggestions.append({
-                    'factor': factor,
+                    'factor': fs['factor'],
                     'current_weight': 'Current',
-                    'suggested_weight': '↑ Increase',
-                    'reason': f'Appears in {count} missed flares. May be under-weighted.',
+                    'suggested_weight': '↑ Increase OR lower threshold',
+                    'reason': f"Fires on {fs['caught_count']}/{caught_major_n} caught majors but 0/{missed_major_n} missed ones — strong discriminator.",
                     'color': '#c94040'
                 })
-    
-    # Specific suggestions based on patterns
-    if false_alarm_rate > 40:
+    if major_recall is not None and major_recall < 70:
         suggestions.insert(0, {
-            'factor': 'Overall Threshold',
-            'current_weight': '10 points',
-            'suggested_weight': '12 points',
-            'reason': 'High false alarm rate suggests threshold is too sensitive.',
-            'color': '#9b72cf'
+            'factor': 'Major Flare Recall',
+            'current_weight': f'{major_recall}%',
+            'suggested_weight': 'Lower threshold or add pain/fatigue ladders',
+            'reason': f'Missing {missed_major + missed_er} of {major_total} major flares. Function-limiting days are the most important to catch.',
+            'color': '#c94040'
         })
-    
-    if recall < 70:
-        suggestions.insert(0, {
-            'factor': 'Overall Threshold',
-            'current_weight': '10 points',
-            'suggested_weight': '8 points',
-            'reason': 'Low recall suggests threshold is too conservative.',
-            'color': '#9b72cf'
-        })
-    
+
     return render_template(
         "forecast_accuracy.html",
         n_days=len(analysis_set),
         days=days_display,
-        grade=grade,
-        grade_color=grade_color,
-        grade_description=grade_desc,
+        threshold=_acc_threshold,
         accuracy=accuracy,
         precision=precision,
         recall=recall,
+        major_recall=major_recall,
+        minor_recall=minor_recall,
         false_alarm_rate=false_alarm_rate,
         correct_predictions=correct,
         total_predictions=total,
@@ -4705,13 +4706,20 @@ def forecast_accuracy():
         false_positives=false_positives,
         false_negatives=false_negatives,
         suggestions=suggestions,
-        problem_cases=problem_cases[:10],
+        missed_majors=missed_majors,
+        missed_minors=missed_minors,
+        false_alarms=false_alarms,
         missed_minor=missed_minor,
         missed_major=missed_major,
         missed_er=missed_er,
+        missed_unspec=missed_unspec,
         caught_minor=caught_minor,
         caught_major=caught_major,
         caught_er=caught_er,
+        caught_unspec=caught_unspec,
+        major_total=major_total,
+        minor_total=minor_total,
+        factor_signal=factor_signal,
     )
 
 # ============================================================

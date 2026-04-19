@@ -8,9 +8,9 @@
 
 {% block content %}
 <div class="page-header">
-    <h1>model accuracy assessment</h1>
+    <h1>model accuracy</h1>
     <p class="page-subtitle">
-        self-grading analysis based on {{ n_days }} days of data
+        {{ n_days }} days analyzed · threshold = {{ threshold }}
     </p>
 </div>
 
@@ -21,88 +21,107 @@
     <a href="{{ url_for('forecast_history') }}" class="btn btn-secondary">
         View History
     </a>
-    
-    <!-- Time Window Selector -->
+
     <div style="margin-left:auto; display:flex; align-items:center; gap:var(--space-sm);">
         <label style="font-size:0.85rem; color:var(--text-muted);">
             Analysis Window:
         </label>
         <select onchange="window.location.href='{{ url_for('forecast_accuracy') }}?days=' + this.value"
-                style="padding:0.5rem 1rem; background:var(--bg-input); border:1px solid var(--border-medium); 
+                style="padding:0.5rem 1rem; background:var(--bg-input); border:1px solid var(--border-medium);
                        border-radius:var(--radius-sm); color:var(--text-primary); font-size:0.9rem;">
             <option value="60" {% if days == 60 %}selected{% endif %}>60 days</option>
             <option value="90" {% if days == 90 %}selected{% endif %}>90 days</option>
             <option value="120" {% if days == 120 %}selected{% endif %}>120 days</option>
+            <option value="365" {% if days == 365 %}selected{% endif %}>365 days</option>
             <option value="all" {% if days == 'all' %}selected{% endif %}>All time</option>
         </select>
     </div>
 </div>
 
-<!-- Overall Grade -->
-<div class="card" style="margin-bottom:var(--space-xl); text-align:center; 
-                         border:2px solid {{ grade_color }};">
-    <div style="font-size:0.85rem; text-transform:uppercase; letter-spacing:0.1em; 
+<!-- Primary metric: major flare recall -->
+<div class="card" style="margin-bottom:var(--space-xl); padding:var(--space-xl); text-align:center;
+                         border:2px solid {% if major_recall is none %}var(--border-medium){% elif major_recall >= 80 %}var(--color-success){% elif major_recall >= 60 %}var(--color-warning){% else %}var(--color-danger){% endif %};">
+    <div style="font-size:0.85rem; text-transform:uppercase; letter-spacing:0.1em;
                 color:var(--text-muted); margin-bottom:var(--space-sm);">
-        Model Performance Grade
+        Major Flare Recall
     </div>
-    <div style="font-size:4rem; font-weight:600; color:{{ grade_color }}; 
+    <div style="font-size:0.75rem; color:var(--text-muted); margin-bottom:var(--space-md); line-height:1.5;">
+        Function-limiting flares. This is the metric that matters most.
+    </div>
+    <div style="font-size:4.5rem; font-weight:600;
+                color:{% if major_recall is none %}var(--text-muted){% elif major_recall >= 80 %}var(--color-success){% elif major_recall >= 60 %}var(--color-warning){% else %}var(--color-danger){% endif %};
                 font-family:var(--font-display); line-height:1;">
-        {{ grade }}
+        {% if major_recall is none %}—{% else %}{{ major_recall }}%{% endif %}
     </div>
-    <div style="font-size:1rem; color:var(--text-secondary); margin-top:var(--space-sm);">
-        {{ grade_description }}
+    <div style="font-size:0.95rem; color:var(--text-secondary); margin-top:var(--space-sm);">
+        Caught {{ caught_major + caught_er }} of {{ major_total }} major/ER flares
+        {% if missed_major + missed_er > 0 %}
+          · <span style="color:var(--color-danger);">{{ missed_major + missed_er }} missed</span>
+        {% endif %}
     </div>
 </div>
 
-<!-- Metrics Grid -->
-<div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); 
+<!-- Secondary metrics row -->
+<div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(160px, 1fr));
             gap:var(--space-md); margin-bottom:var(--space-xl);">
-    
-    <div class="card" style="text-align:center; border-top:3px solid var(--color-success);">
-        <div style="font-size:2rem; font-weight:600; color:var(--color-success);">
-            {{ accuracy }}%
+
+    <div class="card" style="text-align:center; border-top:3px solid var(--color-warning);">
+        <div style="font-size:1.75rem; font-weight:600; color:var(--color-warning);">
+            {% if minor_recall is none %}—{% else %}{{ minor_recall }}%{% endif %}
         </div>
         <div style="font-size:0.85rem; color:var(--text-muted); margin-top:var(--space-xs);">
-            Accuracy
+            Minor recall
         </div>
         <div style="font-size:0.75rem; color:var(--text-muted); margin-top:0.25rem;">
-            {{ correct_predictions }}/{{ total_predictions }} correct
+            {{ caught_minor }}/{{ minor_total }} caught
         </div>
     </div>
-    
+
     <div class="card" style="text-align:center; border-top:3px solid var(--color-accent);">
-        <div style="font-size:2rem; font-weight:600; color:var(--color-accent);">
+        <div style="font-size:1.75rem; font-weight:600; color:var(--color-accent);">
+            {{ recall }}%
+        </div>
+        <div style="font-size:0.85rem; color:var(--text-muted); margin-top:var(--space-xs);">
+            Combined recall
+        </div>
+        <div style="font-size:0.75rem; color:var(--text-muted); margin-top:0.25rem;">
+            all flare types
+        </div>
+    </div>
+
+    <div class="card" style="text-align:center; border-top:3px solid var(--color-accent);">
+        <div style="font-size:1.75rem; font-weight:600; color:var(--color-accent);">
             {{ precision }}%
         </div>
         <div style="font-size:0.85rem; color:var(--text-muted); margin-top:var(--space-xs);">
             Precision
         </div>
         <div style="font-size:0.75rem; color:var(--text-muted); margin-top:0.25rem;">
-            When predicting flare
+            {{ true_positives }}/{{ true_positives + false_positives }} predicted
         </div>
     </div>
-    
-    <div class="card" style="text-align:center; border-top:3px solid var(--color-warning);">
-        <div style="font-size:2rem; font-weight:600; color:var(--color-warning);">
-            {{ recall }}%
-        </div>
-        <div style="font-size:0.85rem; color:var(--text-muted); margin-top:var(--space-xs);">
-            Recall
-        </div>
-        <div style="font-size:0.75rem; color:var(--text-muted); margin-top:0.25rem;">
-            Catches actual flares
-        </div>
-    </div>
-    
+
     <div class="card" style="text-align:center; border-top:3px solid var(--color-danger);">
-        <div style="font-size:2rem; font-weight:600; color:var(--color-danger);">
+        <div style="font-size:1.75rem; font-weight:600; color:var(--color-danger);">
             {{ false_alarm_rate }}%
         </div>
         <div style="font-size:0.85rem; color:var(--text-muted); margin-top:var(--space-xs);">
-            False Alarm Rate
+            False alarm rate
         </div>
         <div style="font-size:0.75rem; color:var(--text-muted); margin-top:0.25rem;">
             {{ false_positives }} false alarms
+        </div>
+    </div>
+
+    <div class="card" style="text-align:center; border-top:3px solid var(--text-muted);">
+        <div style="font-size:1.75rem; font-weight:600; color:var(--text-primary);">
+            {{ accuracy }}%
+        </div>
+        <div style="font-size:0.85rem; color:var(--text-muted); margin-top:var(--space-xs);">
+            Overall accuracy
+        </div>
+        <div style="font-size:0.75rem; color:var(--text-muted); margin-top:0.25rem;">
+            {{ correct_predictions }}/{{ total_predictions }}
         </div>
     </div>
 </div>
@@ -110,21 +129,19 @@
 <!-- Confusion Matrix -->
 <div class="card" style="margin-bottom:var(--space-xl);">
     <div class="card-title">confusion matrix</div>
-    <div style="display:grid; grid-template-columns:150px 1fr 1fr; gap:1px; 
+    <div style="display:grid; grid-template-columns:150px 1fr 1fr; gap:1px;
                 background:var(--border-subtle); border:1px solid var(--border-subtle);">
-        <!-- Header row -->
         <div style="background:var(--bg-surface); padding:var(--space-md);"></div>
-        <div style="background:var(--bg-surface); padding:var(--space-md); text-align:center; 
+        <div style="background:var(--bg-surface); padding:var(--space-md); text-align:center;
                     font-weight:600; color:var(--text-primary);">
             Predicted: No Flare
         </div>
-        <div style="background:var(--bg-surface); padding:var(--space-md); text-align:center; 
+        <div style="background:var(--bg-surface); padding:var(--space-md); text-align:center;
                     font-weight:600; color:var(--text-primary);">
             Predicted: Flare
         </div>
-        
-        <!-- Actual: No Flare row -->
-        <div style="background:var(--bg-surface); padding:var(--space-md); 
+
+        <div style="background:var(--bg-surface); padding:var(--space-md);
                     font-weight:600; color:var(--text-primary);">
             Actual: No Flare
         </div>
@@ -144,9 +161,8 @@
                 False Positives ✗
             </div>
         </div>
-        
-        <!-- Actual: Flare row -->
-        <div style="background:var(--bg-surface); padding:var(--space-md); 
+
+        <div style="background:var(--bg-surface); padding:var(--space-md);
                     font-weight:600; color:var(--text-primary);">
             Actual: Flare
         </div>
@@ -169,89 +185,205 @@
     </div>
 </div>
 
-<!-- Missed Flare Severity Breakdown -->
-{% if missed_minor or missed_major or missed_er %}
+<!-- Missed Majors - ranked, uncapped -->
+{% if missed_majors %}
 <div class="card" style="margin-bottom:var(--space-xl); border-left:4px solid var(--color-danger);">
-    <div class="card-title">missed flare severity</div>
-    <div style="display:flex; gap:var(--space-lg);">
-        <div style="text-align:center;">
-            <div style="font-size:1.5rem; font-weight:600; color:var(--color-warning);">
-                {{ missed_minor }}
-            </div>
-            <div style="font-size:0.85rem; color:var(--text-muted);">minor missed</div>
-        </div>
-        <div style="text-align:center;">
-            <div style="font-size:1.5rem; font-weight:600; color:var(--color-danger);">
-                {{ missed_major }}
-            </div>
-            <div style="font-size:0.85rem; color:var(--text-muted);">major missed</div>
-        </div>
-        <div style="text-align:center;">
-            <div style="font-size:1.5rem; font-weight:600; color:#ff4444;">
-                {{ missed_er }}
-            </div>
-            <div style="font-size:0.85rem; color:var(--text-muted);">ER visits missed</div>
-        </div>
+    <div class="card-title">
+        missed major flares — {{ missed_majors|length }} total, ranked by score gap
     </div>
-    {% if missed_er > 0 %}
-    <div style="margin-top:var(--space-sm); font-size:0.85rem; color:#ff4444; line-height:1.6;">
-        The model missed {{ missed_er }} ER visit{{ 's' if missed_er > 1 else '' }}.
-        This is the most critical type of miss. Consider lowering the flare threshold in
-        <a href="{{ url_for('forecast_lab') }}" style="color:var(--color-accent);">Forecast Lab</a>.
+    <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:var(--space-md); line-height:1.5;">
+        Days where a major or ER flare occurred but the model scored below threshold ({{ threshold }}).
+        Gap = how far below threshold the score fell. Larger gap = worse miss.
+    </p>
+    <div style="overflow-x:auto;">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Date</th>
+                    <th>Severity</th>
+                    <th style="text-align:right;">Score</th>
+                    <th style="text-align:right;">Gap</th>
+                    <th style="text-align:right;">Pain / Fat</th>
+                    <th>Factors Fired</th>
+                    <th>Notes</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for case in missed_majors %}
+                <tr>
+                    <td class="mono"><a href="{{ url_for('daily_entry', date=case.date) }}" style="color:var(--color-accent);">{{ case.date }}</a></td>
+                    <td>
+                        <span class="badge" style="background:{% if case.severity == 'er_visit' %}#ff444422{% else %}#c9404022{% endif %};
+                                                    color:{% if case.severity == 'er_visit' %}#ff4444{% else %}#c94040{% endif %};
+                                                    border:1px solid {% if case.severity == 'er_visit' %}#ff4444{% else %}#c94040{% endif %};">
+                            {{ case.severity }}
+                        </span>
+                    </td>
+                    <td class="mono" style="text-align:right;">{{ case.score }}</td>
+                    <td class="mono" style="text-align:right; color:var(--color-danger); font-weight:600;">
+                        -{{ case.gap }}
+                    </td>
+                    <td class="mono" style="text-align:right; font-size:0.85rem;">
+                        {{ case.pain if case.pain is not none else '—' }} / {{ case.fatigue if case.fatigue is not none else '—' }}
+                    </td>
+                    <td style="font-size:0.85rem; color:var(--text-muted); max-width:200px;">
+                        {{ case.factors }}
+                    </td>
+                    <td style="font-size:0.85rem; color:var(--text-secondary); max-width:300px; line-height:1.4;">
+                        {{ case.notes }}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
     </div>
-    {% elif missed_major > 0 %}
-    <div style="margin-top:var(--space-sm); font-size:0.85rem; color:var(--color-danger); line-height:1.6;">
-        The model missed {{ missed_major }} major flare{{ 's' if missed_major > 1 else '' }}.
-        Consider lowering the flare threshold in
-        <a href="{{ url_for('forecast_lab') }}" style="color:var(--color-accent);">Forecast Lab</a>
-        to improve major flare detection.
-    </div>
-    {% endif %}
 </div>
 {% endif %}
 
-<!-- Caught Flare Severity Breakdown -->
-{% if caught_minor or caught_major or caught_er %}
-<div class="card" style="margin-bottom:var(--space-xl); border-left:4px solid var(--color-success);">
-    <div class="card-title">caught flare severity</div>
-    <div style="display:flex; gap:var(--space-lg);">
-        <div style="text-align:center;">
-            <div style="font-size:1.5rem; font-weight:600; color:var(--color-warning);">
-                {{ caught_minor }}
-            </div>
-            <div style="font-size:0.85rem; color:var(--text-muted);">minor caught</div>
-        </div>
-        <div style="text-align:center;">
-            <div style="font-size:1.5rem; font-weight:600; color:var(--color-danger);">
-                {{ caught_major }}
-            </div>
-            <div style="font-size:0.85rem; color:var(--text-muted);">major caught</div>
-        </div>
-        <div style="text-align:center;">
-            <div style="font-size:1.5rem; font-weight:600; color:#ff4444;">
-                {{ caught_er }}
-            </div>
-            <div style="font-size:0.85rem; color:var(--text-muted);">ER visits caught</div>
-        </div>
+<!-- Factor signal quality: caught vs missed majors -->
+{% if factor_signal %}
+<div class="card" style="margin-bottom:var(--space-xl); border-left:4px solid var(--color-accent);">
+    <div class="card-title">factor signal quality on major flares</div>
+    <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:var(--space-md); line-height:1.5;">
+        For each scoring factor, how often it fires on caught majors vs missed majors.
+        Lift = caught% − missed%. Positive lift means the factor discriminates well
+        (fires when we catch the flare, stays silent when we miss it).
+        Negative lift or low caught-rate means the factor isn't helping predict majors.
+    </p>
+    <div style="overflow-x:auto;">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Factor</th>
+                    <th style="text-align:right;">Caught %</th>
+                    <th style="text-align:right;">Missed %</th>
+                    <th style="text-align:right;">Lift</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for fs in factor_signal %}
+                <tr>
+                    <td style="font-size:0.9rem;">{{ fs.factor }}</td>
+                    <td class="mono" style="text-align:right; color:var(--color-success);">
+                        {{ fs.caught_rate }}% ({{ fs.caught_count }})
+                    </td>
+                    <td class="mono" style="text-align:right; color:var(--color-danger);">
+                        {{ fs.missed_rate }}% ({{ fs.missed_count }})
+                    </td>
+                    <td class="mono" style="text-align:right;
+                               color:{% if fs.lift > 10 %}var(--color-success){% elif fs.lift < -10 %}var(--color-danger){% else %}var(--text-muted){% endif %};
+                               font-weight:600;">
+                        {% if fs.lift > 0 %}+{% endif %}{{ fs.lift }}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endif %}
+
+<!-- Missed Minors -->
+{% if missed_minors %}
+<div class="card" style="margin-bottom:var(--space-xl); border-left:4px solid var(--color-warning);">
+    <div class="card-title">
+        missed minor/unspecified flares — {{ missed_minors|length }} total
+    </div>
+    <div style="overflow-x:auto;">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Date</th>
+                    <th>Severity</th>
+                    <th style="text-align:right;">Score</th>
+                    <th style="text-align:right;">Gap</th>
+                    <th style="text-align:right;">Pain / Fat</th>
+                    <th>Factors Fired</th>
+                    <th>Notes</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for case in missed_minors %}
+                <tr>
+                    <td class="mono"><a href="{{ url_for('daily_entry', date=case.date) }}" style="color:var(--color-accent);">{{ case.date }}</a></td>
+                    <td>
+                        <span class="badge" style="background:#d4b84a22; color:#d4b84a; border:1px solid #d4b84a;">
+                            {{ case.severity }}
+                        </span>
+                    </td>
+                    <td class="mono" style="text-align:right;">{{ case.score }}</td>
+                    <td class="mono" style="text-align:right; color:var(--color-warning);">
+                        -{{ case.gap }}
+                    </td>
+                    <td class="mono" style="text-align:right; font-size:0.85rem;">
+                        {{ case.pain if case.pain is not none else '—' }} / {{ case.fatigue if case.fatigue is not none else '—' }}
+                    </td>
+                    <td style="font-size:0.85rem; color:var(--text-muted); max-width:200px;">
+                        {{ case.factors }}
+                    </td>
+                    <td style="font-size:0.85rem; color:var(--text-secondary); max-width:300px; line-height:1.4;">
+                        {{ case.notes }}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endif %}
+
+<!-- False Alarms -->
+{% if false_alarms %}
+<div class="card" style="margin-bottom:var(--space-xl); border-left:4px solid var(--color-danger);">
+    <div class="card-title">
+        false alarms — {{ false_alarms|length }} total, ranked by score
+    </div>
+    <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:var(--space-md); line-height:1.5;">
+        Days where the model predicted a flare but none was logged. Top-ranked are the most confident misfires.
+    </p>
+    <div style="overflow-x:auto;">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Date</th>
+                    <th style="text-align:right;">Score</th>
+                    <th style="text-align:right;">Pain / Fat</th>
+                    <th>Factors Fired</th>
+                    <th>Notes</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for case in false_alarms %}
+                <tr>
+                    <td class="mono"><a href="{{ url_for('daily_entry', date=case.date) }}" style="color:var(--color-accent);">{{ case.date }}</a></td>
+                    <td class="mono" style="text-align:right;">{{ case.score }}</td>
+                    <td class="mono" style="text-align:right; font-size:0.85rem;">
+                        {{ case.pain if case.pain is not none else '—' }} / {{ case.fatigue if case.fatigue is not none else '—' }}
+                    </td>
+                    <td style="font-size:0.85rem; color:var(--text-muted); max-width:200px;">
+                        {{ case.factors }}
+                    </td>
+                    <td style="font-size:0.85rem; color:var(--text-secondary); max-width:300px; line-height:1.4;">
+                        {{ case.notes }}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
     </div>
 </div>
 {% endif %}
 
 <!-- Suggested Adjustments -->
 {% if suggestions %}
-<div class="card" style="margin-bottom:var(--space-xl); 
+<div class="card" style="margin-bottom:var(--space-xl);
                          border-left:4px solid var(--color-accent);">
-    <div class="card-title">suggested weight adjustments</div>
-    <p style="color:var(--text-secondary); font-size:0.9rem; margin-bottom:var(--space-md); 
-              line-height:1.6;">
-        Based on analysis of false predictions, the model suggests these adjustments to improve accuracy:
-    </p>
-    
+    <div class="card-title">suggested adjustments</div>
     <div style="display:flex; flex-direction:column; gap:var(--space-md);">
         {% for suggestion in suggestions %}
-        <div style="padding:var(--space-md); background:var(--bg-elevated); 
+        <div style="padding:var(--space-md); background:var(--bg-elevated);
                     border-radius:var(--radius-sm); border-left:3px solid {{ suggestion.color }};">
-            <div style="display:flex; justify-content:space-between; align-items:baseline; 
+            <div style="display:flex; justify-content:space-between; align-items:baseline;
                         margin-bottom:var(--space-xs);">
                 <span style="font-weight:600; color:var(--text-primary);">
                     {{ suggestion.factor }}
@@ -265,51 +397,6 @@
             </div>
         </div>
         {% endfor %}
-    </div>
-</div>
-{% else %}
-<div class="card" style="text-align:center; padding:var(--space-xl); 
-                         background:var(--bg-elevated);">
-    <div style="font-size:1.5rem; margin-bottom:var(--space-sm);">✓</div>
-    <div style="color:var(--text-secondary);">
-        Model is performing well. No weight adjustments needed at this time.
-    </div>
-</div>
-{% endif %}
-
-<!-- Problem Cases -->
-{% if problem_cases %}
-<div class="card">
-    <div class="card-title">recent problem cases</div>
-    <div style="overflow-x:auto;">
-        <table class="data-table">
-            <thead>
-                <tr>
-                    <th>Date</th>
-                    <th>Type</th>
-                    <th>Score</th>
-                    <th>Main Factors</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for case in problem_cases %}
-                <tr>
-                    <td class="mono">{{ case.date }}</td>
-                    <td>
-                        <span class="badge" style="background:{{ case.type_color }}22; 
-                                                     color:{{ case.type_color }}; 
-                                                     border:1px solid {{ case.type_color }};">
-                            {{ case.type }}
-                        </span>
-                    </td>
-                    <td class="mono">{{ case.score }}</td>
-                    <td style="font-size:0.85rem; color:var(--text-muted);">
-                        {{ case.factors }}
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
     </div>
 </div>
 {% endif %}
