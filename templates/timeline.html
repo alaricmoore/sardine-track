@@ -56,20 +56,60 @@
 </div>
 
 <!-- Multi-day predictor panel -->
-<div style="display:grid; grid-template-columns:1fr 1fr; gap:var(--space-md); margin-bottom:var(--space-xl);">
+<div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(300px, 1fr)); gap:var(--space-md); margin-bottom:var(--space-xl);">
     <div class="card">
-        <div class="card-title">symptom burden delta</div>
+        <div style="display:flex; justify-content:space-between; align-items:baseline; gap:var(--space-sm);">
+            <div class="card-title">symptom burden delta</div>
+            <span style="font-size:0.7rem; color:var(--text-muted);">click to expand ⤢</span>
+        </div>
         <p style="font-size:0.75rem; color:var(--text-muted); margin-bottom:var(--space-sm);">
             3-day avg minus 14-day baseline. Positive = symptoms accelerating above your normal.
         </p>
-        <canvas id="chartBurdenDelta" style="max-height:200px;"></canvas>
+        <canvas id="chartBurdenDelta" style="max-height:200px; cursor:pointer;"></canvas>
     </div>
     <div class="card">
-        <div class="card-title">RMSSD deviation</div>
+        <div style="display:flex; justify-content:space-between; align-items:baseline; gap:var(--space-sm);">
+            <div class="card-title">RMSSD deviation</div>
+            <span style="font-size:0.7rem; color:var(--text-muted);">click to expand ⤢</span>
+        </div>
         <p style="font-size:0.75rem; color:var(--text-muted); margin-bottom:var(--space-sm);">
             7-day rolling vs 30-day baseline. Negative = vagal withdrawal (inflammatory brake weakening).
         </p>
-        <canvas id="chartRmssdDev" style="max-height:200px;"></canvas>
+        <canvas id="chartRmssdDev" style="max-height:200px; cursor:pointer;"></canvas>
+    </div>
+    <div class="card">
+        <div style="display:flex; justify-content:space-between; align-items:baseline; gap:var(--space-sm);">
+            <div class="card-title">respiratory rate deviation</div>
+            <span style="font-size:0.7rem; color:var(--text-muted);">click to expand ⤢</span>
+        </div>
+        <p style="font-size:0.75rem; color:var(--text-muted); margin-bottom:var(--space-sm);">
+            3-day rolling vs 14-day baseline. Positive = elevated rate (pre-event signal).
+        </p>
+        <canvas id="chartRespRateDev" style="max-height:200px; cursor:pointer;"></canvas>
+    </div>
+</div>
+
+<!-- Chart expansion modal -->
+<div id="chartModal" onclick="if(event.target===this) closeChartModal()"
+     style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.82); z-index:1000;
+            align-items:center; justify-content:center; padding:var(--space-lg);">
+    <div style="background:var(--bg-surface); border:1px solid var(--border-medium); border-radius:8px;
+                padding:var(--space-lg); max-width:1400px; width:100%; max-height:92vh;
+                display:flex; flex-direction:column;">
+        <div style="display:flex; justify-content:space-between; align-items:center; gap:var(--space-md);
+                    margin-bottom:var(--space-sm);">
+            <div id="chartModalTitle" class="card-title" style="margin:0;"></div>
+            <button type="button" onclick="closeChartModal()"
+                    style="background:none; border:1px solid var(--border-medium); color:var(--text-primary);
+                           padding:4px 12px; border-radius:4px; cursor:pointer; font-size:0.85rem;">
+                close · esc
+            </button>
+        </div>
+        <p id="chartModalSubtitle" style="font-size:0.8rem; color:var(--text-muted);
+                                           margin:0 0 var(--space-md) 0;"></p>
+        <div style="flex:1; min-height:0; position:relative;">
+            <canvas id="chartModalCanvas"></canvas>
+        </div>
     </div>
 </div>
 
@@ -263,95 +303,167 @@
         }
     });
 
-    // ── 2. Burden delta line chart ──
+    // ── Deviation chart factories (reused for inline + modal) ──
     const burdenVals = D.map(d => d.burden_delta_raw);
+    const rmssdVals = D.map(d => d.rmssd_deviation_raw);
+    const respVals = D.map(d => d.resp_rate_deviation_raw);
 
-    new Chart(document.getElementById('chartBurdenDelta'), {
-        type: 'line',
-        plugins: [flarePlugin],
-        data: {
-            labels: dates,
-            datasets: [{
+    const respThresholdPlugin = {
+        id: 'respThreshold',
+        afterDatasetsDraw(chart) {
+            const { ctx, chartArea, scales } = chart;
+            if (!scales.y) return;
+            const lines = [
+                { v: 10, color: 'rgba(224,160,80,0.35)' },
+                { v: 15, color: 'rgba(201,64,64,0.45)' }
+            ];
+            ctx.save();
+            ctx.setLineDash([4, 4]);
+            ctx.lineWidth = 1;
+            lines.forEach(l => {
+                const y = scales.y.getPixelForValue(l.v);
+                if (y < chartArea.top || y > chartArea.bottom) return;
+                ctx.strokeStyle = l.color;
+                ctx.beginPath();
+                ctx.moveTo(chartArea.left, y);
+                ctx.lineTo(chartArea.right, y);
+                ctx.stroke();
+            });
+            ctx.restore();
+        }
+    };
+
+    function makeDeviationConfig(opts) {
+        // opts: { data, plugins, borderColor, backgroundColor, fillAbove, fillBelow, yTitle, tooltipFormat }
+        return {
+            type: 'line',
+            plugins: opts.plugins,
+            data: {
+                labels: dates,
+                datasets: [{
+                    data: opts.data,
+                    borderColor: opts.borderColor,
+                    backgroundColor: opts.backgroundColor,
+                    borderWidth: 1.5,
+                    pointRadius: 0,
+                    pointHoverRadius: 3,
+                    fill: { target: 'origin', above: opts.fillAbove, below: opts.fillBelow },
+                    tension: 0.3,
+                    spanGaps: true,
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: opts.maintainAspectRatio !== false,
+                interaction: { mode: 'index', intersect: false },
+                scales: {
+                    x: {
+                        grid: { color: GRID },
+                        ticks: { maxTicksLimit: opts.maintainAspectRatio === false ? 16 : 8,
+                                 callback: (v,i) => dates[i] ? dates[i].slice(5) : '' }
+                    },
+                    y: {
+                        grid: { color: GRID },
+                        title: { display: true, text: opts.yTitle, color: '#9994a8' }
+                    }
+                },
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        backgroundColor: '#1e1e28', borderColor: '#2a2a38', borderWidth: 1,
+                        padding: 8, cornerRadius: 6,
+                        callbacks: {
+                            label: ctx => ctx.parsed.y !== null ? opts.tooltipFormat(ctx.parsed.y) : 'no data'
+                        }
+                    }
+                }
+            }
+        };
+    }
+
+    const DEVIATION_CHARTS = {
+        burden: {
+            title: 'symptom burden delta',
+            subtitle: '3-day avg minus 14-day baseline. Positive = symptoms accelerating above your normal.',
+            build: (opts = {}) => makeDeviationConfig({
                 data: burdenVals,
+                plugins: [flarePlugin],
                 borderColor: '#5b9bd5',
                 backgroundColor: 'rgba(91,155,213,0.1)',
-                borderWidth: 1.5,
-                pointRadius: 0,
-                pointHoverRadius: 3,
-                fill: { target: 'origin', above: 'rgba(91,155,213,0.1)', below: 'transparent' },
-                tension: 0.3,
-                spanGaps: true,
-            }]
+                fillAbove: 'rgba(91,155,213,0.1)',
+                fillBelow: 'transparent',
+                yTitle: 'delta (symptoms)',
+                tooltipFormat: v => 'delta: ' + v.toFixed(1),
+                ...opts
+            })
         },
-        options: {
-            responsive: true,
-            interaction: { mode: 'index', intersect: false },
-            scales: {
-                x: {
-                    grid: { color: GRID },
-                    ticks: { maxTicksLimit: 8, callback: (v,i) => dates[i] ? dates[i].slice(5) : '' }
-                },
-                y: {
-                    grid: { color: GRID },
-                    title: { display: true, text: 'delta (symptoms)', color: '#9994a8' }
-                }
-            },
-            plugins: {
-                legend: { display: false },
-                tooltip: {
-                    backgroundColor: '#1e1e28', borderColor: '#2a2a38', borderWidth: 1,
-                    padding: 8, cornerRadius: 6,
-                    callbacks: {
-                        label: ctx => ctx.parsed.y !== null ? 'delta: ' + ctx.parsed.y.toFixed(1) : 'no data'
-                    }
-                }
-            }
-        }
-    });
-
-    // ── 3. RMSSD deviation line chart ──
-    const rmssdVals = D.map(d => d.rmssd_deviation_raw);
-
-    new Chart(document.getElementById('chartRmssdDev'), {
-        type: 'line',
-        plugins: [flarePlugin],
-        data: {
-            labels: dates,
-            datasets: [{
+        rmssd: {
+            title: 'RMSSD deviation',
+            subtitle: '7-day rolling vs 30-day baseline. Negative = vagal withdrawal (inflammatory brake weakening).',
+            build: (opts = {}) => makeDeviationConfig({
                 data: rmssdVals,
+                plugins: [flarePlugin],
                 borderColor: '#66bb6a',
                 backgroundColor: 'rgba(102,187,106,0.1)',
-                borderWidth: 1.5,
-                pointRadius: 0,
-                pointHoverRadius: 3,
-                fill: { target: 'origin', above: 'transparent', below: 'rgba(255,68,68,0.08)' },
-                tension: 0.3,
-                spanGaps: true,
-            }]
+                fillAbove: 'transparent',
+                fillBelow: 'rgba(255,68,68,0.08)',
+                yTitle: 'deviation %',
+                tooltipFormat: v => v.toFixed(1) + '%',
+                ...opts
+            })
         },
-        options: {
-            responsive: true,
-            interaction: { mode: 'index', intersect: false },
-            scales: {
-                x: {
-                    grid: { color: GRID },
-                    ticks: { maxTicksLimit: 8, callback: (v,i) => dates[i] ? dates[i].slice(5) : '' }
-                },
-                y: {
-                    grid: { color: GRID },
-                    title: { display: true, text: 'deviation %', color: '#9994a8' }
-                }
-            },
-            plugins: {
-                legend: { display: false },
-                tooltip: {
-                    backgroundColor: '#1e1e28', borderColor: '#2a2a38', borderWidth: 1,
-                    padding: 8, cornerRadius: 6,
-                    callbacks: {
-                        label: ctx => ctx.parsed.y !== null ? ctx.parsed.y.toFixed(1) + '%' : 'no data'
-                    }
-                }
-            }
+        resp: {
+            title: 'respiratory rate deviation',
+            subtitle: '3-day rolling vs 14-day baseline. Positive = elevated rate (pre-event signal). Dashed lines at +10% / +15% show scoring thresholds.',
+            build: (opts = {}) => makeDeviationConfig({
+                data: respVals,
+                plugins: [flarePlugin, respThresholdPlugin],
+                borderColor: '#e0a050',
+                backgroundColor: 'rgba(224,160,80,0.12)',
+                fillAbove: 'rgba(224,160,80,0.15)',
+                fillBelow: 'transparent',
+                yTitle: 'deviation %',
+                tooltipFormat: v => v.toFixed(1) + '%',
+                ...opts
+            })
+        }
+    };
+
+    new Chart(document.getElementById('chartBurdenDelta'), DEVIATION_CHARTS.burden.build());
+    new Chart(document.getElementById('chartRmssdDev'), DEVIATION_CHARTS.rmssd.build());
+    new Chart(document.getElementById('chartRespRateDev'), DEVIATION_CHARTS.resp.build());
+
+    // ── Modal: click any deviation chart to expand ──
+    let modalChart = null;
+
+    function openChartModal(key) {
+        const spec = DEVIATION_CHARTS[key];
+        if (!spec) return;
+        document.getElementById('chartModalTitle').textContent = spec.title;
+        document.getElementById('chartModalSubtitle').textContent = spec.subtitle;
+        document.getElementById('chartModal').style.display = 'flex';
+        if (modalChart) { modalChart.destroy(); modalChart = null; }
+        requestAnimationFrame(() => {
+            modalChart = new Chart(
+                document.getElementById('chartModalCanvas'),
+                spec.build({ maintainAspectRatio: false })
+            );
+        });
+    }
+
+    function closeChartModal() {
+        document.getElementById('chartModal').style.display = 'none';
+        if (modalChart) { modalChart.destroy(); modalChart = null; }
+    }
+    window.closeChartModal = closeChartModal;
+
+    document.getElementById('chartBurdenDelta').addEventListener('click', () => openChartModal('burden'));
+    document.getElementById('chartRmssdDev').addEventListener('click', () => openChartModal('rmssd'));
+    document.getElementById('chartRespRateDev').addEventListener('click', () => openChartModal('resp'));
+
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && document.getElementById('chartModal').style.display === 'flex') {
+            closeChartModal();
         }
     });
 
