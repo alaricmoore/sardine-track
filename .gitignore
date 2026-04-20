@@ -2,6 +2,12 @@
 *.db
 *.db.bak
 *.db-journal
+*.db-shm
+*.db-wal
+
+# Database backup snapshots (real health data — never commit)
+backups/
+biotracking_backup_*
 
 # Config with secrets (API keys, secret_key, passcode)
 config.json
@@ -34,4 +40,16 @@ Thumbs.db
 
 # Images (user-uploaded)
 images/
+
+# Root-level PNGs — source files and analysis script outputs.
+# (Actual app favicons live in images/favicon/ and are served by Flask.)
+# The leading slash anchors this to repo root so subfolder PNGs still ship.
+/*.png
+
+# Claude Code per-project memory (auto-memory working notes; private)
+memory/
+MEMORY.md
+
+# Python venv
 .venv/
+biotracking.db*
