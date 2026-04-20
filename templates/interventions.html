@@ -5,7 +5,15 @@
 {% block head %}
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <style>
-.card-intervention { margin-bottom: var(--space-xl); }
+.card-intervention {
+    margin-bottom: var(--space-xl);
+    border-left: 4px solid var(--border-medium);
+}
+.card-intervention.primary-prescription { border-left-color: var(--color-intervention); }
+.card-intervention.primary-supplement   { border-left-color: var(--color-intervention-supplement); }
+.card-intervention.secondary-prescription { border-left-color: var(--color-intervention-secondary); }
+.card-intervention.secondary-supplement   { border-left-color: var(--color-intervention-supplement); }
+
 .stat-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
@@ -16,8 +24,26 @@
     background: var(--bg-elevated);
     padding: var(--space-sm) var(--space-md);
     border-radius: var(--radius-sm);
-    border-left: 3px solid var(--color-accent);
+    border-left: 3px solid var(--border-medium);
 }
+/* Per-metric color mappings drawn from the global CSS palette */
+.stat-box.rmssd       { border-left-color: var(--color-cognitive); }
+.stat-box.rmssd .stat-label { color: var(--color-cognitive); }
+.stat-box.sdnn        { border-left-color: var(--color-neuro); }
+.stat-box.sdnn .stat-label  { color: var(--color-neuro); }
+.stat-box.resp        { border-left-color: var(--color-pulmonary); }
+.stat-box.resp .stat-label  { color: var(--color-pulmonary); }
+.stat-box.flare-total { border-left-color: var(--color-danger); }
+.stat-box.flare-total .stat-label { color: var(--color-danger); }
+.stat-box.flare-major { border-left-color: var(--color-danger); }
+.stat-box.flare-major .stat-label { color: var(--color-danger); }
+.stat-box.flare-minor { border-left-color: var(--color-warning); }
+.stat-box.flare-minor .stat-label { color: var(--color-warning); }
+.stat-box.flare-gap   { border-left-color: var(--color-pulmonary); }
+.stat-box.flare-gap .stat-label { color: var(--color-pulmonary); }
+.stat-box.duration-flare { border-left-color: var(--color-danger); }
+.stat-box.duration-flare .stat-label { color: var(--color-danger); }
+
 .stat-box .stat-label {
     font-size: 0.7rem;
     text-transform: uppercase;
@@ -48,11 +74,11 @@
 }
 .rebound-banner {
     padding: var(--space-sm) var(--space-md);
-    background: rgba(224,160,80,0.12);
-    border-left: 3px solid #e0a050;
+    background: color-mix(in srgb, var(--color-intervention-supplement) 15%, var(--bg-surface));
+    border-left: 3px solid var(--color-intervention-supplement);
     border-radius: var(--radius-sm);
     font-size: 0.85rem;
-    color: #e0a050;
+    color: var(--color-intervention-supplement);
     margin: var(--space-sm) 0;
 }
 .event-row {
@@ -127,15 +153,21 @@
 {% if cards %}
 <!-- Per-intervention cards -->
 {% for c in cards %}
-<div class="card card-intervention" id="med-{{ c.med.id }}">
+<div class="card card-intervention
+            {% if c.med.is_primary_intervention %}primary-{% else %}secondary-{% endif
+              %}{% if c.med.category == 'supplement' %}supplement{% else %}prescription{% endif %}"
+     id="med-{{ c.med.id }}">
     <div style="display:flex; justify-content:space-between; align-items:baseline; gap:var(--space-md); flex-wrap:wrap;">
         <div>
             <div class="card-title" style="margin:0;">
                 {{ c.med.drug_name }}
                 {% if c.med.is_primary_intervention %}
-                <span style="font-size:0.7rem; color:#4ab8b8; margin-left:0.4rem;">· primary</span>
+                <span style="font-size:0.7rem; color:var(--color-intervention); margin-left:0.4rem;">· primary</span>
                 {% else %}
-                <span style="font-size:0.7rem; color:#9563ec; margin-left:0.4rem;">· secondary</span>
+                <span style="font-size:0.7rem; color:var(--color-intervention-secondary); margin-left:0.4rem;">· secondary</span>
+                {% endif %}
+                {% if c.med.category == 'supplement' %}
+                <span style="font-size:0.7rem; color:var(--color-intervention-supplement); margin-left:0.4rem;">· supplement</span>
                 {% endif %}
             </div>
             <div style="font-size:0.8rem; color:var(--text-muted); margin-top:0.25rem;">
@@ -156,7 +188,7 @@
     <!-- Flare impact -->
     <div class="section-title">flare impact</div>
     <div class="stat-grid">
-        <div class="stat-box">
+        <div class="stat-box flare-total">
             <div class="stat-label">total flares</div>
             <div class="stat-value">{{ c.flare_stats.pre.count }} &rarr; {{ c.flare_stats.post.count }}</div>
             <div class="stat-delta {% if c.flare_stats.delta_rate_pct is none %}delta-neutral
@@ -168,7 +200,7 @@
                 {% else %}—{% endif %}
             </div>
         </div>
-        <div class="stat-box">
+        <div class="stat-box flare-major">
             <div class="stat-label">major / ER</div>
             <div class="stat-value">
                 {{ c.flare_stats.pre.major + c.flare_stats.pre.er }} &rarr;
@@ -180,7 +212,7 @@
                 {% endif %}
             </div>
         </div>
-        <div class="stat-box">
+        <div class="stat-box flare-minor">
             <div class="stat-label">minor</div>
             <div class="stat-value">{{ c.flare_stats.pre.minor }} &rarr; {{ c.flare_stats.post.minor }}</div>
             <div class="stat-delta {% if c.flare_stats.delta_minor_pct is none %}delta-neutral
@@ -192,7 +224,7 @@
                 {% else %}—{% endif %}
             </div>
         </div>
-        <div class="stat-box">
+        <div class="stat-box flare-gap">
             <div class="stat-label">mean gap days</div>
             <div class="stat-value">
                 {{ c.flare_stats.pre.mean_gap_days if c.flare_stats.pre.mean_gap_days is not none else '—' }}
@@ -207,7 +239,7 @@
     <div class="section-title">autonomic (pre &rarr; post means ± SD)</div>
     <div class="stat-grid">
         {% for k, label, unit in [('rmssd','RMSSD','ms'),('sdnn','SDNN','ms'),('resp','Resp rate','bpm')] %}
-        <div class="stat-box">
+        <div class="stat-box {{ k }}">
             <div class="stat-label">{{ label }}</div>
             <div class="stat-value">
                 {% if c.autonomic_stats[k].pre.mean is not none %}{{ c.autonomic_stats[k].pre.mean }}{% else %}—{% endif %}
@@ -229,7 +261,7 @@
     <!-- Duration of effect (one-time only) -->
     <div class="section-title">duration of effect</div>
     <div class="stat-grid">
-        <div class="stat-box">
+        <div class="stat-box duration-flare">
             <div class="stat-label">days to next flare</div>
             <div class="stat-value">
                 {% if c.duration_of_effect.days_to_any_flare is not none %}
@@ -241,7 +273,7 @@
                 {% else %}no major in window{% endif %}
             </div>
         </div>
-        <div class="stat-box">
+        <div class="stat-box rmssd">
             <div class="stat-label">RMSSD baseline return</div>
             <div class="stat-value">
                 {% if c.duration_of_effect.days_to_rmssd_baseline is not none %}
@@ -250,7 +282,7 @@
             </div>
             <div class="stat-delta delta-neutral">within ±1σ of pre-mean for 7d</div>
         </div>
-        <div class="stat-box">
+        <div class="stat-box sdnn">
             <div class="stat-label">SDNN baseline return</div>
             <div class="stat-value">
                 {% if c.duration_of_effect.days_to_sdnn_baseline is not none %}
@@ -258,7 +290,7 @@
                 {% else %}not yet{% endif %}
             </div>
         </div>
-        <div class="stat-box">
+        <div class="stat-box resp">
             <div class="stat-label">Resp baseline return</div>
             <div class="stat-value">
                 {% if c.duration_of_effect.days_to_resp_baseline is not none %}

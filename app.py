@@ -39,6 +39,13 @@ from apscheduler.schedulers.background import BackgroundScheduler
 
 app = Flask(__name__)
 
+# Apply any pending schema migrations. Idempotent — safe to call every startup.
+# Prints a note only when something actually changed so logs stay quiet on
+# no-op runs.
+_migrations_applied = db.run_migrations()
+if _migrations_applied:
+    print(f"[db] applied {_migrations_applied} schema migration(s) at startup")
+
 import os
 import json
 

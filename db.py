@@ -49,6 +49,65 @@ def today():
 
 
 # ============================================================
+# Idempotent schema migrations
+# ============================================================
+# Called once at app startup to bring an existing DB up to the schema the
+# running code expects. Safe to call repeatedly. Prevents the "no such table"
+# / "no such column" class of errors when the app adds new features that
+# require schema changes but the DB was created before that feature landed.
+#
+# Adding a new migration: append a block inside run_migrations() that uses
+# _table_missing() or _column_missing() as the gate. Each applied migration
+# increments the returned count so callers can log what changed.
+
+def _table_missing(cursor, table: str) -> bool:
+    row = cursor.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+        (table,)
+    ).fetchone()
+    return row is None
+
+
+def _column_missing(cursor, table: str, column: str) -> bool:
+    rows = cursor.execute(f"PRAGMA table_info({table})").fetchall()
+    return all(r["name"] != column for r in rows)
+
+
+def run_migrations() -> int:
+    """Apply idempotent schema migrations. Returns the number of migrations
+    that actually performed a change (0 if everything was already up to date).
+
+    Call once at app startup.
+    """
+    applied = 0
+    with get_db() as conn:
+        c = conn.cursor()
+
+        # ---- medication_events (added 2026-04-19 for /interventions view) ----
+        if _table_missing(c, "medication_events"):
+            c.execute("""
+                CREATE TABLE medication_events (
+                    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id        INTEGER NOT NULL REFERENCES users(id),
+                    medication_id  INTEGER NOT NULL,
+                    event_date     TEXT NOT NULL,
+                    event_type     TEXT NOT NULL,
+                    severity       INTEGER,
+                    note           TEXT,
+                    created_at     TEXT NOT NULL DEFAULT (datetime('now')),
+                    FOREIGN KEY (medication_id) REFERENCES medications(id) ON DELETE CASCADE
+                )
+            """)
+            c.execute(
+                "CREATE INDEX IF NOT EXISTS idx_med_events_med "
+                "ON medication_events(medication_id, event_date)"
+            )
+            applied += 1
+
+    return applied
+
+
+# ============================================================
 # Users
 # ============================================================
 
