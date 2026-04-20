@@ -496,32 +496,44 @@ SCORING CATEGORIES
 
       Requires >= 7 days of baseline history; falls back to 0 if sparse.
 
-  11. RMSSD Baseline Deviation (vagal withdrawal signal, d = -0.35)
+  11. RMSSD Baseline Deviation — vagal withdrawal signal
       Compares 7-day rolling RMSSD average to 30-day personal baseline.
       Based on the cholinergic anti-inflammatory pathway: declining vagal
-      tone weakens the inflammatory brake. Conservative weight (0.5)
-      because p=0.11 with n=25 events — mechanistically grounded but
-      not yet statistically significant.
+      tone weakens the inflammatory brake. Replicates Thanou 2016's within-
+      patient ΔRMSSD-ΔSLEDAI finding (p=0.007). Post-bugfix rerun: pre-flare
+      day-1/-2 Cohen's d = -0.28 all flares, -0.18 majors; on-flare-day
+      RMSSD for majors drops ~46% from baseline. Underpowered cross-
+      sectionally at n=8 majors but directionally consistent with lit.
+      Default weight 0.5; Alaric currently tunes it to 1.25.
       • Deviation <= -25%: +1.5 x rmssd_deviation_weight
       • Deviation <= -15%: +0.75 x rmssd_deviation_weight
 
-  11b. RMSSD Instability (day-to-day |ΔRMSSD| surge)
+  11b. RMSSD Instability — day-to-day |ΔRMSSD| surge
       Compares mean |ΔRMSSD| in prior 5 days to a 30-day baseline.
       Captures autonomic *chaos* rather than level-based withdrawal.
-      Independent signal — fires alongside rule 11 when both conditions hold.
-      Personal pre-flare pattern: day-1 → day-0 transition in majors averages
-      ~120 ms |Δ| vs 60-70 ms baseline. Conservative weight (0.5) pending
-      validation on live data.
+      Independent signal from rule 11 — fires alongside it when both hold.
+      Prototyped from the post-bugfix rerun analysis (rmssd_flare_rerun.py),
+      which showed the surge/crash pattern is specific to MAJOR flares;
+      minor flares show flatter trajectories.
+      Personal data: day-1 → day-0 transition in majors averages ~120 ms
+      |Δ| vs 60-70 ms baseline. Conservative weight (0.5) pending live
+      validation.
       • Deviation >= 50%: +1.5 x rmssd_instability_weight
       • Deviation >= 25%: +0.75 x rmssd_instability_weight
 
-  12. Respiratory Rate Baseline Deviation (pre-event elevation signal)
+  12. Respiratory Rate Baseline Deviation — pre-event elevation signal
       Compares 3-day rolling respiratory rate average to 14-day personal
       baseline (days -4 through -17, gap avoids pre-event contamination).
-      Elevated breathing rate may precede inflammatory events. Literature
-      shows OR=1.15 per breath/min increase for clinical deterioration
-      (Barfod et al. 2017). Conservative weight (0.5) pending validation
-      on personal data.
+      Motivated by general critical-care deterioration literature (Barfod
+      et al. 2017, OR=1.15 per breath/min, n=15,724) — NOT lupus-specific.
+      Honest caveat: Alaric's cross-sectional pre-flare raw rate is
+      weakly negative (d=-0.18 majors), opposite of the literature's
+      elevated-rate prediction. The feature scores within-person deviation,
+      which may still be testable on a per-event basis even when the
+      group mean doesn't move. The /model resp-rate deviation chart (with
+      dashed +10% / +15% threshold lines) is the live validation tool —
+      watch whether the line crosses those thresholds 1-3 days before
+      known flares. If consistently yes, raise the weight; if not, drop it.
       • Deviation >= 15%: +1.5 x resp_rate_deviation_weight
       • Deviation >= 10%: +0.75 x resp_rate_deviation_weight
 

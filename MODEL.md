@@ -110,6 +110,8 @@ Falls back to 0 contribution with fewer than 7 days of baseline history.
 
 Based on the cholinergic anti-inflammatory pathway: the vagus nerve tonically suppresses systemic inflammation. RMSSD (root mean square of successive differences in heartbeat intervals) is the best time-domain proxy for vagal tone. If vagal tone drops, the cholinergic brake weakens, and inflammation runs hotter.
 
+**Literature anchors.** Thanou et al. 2016 (n=53 SLE patients, 505 visit pairs) found ΔRMSSD inversely correlated with ΔSLEDAI within subject (p=0.007) and LF/HF ratio associated with the SELENA-SLEDAI Flare Index (p=0.008) — direct evidence that RMSSD tracks lupus disease activity longitudinally. Poliwczak et al. 2017 (24-hour Holter, 26 SLE women vs 30 controls) confirmed SLE patients have chronically reduced r-MSSD (23.5 ± 10.0 ms vs 35.7 ± 16.3 ms, p=0.002), so baseline parasympathetic impairment is expected in SLE even between flares.
+
 **Computation:**
 - **Recent**: 7-day rolling average of nightly RMSSD (days -1 through -7)
 - **Baseline**: 30-day rolling average (days -8 through -37, avoids overlap)
@@ -120,13 +122,23 @@ Based on the cholinergic anti-inflammatory pathway: the vagus nerve tonically su
 | Deviation <= -25% | +1.5 x rmssd_deviation_weight |
 | Deviation <= -15% | +0.75 x rmssd_deviation_weight |
 
-Conservative default weight (0.5) because the signal is mechanistically grounded but not yet statistically significant at current sample size (Cohen's d = -0.35, p = 0.11, n = 25 major/ER events). Apple Watch RMSSD has ~29% measurement error vs chest strap, but tracks relative within-person changes adequately for this purpose.
+**Personal data (post-bugfix rerun, n=26 flare clusters: 8 major/ER, 14 minor):**
+- Non-flare baseline RMSSD: ~99 ms (arithmetic mean), ~66 ms (geometric mean)
+- Pre-flare day-1/-2 Cohen's d vs non-flare baseline: -0.28 all flares, -0.18 majors alone, -0.37 minors
+- **On-flare-day RMSSD for majors drops to ~53 ms** — a 46% fall from non-flare baseline. This is the most robust per-event signal.
+- Mann-Whitney day-1 vs day-0 p=0.28 for majors, 0.32 all-flare — underpowered at current n but directionally consistent with Thanou 2016's ΔRMSSD-ΔSLEDAI finding.
+
+Interpretation: Thanou's longitudinal ΔRMSSD-ΔSLEDAI relationship reproduces in this single-patient dataset. Cross-sectional significance is not yet achievable at n=8 major clusters, but the within-patient trajectory — decline into a flare, partial recovery after — matches the literature.
+
+Default weight is a conservative 0.5. Alaric's personal weight is currently tuned to **1.25** based on observed performance (forecast accuracy view showed positive lift on caught vs missed flares). Apple Watch RMSSD has ~29% measurement error vs chest strap (MAPE), but tracks relative within-person changes adequately for this purpose.
 
 Returns no contribution with fewer than 4 values in either window.
 
 ### 7b. RMSSD Instability (Day-to-Day |Δ|)
 
-Captures autonomic *chaos* rather than level-based withdrawal. Personal pre-flare pattern analysis (post-bugfix rerun, n=8 major/ER clusters) showed that in the week before major flares, RMSSD oscillates wildly — surging at day -6 (~100 ms), crashing at day -4/-3 (~50-60 ms), rebounding at day -2 (~85 ms), then collapsing on flare day (~45 ms). Mean day-to-day |ΔRMSSD| at the day-1 → day-0 transition reached ~120 ms in majors vs ~60-70 ms in minors and non-flare transitions. This instability signature is independent from the level-based deviation above and fires alongside it when both conditions hold.
+Captures autonomic *chaos* rather than level-based withdrawal. **Independent signal from section 7** — level-based deviation measures *where* RMSSD sits, instability measures *how much it's swinging*; both can fire on the same day when the trajectory is collapsing chaotically. The two features are additive in scoring.
+
+Prototyped from the post-bugfix rerun analysis (`rmssd_flare_rerun.py` in the project root, generating `rmssd_flare_rerun.png`). That analysis, stratified by severity at n=26 flare clusters, showed that in the week before major flares RMSSD oscillates wildly — surging at day -6 (~100 ms), crashing at day -4/-3 (~50-60 ms), rebounding at day -2 (~85 ms), then collapsing on flare day (~45 ms). Mean day-to-day |ΔRMSSD| at the day-1 → day-0 transition reached ~120 ms in majors vs ~60-70 ms in minors and non-flare transitions. Crucially, the oscillation is a **major-flare-specific** phenomenon; minor flares show flatter trajectories, which is why the older aggregated analysis (n=21, not split by severity) showed a weaker pattern.
 
 **Computation:**
 - **Recent**: mean of |RMSSD[d] - RMSSD[d-1]| across days -1 through -5 (yields up to 4 adjacent-day deltas)
@@ -142,7 +154,7 @@ Conservative default weight (0.5) pending validation. Requires >=3 recent deltas
 
 ### 8. Respiratory Rate Baseline Deviation
 
-Elevated respiratory rate may precede inflammatory events. Literature shows OR=1.15 per breath/min increase for clinical deterioration within 2 days (Barfod et al. 2017, n=15,724, p=0.002). Michard & Saugel (2025) note vital signs trend abnormal hours before severe adverse events.
+**Literature motivation (non-lupus-specific).** Barfod et al. 2017 (*Scandinavian Journal of Trauma, Resuscitation and Emergency Medicine*, n=15,724 ED triage cohort) reported OR=1.15 per breath/min increase for ICU admission or in-hospital mortality within the subsequent two days. Michard & Saugel (2025) describe vital-sign drift as a marker of impending adverse events hours in advance. These are **general critical-care deterioration findings, not lupus-specific**. No paper in the Thanou/Poliwczak literature trail measured respiratory rate as a flare predictor; this feature is a mechanistic extrapolation from sepsis/deterioration to autoimmune flare.
 
 **Computation:**
 - **Recent**: 3-day rolling average of respiratory rate (days -1 through -3) -- shorter window than RMSSD because the hypothesis is a 1-3 day signal
@@ -156,7 +168,13 @@ Elevated respiratory rate may precede inflammatory events. Literature shows OR=1
 
 15% above baseline is approximately 2-3 extra breaths/min for a typical resting rate of 16 breaths/min, consistent with the literature's 3 breath/min difference between deterioration and control groups.
 
-Conservative default weight (0.5) pending validation on personal data. Returns no contribution with fewer than 2 recent or 4 baseline values.
+**Personal data status — honest caveat.** In Alaric's dataset, comparing raw pre-flare rates cross-sectionally to non-flare rates gives a *weakly negative* Cohen's d (-0.18 for majors, -0.16 all flares) — meaning her pre-flare respiratory rate sits slightly *lower* than her non-flare rate, the opposite direction of what the ICU literature predicts. That undermines the simple "elevated rate before deterioration" framing.
+
+The feature nevertheless scores **within-person deviation** (3-day recent vs 14-day baseline) rather than cross-sectional group means, so a signal that only fires on specific days when her rate spikes above her own baseline could still be predictive. Her resp rate range is also narrow (~19-20 breaths/min, stdev ~1.5), so small absolute changes produce meaningful percent deviations — the feature is mechanically testable even if the group-mean signal is absent.
+
+**Live validation: the /model dashboard's respiratory rate deviation chart** (third card in the multi-day predictor panel) renders this deviation over time with dashed reference lines at +10% and +15% — the two scoring thresholds. The empirical test is whether those lines get crossed in the 1-3 days before known flares. If yes consistently, the weight earns a boost above the 0.5 default. If not, the weight stays conservative or drops to zero.
+
+Conservative default weight (0.5) reflects this pending-validation state. Returns no contribution with fewer than 2 recent or 4 baseline values.
 
 ### 9. Cycle Phase (Disabled)
 
@@ -238,9 +256,12 @@ This was built to test the hypothesis that RMSSD may behave differently before f
 
 ## Relevant Literature
 
-- Huston & Tracey (2011): Cholinergic anti-inflammatory pathway -- vagal tone suppresses systemic inflammation via acetylcholine on macrophage nicotinic receptors. Proposed HRV as a predictor of impending relapse.
-- Bhatt/Engel group (ACR abstracts): 58 SLE patients, 505 visit pairs. RMSSD and HF-HRV increased during clinical improvement, decreased during flares, inverse correlation to SLEDAI.
-- Apple Watch HRV validation (2024): Underestimates HRV by ~8.3ms vs Polar H10 (MAPE ~29%), but tracks relative within-person changes adequately for longitudinal monitoring.
+- **Huston & Tracey (2011).** Cholinergic anti-inflammatory pathway — vagal tone suppresses systemic inflammation via acetylcholine on macrophage nicotinic receptors. Proposed HRV as a predictor of impending relapse. Mechanism behind RMSSD features (sections 7, 7b).
+- **Thanou A, Stavrakis S, Dyer JW, Munroe ME, James JA, Merrill JT (2016).** "Impact of heart rate variability, a marker for cardiac health, on lupus disease activity." *Arthritis Research & Therapy* 18:197. Within-subject ΔRMSSD inversely correlated with ΔSLEDAI (p=0.007); LF/HF ratio associated with the SELENA-SLEDAI Flare Index (p=0.008). Direct evidence that RMSSD tracks lupus disease activity longitudinally — core justification for the deviation-based scoring in section 7.
+- **Poliwczak AR et al. (2017).** "The use of heart rate turbulence and heart rate variability in the assessment of autonomic regulation and circadian rhythm in patients with systemic lupus erythematosus without apparent heart disease." *Lupus*. 24-hour Holter in 26 SLE women vs 30 controls showing chronic parasympathetic impairment (r-MSSD 23.5 vs 35.7 ms, p=0.002). Establishes that lupus patients have a baseline-reduced RMSSD state even between flares, which is why the features score *deviation from personal baseline* rather than absolute level.
+- **Bhatt/Engel group (ACR abstracts).** 58 SLE patients, 505 visit pairs. RMSSD and HF-HRV increased during clinical improvement, decreased during flares, inverse correlation to SLEDAI. Supporting evidence alongside Thanou 2016.
+- **Barfod C et al. (2017).** "Abnormal vital signs are strong predictors for intensive care unit admission and in-hospital mortality in adults triaged in the emergency department — a prospective cohort study." *Scandinavian Journal of Trauma, Resuscitation and Emergency Medicine* 25:81. General critical-care deterioration literature; OR=1.15 per breath/min increase for 2-day outcome (n=15,724). Non-lupus-specific motivation for the respiratory rate feature in section 8. Honest caveat: not validated in SLE; Alaric's personal data does not yet confirm the direction.
+- **Apple Watch HRV validation (2024).** Underestimates HRV by ~8.3 ms vs Polar H10 (MAPE ~29%). Tracks relative within-person changes adequately for longitudinal monitoring — the basis for scoring *deviation* rather than absolute RMSSD.
 
 ---
 
