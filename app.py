@@ -6431,12 +6431,12 @@ def admin_delete_user(user_id):
 # ============================================================
 
 if __name__ == "__main__":
-    print("\nbiotracking")
-    print("===========")
+    print("\nsardinetrack")
+    print("============")
     print(f"Patient: {CONFIG.get('patient_name', 'not set')}")
     print(f"Starting server...")
     print(f"\nLocal:  http://localhost:5000")
-    print(f"Phone:  connect to same wifi, visit http://<your-mac-ip>:5000\n")
+    print(f"Phone:  connect to same wifi, visit http://<your-ip>:5000\n")
 
     app.run(
         host="0.0.0.0",   # accessible from phone on same network

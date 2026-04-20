@@ -6,7 +6,7 @@ Built for people who need to see patterns in their own data when the medical sys
 
 (Well, built for one person who needed to see patterns, but she figured she couldn't be the only nut out there.)
 
-> **Note:** This is the public codebase of the biotracking app, now named **sardine-track** (a SARDs pun — "systemic autoimmune rheumatic disease," plus a tracker that sticks with you). The repo was originally released as `biotracking`; the GitHub rename keeps the old URL as a redirect, so existing links still work. Active experimentation continues in a private fork (`moore-family-biotracker`) that may push features back upstream when they prove out. The iOS companion app lives in its own repo: **[sardinessync](https://github.com/alaricmoore/sardinessync)**. Want to know how your data is stored and how it gets to your phone? See the [remote access guide](/remote-access).
+> **Note:** This is the public codebase of what was originally released as `biotracking`, now named **sardine-track** (a SARDs pun — "systemic autoimmune rheumatic disease," plus a tracker that sticks with you). The GitHub rename keeps the old URL as a redirect, so existing links still work. Active experimentation continues in a private fork that may push features back upstream when they prove out. The iOS companion app lives in its own repo: **[sardinessync](https://github.com/alaricmoore/sardinessync)**. Want to know how your data is stored and how it gets to your phone? See the [remote access guide](REMOTE_ACCESS.md).
 >
 > **About the family-instance framing:** the app supports multiple users and was originally built hoping family with shared genetic risk might want to track alongside. In practice the daily-entry burden has kept adoption to one. Multi-user plumbing is preserved — if a family member or friend does decide to try, they can register their own account on the same instance without affecting anyone else's data.
 
@@ -14,7 +14,7 @@ Built for people who need to see patterns in their own data when the medical sys
 
 ## What It Does
 
-Biotracking helps you:
+Sardine-track helps you:
 
 - Track daily symptoms, biometrics, and environmental factors (including UV exposure, in fact especially UV exposure)
 - Visualize correlations over time (does UV exposure predict your symptom flares? does low HRV precede bad days?)
@@ -41,9 +41,9 @@ At least that was my intuition, but that seemed insane. I had low vitamin D for 
 
 I figured I was just getting older. Also I'm hella pale, maybe this was a white people thing no one had mentioned to me.
 
-But coupled with a family history sprinkled with, and a genetic profile loaded for, SARDs and connective tissue disease associated alleles -- I decided to quantify it. It became painfully clear to me by the data, that unfortunatley, The sun is making me sick.
+But coupled with a family history sprinkled with, and a genetic profile loaded for, SARDs and connective tissue disease associated alleles -- I decided to quantify it. It became painfully clear to me by the data, that unfortunately, The sun is making me sick.
 
-That's why I started a spreadsheet. But it was useless in clinic -- rows upon rows of entries with no succinct way to visually communicate what they meant in a 15-minute appointment ,while exhausted and in pain and anxious about being dismissed again. After 90+ days I gave up. I got depressed. I kept getting sick. My sick leave was running dry at work, and with out a diagnosis I didn't feel confident that I could get FMLA protection.
+That's why I started a spreadsheet. But it was useless in clinic -- rows upon rows of entries with no succinct way to visually communicate what they meant in a 15-minute appointment, while exhausted and in pain and anxious about being dismissed again. After 90+ days I gave up. I got depressed. I kept getting sick. My sick leave was running dry at work, and with out a diagnosis I didn't feel confident that I could get FMLA protection.
 
 Then I picked it back up. I can't remember exactly what the impetus was -- probably another rheumatologist doubting me while ER doctors were writing "I believe her condition to be rheumatic in nature", meanwhile my dermatologist was doing her damnedest to get the best biopsy shave for DIF this side of the Mississippi. Damn near the size of a mercury dime.
 
@@ -220,7 +220,7 @@ If you see Python 3.9 or higher, you're good. If not, download from [python.org]
 
 **Windows:** Download Python from [python.org](https://python.org) and make sure to check "Add Python to PATH" during installation.
 
-### Step 2: Download Biotracking
+### Step 2: Download sardine-track
 
 **Option A: Download ZIP (easiest if you're not familiar with git)**
 
@@ -240,7 +240,7 @@ cd sardine-track
 
 ### Step 3: Set Up the Application
 
-Open Terminal (Mac/Linux) or Command Prompt (Windows), navigate to the biotracking folder, and run:
+Open Terminal (Mac/Linux) or Command Prompt (Windows), navigate to the sardine-track folder, and run:
 
 ```bash
 # Create a virtual environment (recommended)
@@ -277,14 +277,16 @@ python app.py
 You should see:
 
 ```
-biotracking
-===========
+sardinetrack
+============
 Patient: Your Name
 Starting server...
 
 Local:  http://localhost:5000
 Phone:  connect to same wifi, visit http://<your-ip>:5000
 ```
+
+> **A note on the name:** internally, the code still calls itself `biotracking` in a lot of places (module docstrings, the `biotracking.db` filename, some comments). That was the project's original name before it became `sardine-track`. It's left alone on purpose — renaming every occurrence is churn without benefit, and the database file in particular would break existing installs if renamed. User-facing surfaces (this banner, script output, `--help` text) say `sardinetrack`.
 
 Open your browser and go to `http://localhost:5000`. Try adding today's entry to make sure everything works.
 
@@ -582,7 +584,7 @@ You're not in the virtual environment. Run `source .venv/bin/activate` (Mac/Linu
 
 **Your data lives in two files:**
 
-- `biotracking.db` — the SQLite database
+- `biotracking.db` — the SQLite database (kept at this filename deliberately; renaming it to `sardine-track.db` would break existing installs that have the file in place, and the name inside the SQLite file is invisible to users anyway. The .gitignore correctly excludes this file regardless.)
 - `config.json` — your settings and API keys
 
 **Back them up:**

@@ -280,8 +280,8 @@ def run_import(csv_path: str, user_id: int = 1, dry_run: bool = False,
         print("         Basal temp delta will not be calculated correctly.")
         print("         Run setup.py to set your baseline.\n")
 
-    print(f"biotracking import")
-    print(f"==================")
+    print(f"sardinetrack import")
+    print(f"===================")
     print(f"File:      {csv_path}")
     print(f"Baseline:  {temp_baseline}°F")
     print(f"User ID:   {user_id}")
@@ -380,7 +380,7 @@ def _resolve_user_id(args) -> int:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Import historical symptom tracker CSV into biotracking database"
+        description="Import historical symptom tracker CSV into sardinetrack database"
     )
     parser.add_argument(
         "csv_file",
