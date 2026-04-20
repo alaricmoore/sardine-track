@@ -1,4 +1,4 @@
-# biotracking
+# sardines-track (biotracking)
 
 A local-only health tracking application for patients navigating complex diagnostic journeys.
 
@@ -6,7 +6,9 @@ Built for people who need to see patterns in their own data when the medical sys
 
 (Well, built for one person who needed to see patterns, but she figured she couldn't be the only nut out there.)
 
-> **Note:** This readme is for the public, self-hosted version of biotracker. The source code is available on GitHub at [github.com/alaricmoore/biotracking](https://github.com/alaricmoore/biotracking). What you're using here is a private family instance — same app, hosted on Alaric's server. Want to know how your data is stored and how it gets to your phone? See the [remote access guide](/remote-access).
+> **Note:** This is the current codebase of the biotracking app, internally called **sardines-track** (a SARDs pun — "systemic autoimmune rheumatic disease," plus a tracker that sticks with you). The public, older fork lives at [github.com/alaricmoore/biotracking](https://github.com/alaricmoore/biotracking) and is behind this version by several generations of the forecasting model and the entire `/interventions` view. The iOS companion app is **sardinesync**. Want to know how your data is stored and how it gets to your phone? See the [remote access guide](/remote-access).
+>
+> **About the family-instance framing:** the app supports multiple users and was originally built hoping family with shared genetic risk might want to track alongside. In practice the daily-entry burden has kept adoption to one. Multi-user plumbing is preserved — if a family member or friend does decide to try, they can register their own account on the same instance without affecting anyone else's data.
 
 ---
 
@@ -18,10 +20,10 @@ Biotracking helps you:
 - Visualize correlations over time (does UV exposure predict your symptom flares? does low HRV precede bad days?)
 - Generate clinical reports to bring to appointments (when you know damn well your brain is not going to remember everything, plus it has graphs!)
 - Keep a longitudinal record of labs, medications, & clinical events, as well a list of your clinicians
-- Run flare forecasting based on your own historical patterns
-- Visualize trends pre/post medical interventions such as hydroxychloriquine or steroids or biologics or what have you.
-- Auto-sync biometrics from Apple Health via iOS companion app (steps, HRV/SDNN, RMSSD, resting heart rate, SpO2, respiratory rate, basal body temperature, time in daylight)
-- Keep all your data local -- nothing leaves your computer, if you don't want it to.
+- Run flare forecasting based on your own historical patterns — transparent scoring, not a black box, and tuned on your own n=1 data
+- Evaluate medical interventions (hydroxychloroquine, steroids, biologics, whatever): per-medication pre/post flare impact, autonomic shift, duration-of-effect for one-time doses, and structured logging of side effects, rebounds, and dose changes
+- Auto-sync biometrics from Apple Health via the **sardinesync** iOS companion app (steps, HRV/SDNN, RMSSD, resting heart rate, SpO2, respiratory rate, basal body temperature, time in daylight)
+- Keep all your data local — nothing leaves your computer, if you don't want it to.
 
 This is not a medical product. This is a tool for veracity: for people who need to make their invisible patterns visible.
 
@@ -79,41 +81,67 @@ Enabled via `track_cycle: true` in setup. Designed for patients where steroids, 
 
 ### Data Visualization & Analysis
 
-- **Model dashboard**: Score attribution over time -- stacked bars showing exactly what's driving each day's risk score, with flare markers and threshold line. Includes symptom burden delta and RMSSD deviation trend charts, score distribution stats, and prediction accuracy strip.
-- **UV lag analysis**: Statistical analysis of UV exposure patterns and flare correlation with configurable lag periods (same-day, 24h, 48h, 72h)
-- **HRV tracking**: SDNN and RMSSD trends with 7-day rolling averages, intervention markers, flare event overlays, and pre/post intervention statistics
-- **Pre-flare pattern analysis**: Biometric averages, symptom frequencies, and RMSSD trajectories in the days before ER visits and major flares, with aggregate mean lines and confidence bands
-- **Intervention tracking**: Mark primary and secondary medical interventions, visualize pre/post effects
+- **Model dashboard** (`/model`, nav label "model"): score attribution over time — stacked bars showing exactly what's driving each day's risk score, with flare markers and threshold line. Includes click-to-expand trend charts for symptom burden delta, RMSSD deviation, and respiratory rate deviation (with +10% / +15% scoring thresholds dashed in). Score distribution stats (flare vs non-flare) and per-day prediction accuracy strip.
+- **Model sub-navigation from the dashboard**: accuracy, history, and pre-flare patterns are all hyperlinked from the model view so you don't have to dig through nested menus. A hidden `>>` chevron in the corner opens the Forecast Lab (easter-egg style, since it's a power-user tool).
+- **Pre-flare pattern analysis** (`/forecast/patterns`): biometric averages, symptom frequencies, and RMSSD trajectories in the days before ER visits and major flares, with aggregate mean lines and confidence bands.
+- **UV lag analysis** (`/uv-lag`): Pearson correlation between UV dose and each symptom at lag windows of 0, 1, 2, 3, and 4 days — identifies your personal best-predicting UV-to-symptom delay.
+- **Intervention evaluation** (`/interventions`, nav label "interventions"): per-medication pre/post flare and autonomic shift analysis. Described in its own section below — it's a big enough feature to deserve one.
 
 ### Flare Prediction Model
 
-- **Transparent statistical model**: See exactly how predictions are calculated
-- **Real-time risk assessment**: Daily flare risk score (0-25) with color-coded risk levels
-- **7-day trend visualization**: Track risk patterns over the past week
-- **Contributing factors breakdown**: See what's adding to your current risk score
-- **Personalized recommendations**: Context-aware suggestions based on current risk level
+Transparent statistical scoring, tunable per-user, with 13 contributing categories:
 
-### Forecast Lab (Experimental Model Tuning)
+- **Environmental**: UV dose (same-day + 4-day cumulative with flattened decay), basal body temperature delta
+- **Physiological**: Physical overexertion (steps relative to personal baseline, sleep-adjusted)
+- **Symptoms**: 8 symptom categories with per-category weights, plus rheumatic joint-location parsing (major joints score higher than minor)
+- **Pain / Fatigue / Emotional**: laddered scoring (pain ≥4/5/6/7 and fatigue ≥4/5/6/7 step up in contribution — replaces the old cliff-at-7 threshold that missed function-limiting days where a single severe symptom was the whole event)
+- **Symptom burden delta**: how many more symptoms are active than your personal 14-day baseline — "symptoms accelerating above your normal" rather than raw count, so chronic daily symptoms don't drown out the signal
+- **RMSSD baseline deviation**: 7-day rolling vagal tone vs 30-day baseline. Drops before and during flares, mechanistically grounded in the cholinergic anti-inflammatory pathway, empirically replicates Thanou 2016's ΔRMSSD-ΔSLEDAI finding in n=1 data.
+- **RMSSD instability**: mean day-to-day |ΔRMSSD| over prior 5 days vs 30-day baseline. Captures autonomic *chaos* — the pattern where RMSSD oscillates wildly in the week before major flares rather than just trending down. Independent additive signal to the level-based deviation above.
+- **Respiratory rate baseline deviation**: 3-day rolling respiratory rate vs 14-day baseline. Motivated by ICU deterioration literature (Barfod 2017) but labeled with an honest caveat that the n=1 cross-sectional signal is weak — the `/model` resp-rate chart is the live validation tool.
+- **Real-time risk assessment**: daily flare risk score (0-25) with color-coded risk levels; separate major-flare recall tracked as the primary performance metric because function-limiting flares are the ones that matter most to catch.
+- **Contributing factors breakdown**: every score surfaces which rules fired and how many points each contributed — nothing is hidden.
+- **Personalized recommendations**: context-aware suggestions based on current risk level.
 
-- **Interactive weight adjustment**: Tune symptom weights using real-time sliders
-- **Live simulation**: See how weight changes affect model accuracy, recall, and precision
-- **Prediction flip analysis**: Identify which dates would change prediction with new weights
-- **Apply and revert**: Save custom weights or reset to factory defaults
-- **Built-in manual**: Complete documentation accessible via terminal interface (`?` command)
-- **Model transparency**: View the actual Python calculation code in the app
+### Forecast Lab (model tuning)
+
+- **Interactive weight adjustment**: tune symptom weights, category multipliers, multi-day predictor weights, and the flare threshold using real-time sliders. All sliders are exposed — no hidden tunables.
+- **Live simulation**: see how weight changes affect accuracy, recall, and precision before committing.
+- **Prediction flip analysis**: identify which dates would change prediction with new weights.
+- **Apply and revert**: save custom weights per-user or reset to factory defaults.
+- **Personal lag signature widget**: shows which UV-to-symptom lag correlates strongest in your data.
+- **Built-in manual**: accessible via `?` command in the terminal-style interface.
+- **Model transparency**: the actual Python calculation code is rendered inline in the app via `inspect.getsource()` — the code you see is the code that runs.
 
 ### Model Performance Tracking
 
-- **Accuracy analysis**: Track model performance over 60/90/120/all day windows
-- **Confusion matrix**: See true positives, false positives, true negatives, false negatives
-- **Performance metrics**: Accuracy, recall (sensitivity), precision, F1 score
-- **Historical validation**: Compare predictions against actual flare outcomes
-- **Weight optimization**: Data-driven suggestions for improving model performance
+- **Major flare recall as headline metric**: function-limiting flares are the ones you can't afford to miss. Separate recall figures for major/ER, minor, and combined.
+- **Accuracy analysis** over 30/60/90/120/365/all day windows.
+- **Confusion matrix**: true positives, false positives, true negatives, false negatives.
+- **Full ranked missed-majors table**: every major flare the model missed, sorted by how far below threshold the score fell, with your notes and fired factors inline so you can see the context.
+- **Factor signal quality table**: for each scoring factor, compares fire-rate on caught majors vs missed majors — positive lift means the factor is earning its weight, low or negative lift flags factors that aren't helping.
+- **Historical validation**: compare predictions against actual flare outcomes with clickable dates that jump to the daily entry for context.
+- **Weight optimization**: data-driven suggestions for improving model performance based on severity-aware false-positive and false-negative patterns.
+
+### Intervention Tracking & Side Effects (`/interventions`)
+
+Purpose-built clinical evaluation view: "did this medication actually help?" in stats rather than vibes.
+
+- **Per-medication cards**: one card for each medication flagged as primary or secondary intervention (toggle the flag in `/clinical#medications`). Shows pre/post:
+    - **Flare impact**: total count, major/ER count, minor count, mean gap days, delta percentages color-coded by direction
+    - **Autonomic shift**: RMSSD / SDNN / resp rate means ± SD, with n counts
+- **Matched-window analysis** for ongoing medications: if HCQ has been running 130 days, it compares the 130 days before you started to the 130 days of use — statistically honest rather than an arbitrary fixed window
+- **Fixed-window analysis** for one-time doses (dex IV, steroid injections, etc.): 30/60/90/120/all-day selector
+- **Duration-of-effect for one-time interventions**: days to next flare per severity tier; days until each autonomic metric returned to baseline (within ±1 SD of pre-mean for 7 consecutive days)
+- **Auto-detected rebound flags**: if a one-time dose reduced flare rate initially (days 0-13 post) but rate surged back in days 14-45, an amber banner surfaces the pattern. Helpful for catching IV steroid rebounds you might miss manually.
+- **Events log per medication**: structured dated observations with types `side_effect` / `rebound` / `efficacy_change` / `dose_change` / `note`. Side effects get severity 0-10; other types skip the severity field.
+- **Global HRV trend chart** at the top of the page with intervention start lines and flare markers overlaid — the "am I trending up overall" glance kept from the old `/autonomic` view.
+- **Color-coded cards**: primary interventions get a teal left-border, secondary get purple, supplements get orange. Stat boxes inside each card use the global palette (RMSSD purple, SDNN blue, resp teal, flare red, minor amber) so the eye tracks consistent colors across the app.
 
 ### Clinical Record Management
 
 - **Lab results**: Track test results with numeric values, qualitative results, reference ranges, and flags
-- **Medications**: Full medication history with doses, frequencies, start/end dates, and intervention markers
+- **Medications**: Full medication history with doses, frequencies, start/end dates, and primary/secondary intervention flags (the flags feed the `/interventions` view)
 - **Clinical events**: Document appointments, procedures, hospitalizations with provider and facility info
 - **Clinician directory**: Maintain contact info for your care team (specialty, clinic, network, notes)
 - **ANA tracking**: Specialized tracking for ANA titers, patterns, and screen results
@@ -207,6 +235,8 @@ If you see Python 3.9 or higher, you're good. If not, download from [python.org]
 git clone https://github.com/alaricmoore/biotracking.git
 cd biotracking
 ```
+
+> The public repo name is still `biotracking`; the active development fork is called `sardines-track` and has diverged substantially (current forecasting, `/interventions` view, side-effects tracking, iOS companion). If you're setting up for the first time, either works — the public repo is the simpler base, sardines-track is the full feature set.
 
 ### Step 3: Set Up the Application
 
@@ -381,21 +411,26 @@ You'll need a free [Visual Crossing](https://visualcrossing.com) API key. Add it
 
 ### Checking Your Flare Risk
 
-1. Navigate to "Forecast" from the main menu
-2. View your current risk score and 7-day trend
-3. Review contributing factors and recommendations
-4. Click "View History" to see past predictions vs. actuals
-5. Click "Model Accuracy" to see performance metrics
+1. Navigate to "Forecast" from the main menu for the current-day risk score and recommendations.
+2. Navigate to "Model" (`/model`) for the score attribution dashboard — stacked-bar breakdown of what's driving each day, plus click-to-expand trend charts for burden delta, RMSSD deviation, and respiratory rate deviation.
+3. From the model view, the top nav strip links to **accuracy** (performance grading + missed-majors table), **history** (predictions vs. actuals per day), and **pre-flare patterns** (aggregate biometric trajectories before flares).
+
+### Evaluating a Medication or Intervention
+
+1. Navigate to "Interventions" from the main menu (or `/interventions`).
+2. If no cards appear, flag a medication as primary or secondary intervention first: go to `/clinical#medications`, edit the medication, tick the intervention checkbox.
+3. Each intervention gets a card with pre/post flare stats, autonomic shift, and (for one-time doses) duration-of-effect.
+4. Click **+ log event** on any card to record a side effect (with severity 0-10), rebound, efficacy change, dose change, or general note — these events are timestamped and filterable.
 
 ### Tuning the Model (Advanced)
 
-1. Go to forecast page and click the green `>>` button (bottom-right)
+1. Go to forecast page and click the green `>>` button (bottom-right) — or visit `/forecast/lab` directly. The same easter-egg `>>` also exists on the model dashboard.
    - Or search for "lab", "help", or "manual"
 2. Type `?` for the user manual
-3. Type `2` to adjust symptom weights
+3. Type `2` to adjust weights — all sliders exposed: symptom weights, category multipliers (UV, exertion, temperature, pain/fatigue), multi-day predictors (symptom burden, RMSSD deviation, RMSSD instability, respiratory rate deviation), and the flare threshold
 4. Move sliders to customize weights
-5. Click "Run Simulation" to preview changes
-6. Review accuracy/recall/precision impact
+5. Click "Run Simulation" to preview changes against the last 60 days
+6. Review accuracy/recall/precision impact and which predictions would flip
 7. Click "Apply These Changes" to save (or "Reset to Defaults" to revert)
 
 ### Managing Clinical Records
@@ -576,18 +611,20 @@ This deletes all your data. Back up first.
 
 ## How the Flare Prediction Model Works
 
-The flare prediction model is a transparent, statistical approach. No black box -- you can see exactly how every prediction is made, and tune it yourself.
+The flare prediction model is a transparent, statistical approach. No black box — you can see exactly how every prediction is made, and tune it yourself.
 
-Each day receives a risk score (0-25) based on UV dose, physical overexertion, temperature elevation, individual symptoms, pain/fatigue, and two multi-day predictors:
+Each day receives a risk score (0-25) based on UV dose (same-day and 4-day cumulative with flattened decay weights), physical overexertion, temperature elevation, individual symptoms with laddered pain/fatigue contributions, and four multi-day predictors:
 
-- **Symptom burden delta**: How many more symptom categories are active than your personal rolling baseline? Flares build -- they don't appear from nowhere. This is the model's strongest predictor.
-- **RMSSD baseline deviation**: Is your parasympathetic nervous system withdrawing? A sustained drop in vagal tone (measured via Apple Watch HRV) may precede inflammatory flares.
+- **Symptom burden delta** — how many more symptom categories are active than your personal 14-day baseline. Flares build; they don't appear from nowhere. Originally the model's strongest single predictor.
+- **RMSSD baseline deviation** — 7-day rolling vagal tone vs 30-day baseline. A sustained drop in parasympathetic activity (measured via Apple Watch RR-interval data) precedes inflammatory flares. Mechanistically grounded in the cholinergic anti-inflammatory pathway; empirically replicates Thanou 2016's ΔRMSSD-ΔSLEDAI finding.
+- **RMSSD instability** — mean day-to-day |ΔRMSSD| over prior 5 days vs 30-day baseline. Captures autonomic *chaos* before major flares — RMSSD oscillates wildly (surge/crash/surge/collapse) rather than simply drifting down. Independent signal from the level-based deviation; both can fire together.
+- **Respiratory rate baseline deviation** — 3-day rolling rate vs 14-day baseline. ICU-literature-motivated (Barfod 2017); validation on personal data is ongoing via the dashboard chart.
 
-Both use baseline-relative scoring rather than raw values, because chronic daily symptoms become constant offsets that don't distinguish flare days from non-flare days.
+All four multi-day predictors use baseline-relative scoring rather than raw values, because chronic daily symptoms become constant offsets that don't distinguish flare days from non-flare days.
 
-**Threshold**: Score >= 8.0 = flare risk. All weights are tunable in the Forecast Lab.
+**Threshold**: score ≥ 8.0 = flare risk (default; tunable). All weights are tunable in the Forecast Lab. Major flare recall is tracked as the primary performance metric since function-limiting flares are the ones that matter most to catch.
 
-For full details on every scoring category, the math behind multi-day context injection, the RMSSD trajectory analysis, and relevant literature, see **[MODEL.md](MODEL.md)**.
+For full details on every scoring category, the math behind multi-day context injection, severity-specific trajectory analysis, and relevant literature (Thanou 2016, Poliwczak 2017, Barfod 2017, Huston & Tracey 2011), see **[MODEL.md](MODEL.md)** (rendered in-app at `/model/docs`).
 
 ## For Developers
 
@@ -612,40 +649,60 @@ Also reach out to me at <alaric.moore@pm.me>
 ### Project Structure
 
 ```
-biotracking/
-├── app.py              # Flask routes and scoring model
-├── db.py               # All database operations
-├── uv_fetcher.py       # UV API integration
-├── setup.py            # First-run configuration and migrations
-├── MODEL.md            # Full flare prediction model documentation
-├── requirements.txt    # Python dependencies
-├── config.json         # User settings (gitignored)
-├── biotracking.db      # SQLite database (gitignored)
-├── import_*.py         # Data import scripts (labs, tracker, Apple Health, cycle)
-├── backfill_uv.py      # Historical UV data fetcher
+sardines-track/
+├── app.py                      # Flask routes, scoring model, forecast lab, migrations hook
+├── db.py                       # All database operations; idempotent run_migrations() at startup
+├── uv_fetcher.py               # UV API integration (Open-Meteo + Visual Crossing)
+├── setup.py                    # First-run DB schema and per-user config
+├── create_user.py              # CLI for adding additional users post-setup
+├── MODEL.md                    # Full flare prediction model documentation (rendered at /model/docs)
+├── CHANGELOG.md                # Dated list of substantive changes
+├── CONTRIBUTING.md             # Contributor guidelines
+├── COMMERCIAL_LICENSE.md       # Commercial licensing terms (AGPL-3.0 for non-commercial)
+├── REMOTE_ACCESS.md            # Raspberry Pi + Tailscale + Oracle Cloud setup guide
+├── help.md                     # In-app help text
+├── requirements.txt            # Python dependencies
+├── config.json                 # User settings & API keys (gitignored)
+├── biotracking.db              # SQLite database (gitignored)
+├── import_apple_health.py      # Apple Health CSV importer (HRV, sleep, wrist temp, daylight)
+├── import_cycle.py             # Menstrual cycle Apple Health importer
+├── import_labs.py              # Lab results CSV importer with ref-range auto-detection
+├── import_tracker.py           # Generic symptom-tracker spreadsheet importer
+├── import_backup.py            # Import data from a prior biotracking.db backup file
+├── backfill_uv.py              # Historical UV data fetcher (Visual Crossing API)
+├── migrate_symptoms.py         # One-off migration: symptom category reorganization
+├── migrate_to_multiuser.py     # One-off migration: single-user → multi-user schema
+├── rmssd_flare_rerun.py        # Standalone RMSSD pre-flare pattern analysis (generates PNG)
 ├── config/
-│   ├── custom_weights.json     # Forecast Lab overrides (gitignored)
+│   ├── custom_weights.json     # Forecast Lab overrides (gitignored; per-user fallback)
 │   └── flare_alert_state.json  # Daily alert rate-limit state (gitignored)
-├── ios-health-sync/    # iOS companion app (HealthKit -> Flask API)
-│   ├── HealthSyncer.swift
+├── backups/                    # Local DB backup snapshots (gitignored)
+├── ios-health-sync/            # sardinesync iOS companion app (HealthKit → Flask API)
+│   ├── HealthSyncApp.swift
 │   ├── ContentView.swift
-│   └── HealthSyncApp.swift
+│   ├── healthsync/             # app target
+│   └── healthsync.entitlements
 └── templates/
-    ├── base.html
-    ├── daily_entry.html
-    ├── timeline.html           # Model dashboard (score attribution)
-    ├── forecast.html           # Daily flare forecast
+    ├── base.html               # Shared layout + global CSS palette (colors referenced app-wide)
+    ├── login.html, register.html
+    ├── daily_entry.html, daily_confirm.html
+    ├── mobile_base.html, mobile_log.html, mobile_status.html  # Phone-optimized entry flow
+    ├── forecast.html           # Daily flare forecast with easter-egg >> link to lab
+    ├── timeline.html           # Model dashboard (score attribution) — served at /model
     ├── forecast_lab.html       # Weight tuning interface
-    ├── forecast_history.html   # Predictions vs actuals
-    ├── forecast_accuracy.html  # Model performance grading
+    ├── forecast_history.html   # Predictions vs actuals, ranked by score gap
+    ├── forecast_accuracy.html  # Major/minor recall, missed-majors table, factor signal quality
     ├── forecast_patterns.html  # Pre-flare pattern analysis + RMSSD trajectories
-    ├── hrv.html                # HRV trends with flare overlays
+    ├── interventions.html      # Per-medication pre/post evaluation + side-effects log
+    ├── hrv.html                # Legacy autonomic view (still on disk, no longer nav-linked)
     ├── cycle.html              # Menstrual cycle calendar
-    ├── uv_lag.html             # UV-symptom correlation analysis
-    ├── clinical_record.html
+    ├── uv_lag.html             # UV-symptom correlation at 0/1/2/3/4-day lags
+    ├── clinical_record.html    # Labs, medications, events, clinicians, ANA
+    ├── settings.html, admin.html
     ├── report.html
     ├── search.html
-    └── login.html
+    ├── readme.html             # Renders README.md in-app
+    └── remote_access.html      # Renders REMOTE_ACCESS.md in-app
 ```
 
 ---
@@ -666,9 +723,11 @@ biotracking/
 
 ## Acknowledgments
 
-Built by C. Alaric Moore, a USPS technician and mechanic and patient who got tired of being told her labs were normal.
+Built by C. Alaric Moore, a USPS electronics technician and mechanic and patient who got tired of being told her labs were normal.
 
-Assisted by Claude (Anthropic) -- Sonnet for the original build, Opus (nicknamed Clode) for the forecasting model and data analysis pipeline, with statistical validation by a second Claude instance (Wolf). H/t to GitHub Copilot for closing parentheses and other surprisingly convenient features.
+Assisted by Claude (Anthropic) across multiple model generations and roles. Sonnet handled the original build. Opus (nicknamed Clode) led the forecasting-model work, data analysis pipeline, and the `/interventions` rebuild. A second Claude instance (Wolf) handles statistical validation and clinical-literature cross-checking for features that could otherwise drift into confirmation bias. A third instance (Claude-Work) covers brainstorming. H/t to GitHub Copilot for closing parentheses and other surprisingly convenient features.
+
+The app's model explainer and much of this README were written collaboratively — where the voice is right, it's because a tireless language model internalized the tone after many, many iterations.
 
 Inspired by every patient who was told "your labs are fine" when they knew something was deeply wrong. Dedicated to the ones still waiting for someone to believe them.
 
