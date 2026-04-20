@@ -1,4 +1,4 @@
-# sardines-track (biotracking)
+# sardine-track (biotracking)
 
 A local-only health tracking application for patients navigating complex diagnostic journeys.
 
@@ -6,7 +6,7 @@ Built for people who need to see patterns in their own data when the medical sys
 
 (Well, built for one person who needed to see patterns, but she figured she couldn't be the only nut out there.)
 
-> **Note:** This is the current codebase of the biotracking app, internally called **sardines-track** (a SARDs pun — "systemic autoimmune rheumatic disease," plus a tracker that sticks with you). The public, older fork lives at [github.com/alaricmoore/biotracking](https://github.com/alaricmoore/biotracking) and is behind this version by several generations of the forecasting model and the entire `/interventions` view. The iOS companion app is **sardinesync**. Want to know how your data is stored and how it gets to your phone? See the [remote access guide](/remote-access).
+> **Note:** This is the public codebase of the biotracking app, now named **sardine-track** (a SARDs pun — "systemic autoimmune rheumatic disease," plus a tracker that sticks with you). The repo was originally released as `biotracking`; the GitHub rename keeps the old URL as a redirect, so existing links still work. Active experimentation continues in a private fork (`moore-family-biotracker`) that may push features back upstream when they prove out. The iOS companion app lives in its own repo: **[sardinessync](https://github.com/alaricmoore/sardinessync)**. Want to know how your data is stored and how it gets to your phone? See the [remote access guide](/remote-access).
 >
 > **About the family-instance framing:** the app supports multiple users and was originally built hoping family with shared genetic risk might want to track alongside. In practice the daily-entry burden has kept adoption to one. Multi-user plumbing is preserved — if a family member or friend does decide to try, they can register their own account on the same instance without affecting anyone else's data.
 
@@ -22,7 +22,7 @@ Biotracking helps you:
 - Keep a longitudinal record of labs, medications, & clinical events, as well a list of your clinicians
 - Run flare forecasting based on your own historical patterns — transparent scoring, not a black box, and tuned on your own n=1 data
 - Evaluate medical interventions (hydroxychloroquine, steroids, biologics, whatever): per-medication pre/post flare impact, autonomic shift, duration-of-effect for one-time doses, and structured logging of side effects, rebounds, and dose changes
-- Auto-sync biometrics from Apple Health via the **sardinesync** iOS companion app (steps, HRV/SDNN, RMSSD, resting heart rate, SpO2, respiratory rate, basal body temperature, time in daylight)
+- Auto-sync biometrics from Apple Health via the **[sardinessync](https://github.com/alaricmoore/sardinessync)** iOS companion app (steps, HRV/SDNN, RMSSD, resting heart rate, SpO2, respiratory rate, basal body temperature, time in daylight)
 - Keep all your data local — nothing leaves your computer, if you don't want it to.
 
 This is not a medical product. This is a tool for veracity: for people who need to make their invisible patterns visible.
@@ -172,7 +172,7 @@ Purpose-built clinical evaluation view: "did this medication actually help?" in 
 - **Dark mode**: Easy on the eyes, just toggle the moon/sun in the header.
 - **Light mode**: Good for when you can't make out dark mode.
 
-If you want to peek at what it looks like [see screenshots here](https://github.com/alaricmoore/biotracking/issues/1).
+If you want to peek at what it looks like [see screenshots here](https://github.com/alaricmoore/sardine-track/issues/1).
 
 ## Important Disclaimers
 
@@ -227,16 +227,16 @@ If you see Python 3.9 or higher, you're good. If not, download from [python.org]
 1. Go to the GitHub repository page
 2. Click the green **Code** button
 3. Click **Download ZIP**
-4. Unzip the file to a folder you can find (like `Documents/biotracking`)
+4. Unzip the file to a folder you can find (like `Documents/sardine-track`)
 
 **Option B: Clone with git**
 
 ```bash
-git clone https://github.com/alaricmoore/biotracking.git
-cd biotracking
+git clone https://github.com/alaricmoore/sardine-track.git
+cd sardine-track
 ```
 
-> The public repo name is still `biotracking`; the active development fork is called `sardines-track` and has diverged substantially (current forecasting, `/interventions` view, side-effects tracking, iOS companion). If you're setting up for the first time, either works — the public repo is the simpler base, sardines-track is the full feature set.
+> The repo was formerly named `biotracking`; the old URL still redirects. If you want the iOS companion as well, the Swift sources live in a separate repo: [github.com/alaricmoore/sardinessync](https://github.com/alaricmoore/sardinessync).
 
 ### Step 3: Set Up the Application
 
@@ -649,7 +649,7 @@ Also reach out to me at <alaric.moore@pm.me>
 ### Project Structure
 
 ```
-sardines-track/
+sardine-track/
 ├── app.py                      # Flask routes, scoring model, forecast lab, migrations hook
 ├── db.py                       # All database operations; idempotent run_migrations() at startup
 ├── uv_fetcher.py               # UV API integration (Open-Meteo + Visual Crossing)
@@ -677,11 +677,6 @@ sardines-track/
 │   ├── custom_weights.json     # Forecast Lab overrides (gitignored; per-user fallback)
 │   └── flare_alert_state.json  # Daily alert rate-limit state (gitignored)
 ├── backups/                    # Local DB backup snapshots (gitignored)
-├── ios-health-sync/            # sardinesync iOS companion app (HealthKit → Flask API)
-│   ├── HealthSyncApp.swift
-│   ├── ContentView.swift
-│   ├── healthsync/             # app target
-│   └── healthsync.entitlements
 └── templates/
     ├── base.html               # Shared layout + global CSS palette (colors referenced app-wide)
     ├── login.html, register.html
@@ -704,6 +699,8 @@ sardines-track/
     ├── readme.html             # Renders README.md in-app
     └── remote_access.html      # Renders REMOTE_ACCESS.md in-app
 ```
+
+The iOS companion (sardinessync) lives in its own repo at [github.com/alaricmoore/sardinessync](https://github.com/alaricmoore/sardinessync). It used to live in this repo at `ios-health-sync/` but was extracted so the iOS and Flask codebases could evolve independently.
 
 ---
 
