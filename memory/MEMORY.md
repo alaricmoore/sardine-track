@@ -1,8 +1,0 @@
-- [user_profile.md](user_profile.md) - Alaric has lupus, built this tracker, Arduino/shell background, learning web dev
-- [project_overview.md](project_overview.md) - Flask health tracker on Raspberry Pi, accessed via <YOUR_SERVER>
-- [feedback_explanations.md](feedback_explanations.md) - Explain web concepts clearly when they arise, user is learning
-- [feedback_icons.md](feedback_icons.md) - No standard emojis; use Emoji One Monotone SVGs or plain text symbols
-- [project_next_session.md](project_next_session.md) - Queued: timeline overhaul, cycle calendar redesign, RMSSD backfill + flare overlay
-- [project_hrv_flare_hypothesis.md](project_hrv_flare_hypothesis.md) - Hypothesis: HRV/RMSSD may elevate before lupus flares (not drop)
-- [project_cycle_phase_not_predictive.md](project_cycle_phase_not_predictive.md) - Cycle phase has no flare predictive signal; weight zeroed 2026-04-03
-- [feedback_baseline_relative_scoring.md](feedback_baseline_relative_scoring.md) - Use baseline-relative deltas, not raw values, for chronic metrics in scoring
