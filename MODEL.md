@@ -128,6 +128,8 @@ Based on the cholinergic anti-inflammatory pathway: the vagus nerve tonically su
 - **On-flare-day RMSSD for majors drops to ~53 ms** — a 46% fall from non-flare baseline. This is the most robust per-event signal.
 - Mann-Whitney day-1 vs day-0 p=0.28 for majors, 0.32 all-flare — underpowered at current n but directionally consistent with Thanou 2016's ΔRMSSD-ΔSLEDAI finding.
 
+See Section 10 for an independence audit that found RMSSD rarely co-fires on major flares in this dataset — the feature’s contribution is concentrated on minor events outside the cycle’s high-risk window. The 46% flare-day drop reported above is aggregate across all flares; majors show a muted autonomic response in Alaric's data.
+
 Interpretation: Thanou's longitudinal ΔRMSSD-ΔSLEDAI relationship reproduces in this single-patient dataset. Cross-sectional significance is not yet achievable at n=8 major clusters, but the within-patient trajectory — decline into a flare, partial recovery after — matches the literature.
 
 Default weight is a conservative 0.5. Alaric's personal weight is currently tuned to **1.25** based on observed performance (forecast accuracy view showed positive lift on caught vs missed flares). Apple Watch RMSSD has ~29% measurement error vs chest strap (MAPE), but tracks relative within-person changes adequately for this purpose.
