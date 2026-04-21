@@ -26,6 +26,7 @@ from flask_login import LoginManager, UserMixin, login_user, logout_user, login_
 
 import db
 import uv_fetcher
+from severity_vocab import severity_score
 import zipfile
 import shutil
 from pathlib import Path
@@ -324,6 +325,31 @@ DEFAULT_WEIGHTS = {
     # Threshold
     'flare_threshold': 8.0,
 }
+
+# Symptom flag → per-symptom notes column, for severity-vocab tiering.
+# Rheumatic is handled separately (joint tiering stays in place).
+SYMPTOM_NOTES_COLUMN = {
+    'neurological': 'neuro_notes',
+    'cognitive': 'cognitive_notes',
+    'musculature': 'musculature_notes',
+    'migraine': 'migraine_notes',
+    'pulmonary': 'pulmonary_notes',
+    'dermatological': 'derm_notes',
+    'mucosal': 'mucosal_notes',
+}
+
+
+def symptom_points(symptom, obs, baseline_weight):
+    """Return the score contribution for a symptom. When the notes contain
+    severity vocabulary, use the tier-based points (mild=1.0, major=1.5,
+    extreme=2.0); otherwise fall back to baseline_weight, preserving prior
+    behavior for bland notes / empty notes / flag-only days."""
+    if not obs.get(symptom):
+        return 0.0
+    notes = obs.get(SYMPTOM_NOTES_COLUMN.get(symptom, '')) or ''
+    tier_pts = severity_score(notes)
+    return tier_pts if tier_pts is not None else baseline_weight
+
 
 # Path to custom weights config
 CUSTOM_WEIGHTS_PATH = os.path.join(os.path.dirname(__file__), 'config', 'custom_weights.json')
@@ -1631,12 +1657,12 @@ def _score_components(obs: dict) -> dict:
         t_pts = 1 * temp_w
     c['temperature'] = round(t_pts, 2)
 
-    # Individual symptoms
+    # Individual symptoms — tier-scored from notes vocab when present,
+    # otherwise the per-symptom baseline weight (see symptom_points).
     sym_pts = 0
     for sym in ('neurological', 'cognitive', 'musculature', 'migraine',
                 'pulmonary', 'dermatological', 'mucosal'):
-        if obs.get(sym):
-            sym_pts += weights.get(sym, 0)
+        sym_pts += symptom_points(sym, obs, weights.get(sym, 0))
     if obs.get('rheumatic'):
         rheum_notes = (obs.get('rheumatic_notes') or '').lower()
         major_joints = ['hip', 'knee', 'shoulder', 'elbow', 'ankle', 'wrist', 'jaw']
@@ -3106,15 +3132,24 @@ def clinical_record():
     
 @app.route("/medication/update/<int:med_id>", methods=["POST"])
 def update_medication(med_id):
-    """Update an existing medication."""
+    """Update an existing medication. Auto-logs a dose_change event when the
+    dose value or its unit meaningfully changes; first-time dose entry is
+    suppressed so brand-new doses don't show up as a "change"."""
     form = request.form
-    
+
+    current = db.get_medication(uid(), med_id)
+    old_dose = current["dose"] if current else None
+    old_unit = current["unit"] if current else None
+
+    new_dose = float(form.get("dose")) if form.get("dose") else None
+    new_unit = form.get("unit") or None
+
     db.update_medication(
         user_id=uid(),
         med_id=med_id,
         drug_name=form.get("drug_name"),
-        dose=float(form.get("dose")) if form.get("dose") else None,
-        unit=form.get("unit") or None,
+        dose=new_dose,
+        unit=new_unit,
         frequency=form.get("frequency") or None,
         category=form.get("category") or None,
         indication=form.get("indication") or None,
@@ -3124,7 +3159,32 @@ def update_medication(med_id):
         is_primary_intervention=form.get("is_primary_intervention") == "1",
         is_secondary_intervention=form.get("is_secondary_intervention") == "1",
     )
-    
+
+    should_log = False
+    if old_dose is not None and new_dose is not None:
+        if old_dose != new_dose or old_unit != new_unit:
+            should_log = True
+    elif old_dose is not None and new_dose is None:
+        should_log = True
+
+    if should_log:
+        if old_unit == new_unit and old_unit and new_dose is not None:
+            note = f"dose: {old_dose} → {new_dose} {old_unit}"
+        else:
+            old_str = f"{old_dose} {old_unit}" if old_unit else f"{old_dose}"
+            new_str = "(removed)" if new_dose is None else (
+                f"{new_dose} {new_unit}" if new_unit else f"{new_dose}"
+            )
+            note = f"dose: {old_str} → {new_str}"
+        db.add_medication_event(
+            user_id=uid(),
+            medication_id=med_id,
+            event_date=date.today().isoformat(),
+            event_type="dose_change",
+            severity=None,
+            note=note,
+        )
+
     return redirect(url_for("clinical_record") + "#medications")
 
 
@@ -3999,22 +4059,12 @@ def calculate_flare_prime_score(obs, weights_override=None):
     elif basal_temp >= 0.3:
         score += 1 * temp_w
     
-    # 4. Symptoms (WEIGHTS FROM CONFIG)
-    if obs.get('neurological'):
-        score += weights['neurological']
-    if obs.get('cognitive'):
-        score += weights['cognitive']
-    if obs.get('musculature'):
-        score += weights['musculature']
-    if obs.get('migraine'):
-        score += weights['migraine']
-    if obs.get('pulmonary'):
-        score += weights['pulmonary']
-    if obs.get('dermatological'):
-        score += weights['dermatological']
-    if obs.get('mucosal'):
-        score += weights['mucosal']
-    
+    # 4. Symptoms — tier-scored from notes vocab when present, otherwise the
+    # per-symptom baseline weight (see symptom_points at top of file).
+    for sym in ('neurological', 'cognitive', 'musculature', 'migraine',
+                'pulmonary', 'dermatological', 'mucosal'):
+        score += symptom_points(sym, obs, weights[sym])
+
     # 5. Rheumatic (parse notes for joint type)
     if obs.get('rheumatic'):
         rheum_notes = (obs.get('rheumatic_notes') or '').lower()

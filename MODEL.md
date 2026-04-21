@@ -176,13 +176,53 @@ The feature nevertheless scores **within-person deviation** (3-day recent vs 14-
 
 Conservative default weight (0.5) reflects this pending-validation state. Returns no contribution with fewer than 2 recent or 4 baseline values.
 
-### 9. Cycle Phase (Disabled)
+### 9. Cycle Phase (PMS/Luteal High-Risk Window)
 
-Weight set to 0.0. Fisher exact tests showed no predictive signal in this patient's data:
-- Bleeding days: lower flare rate than non-bleeding (15.6% vs 20.9%, OR = 0.70, p = 0.24)
-- PMS window: no signal (OR = 1.12, p = 0.70)
+Fires when the calculated cycle phase for the date is `pms` or `luteal`. Phase labels come from logged period starts and BBT-detected ovulation — see `_compute_phase_by_date_from_obs()` in `app.py`.
 
-With post-steroid cycles averaging 15.7 days (range 12-29) versus the model's 28-day assumption, ~90% of days were flagged as high-risk, making the signal a constant bias offset. May be revisited as an interaction variable (UV x cycle phase) if cycles stabilize.
+| Condition | Points |
+|-----------|--------|
+| Phase is PMS or luteal | +1.0 x cycle_phase |
+
+**Status.** Disabled in factory defaults (`cycle_phase = 0.0`). An earlier analysis during post-steroid cycle disruption found no predictive signal — cycles averaged 15.7 days (range 12–29) vs the 28-day assumption, ~90% of days were tagged high-risk, and the feature acted as a constant offset with no discriminative power. Fisher exact tests from that era: bleeding days 15.6% vs 20.9% non-bleeding flare rate (OR=0.70, p=0.24); PMS window OR=1.12 p=0.70.
+
+Alaric's personal weight is currently tuned to **1.5** after cycles normalized and the phase labels regained discriminative value. Section 10 documents the independence audit that justifies keeping this feature active alongside RMSSD rather than treating the two as redundant.
+
+---
+
+### 10. Feature Independence: Cycle vs RMSSD
+
+A standing concern when both cycle phase (section 9) and RMSSD deviation (section 7) are active: if parasympathetic tone naturally dips during luteal phase, the two features could double-count the same hormonal window — inflating major scores without covering new ground.
+
+A 120-obs empirical audit (`analysis_cycle_vs_hrv.py` in the project root) compared three weight configurations against ground truth:
+
+| Run | HRV weights | Cycle weight | Major recall* | Minor recall |
+|---|---|---|---|---|
+| 1 — full | active (1.25 / 0.75 / 0.5) | 1.5 | 8/8 | 15/15 |
+| 2 — cycle only | zeroed | 1.5 | 8/8 | 12/15 |
+| 3 — HRV only | active | 0 | 7/8 | 12/15 |
+
+*Excludes one pre-app backfill entry (2026-01-03 ER visit) which has structured symptom flags empty and scores 0 under any config — a structural data gap, not a model miss.
+
+Three findings emerged:
+
+**1. RMSSD does not fire preferentially in luteal.** Of 33 days where RMSSD deviation ≤ −25% (the high-weight rule fires), 51.5% fell in luteal phase — nearly identical to the baseline luteal share of 45.8% across the same window. Across 60/90/120-obs windows the gap flipped sign (−11.2pp, −0.3pp, +5.7pp) without directional pattern. If cycle phase were *causing* the RMSSD drop, luteal would be systematically over-represented on RMSSD-firing days. It isn't.
+
+**2. Cycle and RMSSD fire on almost entirely different majors.** Of 8 majors caught with cycle on and HRV zeroed (run 2), only 1 also had RMSSD firing — Feb 19 PMS, deviation −55%. The other 7 had RMSSD between −23% and +8%, below the scoring rule. HRV weight is not inflating major scores through redundant co-firing with cycle; the two features cover different physiological events on major-flare days.
+
+**3. HRV earns its weight on minors, with at least one catch genuinely outside the cycle window.** Three minor flares flipped miss → catch when HRV was added (run 2 → run 1):
+- 2026-03-14, luteal, RMSSD +40% — caught via instability / respiratory-rate, not the level rule
+- 2026-03-24, no cycle phase, RMSSD −24.2% — a catch cycle alone cannot make
+- 2026-04-12, PMS, RMSSD −29.1% — RMSSD level rule firing
+
+The 2026-03-24 catch is the cleanest evidence of independent HRV signal: it occurred outside any cycle-high-risk phase, with cycle contributing zero and HRV tipping the score from 9.00 to 10.70.
+
+**Takeaway.** In this single-subject dataset the two features are partially independent. Cycle pulls its weight alongside the symptom and pain/fatigue features to carry the majors; HRV catches minor events — especially the rare ones outside the hormonal vulnerability window. The combined model isn't systematically double-counting.
+
+Re-run the audit as data accumulates:
+```
+python analysis_cycle_vs_hrv.py --days 120
+```
 
 ---
 
