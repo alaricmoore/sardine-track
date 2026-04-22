@@ -4,7 +4,7 @@
 
 It's easy to gaslight yourself into thinking you're having panic attacks and are lazy. Sometimes people have panic attacks and are lazy, and that's entirely normal.
 
-But when the shortness of breath is uncoupled from emotion, when the "laziness" is less sloth and more that you're stuck in a quagmire of quicksand despite wanting to do *so much* -- there's something making your body react that way.
+But when the shortness of breath is uncoupled from emotion, when the "laziness" is less sloth and more that you're stuck in a quagmire of quicksand despite wanting to do *so much* - there's something making your body react that way.
 
 The sun was making me sick.
 
@@ -12,11 +12,11 @@ At least that was my intuition, but that seemed insane. I had low vitamin D for 
 
 I figured I was just getting older. Also, I'm hella pale, maybe this was a white people thing no one had mentioned to me.
 
-Though coupled with a family history sprinkled with, and a genetic profile loaded for, SARDs and autoimmune disease associated mutations -- I decided to quantify it. It became painfully clear to me by the data, that unfortunately, the sun has been making me sick.
+Though coupled with a family history sprinkled with, and a genetic profile loaded for, SARDs and autoimmune disease associated mutations - I decided to quantify it. It became painfully clear to me by the data, that unfortunately, the sun has been making me sick.
 
-That's why I started a spreadsheet, but it was useless in clinic, rows upon rows of color coded entries with no succinct way to visually communicate what they meant in a 15-minute appointment. While exhausted and in pain and anxious about being dismissed again, trying to recall the practice conversation I had with an imaginary clinician explaining what was going on. 
+That's why I started a spreadsheet, but it was useless in clinic, rows upon rows of color-coded entries with no succinct way to visually communicate what they meant in a 15-minute appointment. While exhausted and in pain and anxious about being dismissed again, trying to recall the practice conversation I had with an imaginary clinician explaining what was going on. 
 
-After 90+ days I gave up. I got depressed. I kept getting sick. My sick leave was running dry at work, and with out a diagnosis I didn't feel confident that I could get FMLA protection. (Note: This also accounts for the 127 day logging gap in my data.)
+After 90+ days I gave up. I got depressed. I kept getting sick. My sick leave was running dry at work, and without a diagnosis I didn't feel confident that I could get FMLA protection. (Note: This also accounts for the 127 day logging gap in my data.)
 
 Then I picked it back up. I can't remember exactly what the impetus was - probably another rheumatologist doubting me while ER doctors were writing "I believe her condition to be rheumatic in nature." Meanwhile my dermatologist was doing her damnedest to get the best biopsy shave for DIF this side of the Mississippi. Pretty much the size of a mercury dime.
 
@@ -46,10 +46,10 @@ This tool isn't a lupus tracker necessarily, though it is designed around an evo
 
 ## Acknowledgments
 
-Built by C. Alaric Moore, a USPS technician, mechanic, and patient who got tired of being told that there weren't any answers or that every symptom was independent of the other.
+Built by C. Alaric Moore, a USPS technician, mechanic, and patient who got tired of being told that there weren't any answers or that every symptom was independent of the others.
 
 Assisted by Claude (Anthropic) across multiple model generations and roles. Sonnet handled the original build. Opus (nicknamed Clode) led the forecasting-model work, data analysis pipeline, and the `/interventions` rebuild. A second Claude instance (Wolf) handles statistical validation and clinical-literature cross-checking for features that could otherwise drift into confirmation bias. A third instance (Claude-Work) covers brainstorming. H/t to GitHub Copilot for closing parentheses and other surprisingly convenient features.
 
-The app's model explainer and much of this README were written collaboratively — where the voice is right, it's because a tireless language model internalized the tone after many, many iterations.
+The app's model explainer and much of this narrative were written collaboratively — where the voice is right, it's because a tireless language model internalized the tone after many, many iterations.
 
-Inspired by an unending need to make everything useful, even illness, as well a low tolerance for hand-waved diagnostics and anchoring bias. 
+Inspired by an unending need to make everything useful, even illness, as well as a low tolerance for hand-waved diagnostics and anchoring bias. 
