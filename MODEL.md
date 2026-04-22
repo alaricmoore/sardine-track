@@ -122,13 +122,15 @@ Based on the cholinergic anti-inflammatory pathway: the vagus nerve tonically su
 | Deviation <= -25% | +1.5 x rmssd_deviation_weight |
 | Deviation <= -15% | +0.75 x rmssd_deviation_weight |
 
-**Personal data (post-bugfix rerun, n=26 flare clusters: 8 major/ER, 14 minor):**
-- Non-flare baseline RMSSD: ~99 ms (arithmetic mean), ~66 ms (geometric mean)
-- Pre-flare day-1/-2 Cohen's d vs non-flare baseline: -0.28 all flares, -0.18 majors alone, -0.37 minors
-- **On-flare-day RMSSD for majors drops to ~53 ms** — a 46% fall from non-flare baseline. This is the most robust per-event signal.
-- Mann-Whitney day-1 vs day-0 p=0.28 for majors, 0.32 all-flare — underpowered at current n but directionally consistent with Thanou 2016's ΔRMSSD-ΔSLEDAI finding.
+**Personal data (post-bugfix rerun, n=26 flare clusters: 8 major/ER, 8 minor, 10 unspecified):**
+- Non-flare baseline RMSSD: ~105 ms (arithmetic mean), ~66 ms (geometric mean)
+- **On flare day, majors/ER drop robustly per-event.** 7 of 8 events fall below baseline — day-0 arithmetic mean 42 ms (-60% vs baseline), median 20 ms (-81%). Wilcoxon signed-rank of per-event %drops vs 0: p=0.023. The one exception (2026-02-24 ER, RMSSD 164 ms / +56%) is a candidate data anomaly worth a sensor check.
+- **Minors are noisy per-event.** Only 5 of 8 drop; the other 3 show +70% to +150% rises. Arithmetic mean drop -28%, Wilcoxon p=0.38. Minor-flare detection relies more on the instability metric (section 7b) and respiratory rate (section 8) than on the level-based rule here.
+- **Aggregating across severities dilutes the major signal.** All-flare day-0 mean drop is only -30% (Wilcoxon p=0.06) because unspecified events contribute a mix of rises and falls; the majors-only number is the one that matches Thanou 2016.
+- Pre-flare day-1/-2 Cohen's d vs non-flare baseline: -0.28 all flares, -0.18 majors alone, -0.37 minors.
+- Mann-Whitney day-1 vs day-0 p=0.28 for majors, 0.32 all-flare — underpowered at current n, but the per-event signed-rank test on majors' flare-day drops does reach significance.
 
-Interpretation: Thanou's longitudinal ΔRMSSD-ΔSLEDAI relationship reproduces in this single-patient dataset. Cross-sectional significance is not yet achievable at n=8 major clusters, but the within-patient trajectory — decline into a flare, partial recovery after — matches the literature.
+Interpretation: Thanou's longitudinal ΔRMSSD-ΔSLEDAI relationship reproduces in this single-patient dataset **for major events specifically** — the level-based rule in section 7 is carrying the majors, not the minors. The within-patient trajectory — decline into a flare, partial recovery after — matches the literature for majors; minor events require the instability and respiratory-rate features to catch.
 
 Default weight is a conservative 0.5. Alaric's personal weight is currently tuned to **1.25** based on observed performance (forecast accuracy view showed positive lift on caught vs missed flares). Apple Watch RMSSD has ~29% measurement error vs chest strap (MAPE), but tracks relative within-person changes adequately for this purpose.
 
