@@ -8,9 +8,9 @@ Before you do any of this, understand what you are doing:
 
 **Anything connected to the internet is dangerous and insecure. The most secure place for your health data is in your own head with a tight lip. A faraday cage helps too.**
 
-The default biotracking setup runs on localhost. Nothing leaves your computer. Nobody can reach it but via physical access to that machine, *on* that machine, on *that* network. That is the safest possible configuration and it is sufficient for most people.
+The default setup runs on localhost. Nothing leaves your computer. Nobody can reach it but via physical access to that machine, *on* that machine, on *that* network. That is the safest possible configuration and it is sufficient for most people.
 
-This guide exists for people who understand the risk surface and want remote access anyway. If you are not comfortable with concepts like VPNs, reverse proxies, open ports, and what it means to expose a service to the internet, stop here. Use the local setup. It is genuinely good enough; for the gap between the doctor's waiting room or the ER for four hours and getting home to your own network, travel with a notebook. Seriously, it's great therapy and also provides notes for future-you when you want to log the whole thing in the biotracker.
+This guide exists for people who understand the risk surface and want remote access anyway. If you are not comfortable with concepts like VPNs, reverse proxies, open ports, and what it means to expose a service to the internet, stop here. Use the local setup. It is genuinely good enough; for the gap between the doctor's waiting room or the ER for four hours and getting home to your own network, travel with a notebook. Seriously, it's great therapy and also provides notes for future-you when you want to log the whole thing in your tracker.
 
 If you proceed, you accept that you are responsible for the security of your own data. The author of this software is not responsible for data exposure resulting from network configuration choices you make.
 
@@ -39,8 +39,8 @@ This is one specific approach to remote access that trades some security for gen
 
 - A Raspberry Pi (any model capable of running Python 3.9+, a Pi 4 or newer is comfortable. But if you want to get weird with it, host it on Plan 9 inside a gameboy color. I'll buy you lunch.)
 - A Tailscale account (free tier is sufficient)
-- An Oracle Cloud account (free tier VM is sufficient, though I ended up getting the 14$/month plan because I got lazy)
-- A DNS name if you want a human-readable URL (optional)
+- An Oracle Cloud account (free tier VM is sufficient, though I ended up getting the 14$/month plan because I got lazy and tired of menu options. Warning: Oracle isn't user friendly)
+- A DNS name if you want a human-readable URL (optional, duckdns.org is a great resource for a free domain)
 - Basic comfort with SSH and the Linux command line (man -k is your friend)
 - Starlink or any ISP — this setup works without a static public IP, which is the point
 
@@ -62,7 +62,7 @@ Raspberry Pi (your home network, running biotracking)
 biotracking app + SQLite database
 ```
 
-Your database never leaves the Raspberry Pi. The Oracle VM sees only encrypted Tailscale traffic -- it cannot read the contents. Your phone connects to the Oracle VM's public IP, which forwards traffic through the Tailscale mesh to the Pi.
+Your database never leaves the Raspberry Pi. The Oracle VM sees only encrypted Tailscale traffic - it cannot read the contents. Your phone connects to the Oracle VM's public IP, which forwards traffic through the Tailscale mesh to the Pi.
 
 ### Step 1: Set up biotracking on your Raspberry Pi
 
@@ -107,7 +107,7 @@ server {
     server_name YOUR_ORACLE_PUBLIC_IP;
 
     # Basic auth is strongly recommended — see security notes below
-    # auth_basic "biotracking";
+    # auth_basic "<TRACKING_APP_NAME>";
     # auth_basic_user_file /etc/nginx/.htpasswd;
 
     location / {
@@ -130,7 +130,7 @@ sudo systemctl reload nginx
 
 ### Step 5: Open the firewall on Oracle Cloud
 
-Oracle Cloud has two layers of firewall, the OS-level firewall and the cloud-level security list. You need to open port 80 (and 443 if you add HTTPS) in both.
+Oracle Cloud has two layers of firewall, the OS-level firewall and the cloud-level security list. You need to open port 80 (and 443 if you add HTTPS, which you should) in both.
 
 **OS firewall:**
 
@@ -158,7 +158,7 @@ to:
 host='0.0.0.0'
 ```
 
-Restart the app. You should now be able to reach it from your Oracle VM's public IP. And if you dig around the tailscale options you can even give a nifty easy-remember-name.
+Restart the app. You should now be able to reach it from your Oracle VM's public IP. And if you dig around the tailscale options you can even give it a nifty easy-to-remember-name.
 
 **Keep it running:**
 Use systemd, screen, or tmux so the app doesn't die when you close SSH:
@@ -243,11 +243,11 @@ Instead of manually reading values off your Apple Health app and typing them int
 
 **What it syncs:** steps, HRV, resting heart rate, and basal body temperature (delta).
 
-**What it doesn't sync:** sleep (enter manually -- Apple Health struggles with polyphasic sleep and sleepwalking), sun exposure minutes (Apple doesn't expose Time in Daylight to Shortcuts despite tracking it on the watch), and period flow (use the biotracker directly -- it's better at cycle tracking than Apple Health anyway).
+**What it doesn't sync:** sleep (enter manually -- Apple Health struggles with polyphasic sleep and sleepwalking), sun exposure minutes (Apple doesn't expose Time in Daylight to Shortcuts despite tracking it on the watch), and period flow (use the biotracker directly -- it's better at cycle tracking than Apple Health anyway in my experience).
 
 ### Setup
 
-Your biotracker instance has an API endpoint at `/api/health-sync` that accepts health data via a secure token. The token is in your `config.json` file on the Pi (generated when you run `setup.py`). Treat this token like a password.
+Your tracker instance has an API endpoint at `/api/health-sync` that accepts health data via a secure token. The token is in your `config.json` file on the Pi (generated when you run `setup.py`). Treat this token like a password.
 
 ### Building the Shortcut
 
