@@ -25,7 +25,7 @@ Sardine-track helps you:
 - Auto-sync biometrics from Apple Health via the **[sardinessync](https://github.com/alaricmoore/sardinessync)** iOS companion app (steps, HRV/SDNN, RMSSD, resting heart rate, SpO2, respiratory rate, basal body temperature, time in daylight)
 - Keep all your data local — nothing leaves your computer, if you don't want it to.
 
-This is not a medical product. This is a tool for veracity: for people who need to make their invisible patterns visible.
+This is not a medical product. This is a tool for veracity: for people who need to make their invisible patterns visible, whether for themselves or to make a case to others.
 
 ---
 
@@ -54,7 +54,7 @@ Enabled via `track_cycle: true` in setup. Designed for patients where steroids, 
 ### Data Visualization & Analysis
 
 - **Model dashboard** (`/model`, nav label "model"): score attribution over time — stacked bars showing exactly what's driving each day's risk score, with flare markers and threshold line. Includes click-to-expand trend charts for symptom burden delta, RMSSD deviation, and respiratory rate deviation (with +10% / +15% scoring thresholds dashed in). Score distribution stats (flare vs non-flare) and per-day prediction accuracy strip.
-- **Model sub-navigation from the dashboard**: accuracy, history, and pre-flare patterns are all hyperlinked from the model view so you don't have to dig through nested menus. A hidden `>>` chevron in the corner opens the Forecast Lab (easter-egg style, since it's a power-user tool).
+- **Model sub-navigation from the dashboard**: accuracy, history, and pre-flare patterns are all hyperlinked from the model view so you don't have to dig through nested menus. A hidden `>>` chevron in the corner opens the Forecast Lab (easter-egg style,just because that's fun).
 - **Pre-flare pattern analysis** (`/forecast/patterns`): biometric averages, symptom frequencies, and RMSSD trajectories in the days before ER visits and major flares, with aggregate mean lines and confidence bands.
 - **UV lag analysis** (`/uv-lag`): Pearson correlation between UV dose and each symptom at lag windows of 0, 1, 2, 3, and 4 days — identifies your personal best-predicting UV-to-symptom delay.
 - **Intervention evaluation** (`/interventions`, nav label "interventions"): per-medication pre/post flare and autonomic shift analysis. Described in its own section below — it's a big enough feature to deserve one.
@@ -63,8 +63,8 @@ Enabled via `track_cycle: true` in setup. Designed for patients where steroids, 
 
 Transparent statistical scoring, tunable per-user, with 13 contributing categories:
 
-- **Environmental**: UV dose (same-day + 4-day cumulative with flattened decay), basal body temperature delta
-- **Physiological**: Physical overexertion (steps relative to personal baseline, sleep-adjusted)
+- **Environmental**: UV dose (same-day + 4-day cumulative with flattened decay)
+- **Physiological**: Physical overexertion (steps relative to personal baseline, sleep-adjusted), basal body temperature delta
 - **Symptoms**: 8 symptom categories with per-category weights, plus rheumatic joint-location parsing (major joints score higher than minor)
 - **Pain / Fatigue / Emotional**: laddered scoring (pain ≥4/5/6/7 and fatigue ≥4/5/6/7 step up in contribution — replaces the old cliff-at-7 threshold that missed function-limiting days where a single severe symptom was the whole event)
 - **Symptom burden delta**: how many more symptoms are active than your personal 14-day baseline — "symptoms accelerating above your normal" rather than raw count, so chronic daily symptoms don't drown out the signal
@@ -87,7 +87,7 @@ Transparent statistical scoring, tunable per-user, with 13 contributing categori
 
 ### Model Performance Tracking
 
-- **Major flare recall as headline metric**: function-limiting flares are the ones you can't afford to miss. Separate recall figures for major/ER, minor, and combined.
+- **Major flare recall as headline metric**: major function-limiting flares are the ones you can't afford to miss. Separate recall figures for major/ER, minor, and combined.
 - **Accuracy analysis** over 30/60/90/120/365/all day windows.
 - **Confusion matrix**: true positives, false positives, true negatives, false negatives.
 - **Full ranked missed-majors table**: every major flare the model missed, sorted by how far below threshold the score fell, with your notes and fired factors inline so you can see the context.
@@ -97,13 +97,13 @@ Transparent statistical scoring, tunable per-user, with 13 contributing categori
 
 ### Intervention Tracking & Side Effects (`/interventions`)
 
-Purpose-built clinical evaluation view: "did this medication actually help?" in stats rather than vibes.
+Purpose-built clinical evaluation view: "did this medication actually help?" in stats rather than generalizations.
 
 - **Per-medication cards**: one card for each medication flagged as primary or secondary intervention (toggle the flag in `/clinical#medications`). Shows pre/post:
     - **Flare impact**: total count, major/ER count, minor count, mean gap days, delta percentages color-coded by direction
     - **Autonomic shift**: RMSSD / SDNN / resp rate means ± SD, with n counts
 - **Matched-window analysis** for ongoing medications: if HCQ has been running 130 days, it compares the 130 days before you started to the 130 days of use — statistically honest rather than an arbitrary fixed window
-- **Fixed-window analysis** for one-time doses (dex IV, steroid injections, etc.): 30/60/90/120/all-day selector
+- **Fixed-window analysis** for one-time doses (steroid injections, IV's, etc.): 30/60/90/120/all-day selector
 - **Duration-of-effect for one-time interventions**: days to next flare per severity tier; days until each autonomic metric returned to baseline (within ±1 SD of pre-mean for 7 consecutive days)
 - **Auto-detected rebound flags**: if a one-time dose reduced flare rate initially (days 0-13 post) but rate surged back in days 14-45, an amber banner surfaces the pattern. Helpful for catching IV steroid rebounds you might miss manually.
 - **Events log per medication**: structured dated observations with types `side_effect` / `rebound` / `efficacy_change` / `dose_change` / `note`. Side effects get severity 0-10; other types skip the severity field.
@@ -112,7 +112,7 @@ Purpose-built clinical evaluation view: "did this medication actually help?" in 
 
 ### Clinical Record Management
 
-- **Lab results**: Track test results with numeric values, qualitative results, reference ranges, and flags
+- **Lab results**: Track test results with numeric values, qualitative results, reference ranges, and flags 
 - **Medications**: Full medication history with doses, frequencies, start/end dates, and primary/secondary intervention flags (the flags feed the `/interventions` view)
 - **Clinical events**: Document appointments, procedures, hospitalizations with provider and facility info
 - **Clinician directory**: Maintain contact info for your care team (specialty, clinic, network, notes)
@@ -144,8 +144,6 @@ Purpose-built clinical evaluation view: "did this medication actually help?" in 
 - **Dark mode**: Easy on the eyes, just toggle the moon/sun in the header.
 - **Light mode**: Good for when you can't make out dark mode.
 
-If you want to peek at what it looks like [see screenshots here](https://github.com/alaricmoore/sardine-track/issues/1).
-
 ## Important Disclaimers
 
 ### Not Medical Advice
@@ -162,7 +160,7 @@ Always consult qualified healthcare providers for medical decisions. This app he
 ### Privacy & Data Ethics
 
 - Your data never leaves your computer. No cloud storage, no third-party APIs for health data, no analytics, no tracking.
-- UV data comes from public weather APIs (Open-Meteo and Visual Crossing) using only your coordinates —- no personal health information is transmitted.
+- UV data comes from public weather APIs (Open-Meteo and Visual Crossing) using only your coordinates — no personal health information is transmitted.
 - You own your data. The database is a standard SQLite file you can back up, export, or delete at any time.
 - This is a single-user, local application. One instance per person, one database per instance.
 - Do not use this application to track anyone's health data without their informed consent. Don't be creepy.
