@@ -24,7 +24,7 @@ Claude Sonnet (and later Opus) helped me build it. I'm not a strong coder, I can
 
 Throughout all of this, I was in and out of doctors appointments and a few ER visits, and eventually arrived at a confirming "cool, I was right" / "fuck, why do I have to be right about this?" diagnosis. Eight months from when I started aggressively seeking treatment to confirmed diagnosis, albeit nearly 9 years from the onset of symptoms. I beat the odds, the average diagnostic delay is four to seven years *after* aggressively pursuing answers. I'm lucky. A lot of people aren't.
 
-My current diagnosis is acute cutaneous lupus erythematosus with systemic involvement, confirmed by biopsy and with woefully unremarkable serology. But autoimmune disease evolves, and we are constantly learning new things about the human body. The differential will shift. The ICD codes may change. Whether we end up calling it lupus or the Hokey Pokey Disease, getting that process *started* - having longitudinal evidence, having dates, having correlations - matters enormously for health outcomes down the road.
+My current diagnosis is acute cutaneous lupus erythematosus which is also understood to be systemic lupus erythematosus, confirmed by biopsy and with woefully unremarkable serology. But autoimmune disease evolves, and we are constantly learning new things about the human body. The differential will shift. The ICD codes may change. Whether we end up calling it lupus or the Hokey Pokey Disease, getting that process *started* - having longitudinal evidence, having dates, having correlations - matters enormously for health outcomes down the road.
 
 This tool isn't a lupus tracker necessarily, though it is designed around an evolving case of predictably photosensitive lupus. It's a tool developed to help spot patterns that may otherwise remain as hunches without quantification, the intent is you can change it to fit your case. Whatever you've got going on.
 
@@ -32,7 +32,7 @@ This tool isn't a lupus tracker necessarily, though it is designed around an evo
 
 ## Philosophy
 
-**Patients are the experts on changes in their own bodies.** You know when something is wrong, even when tests are "normal." You also probably, for the most part, know the difference between normal and "oh no this is no good now." Trust that instinct.
+**Patients are experts on changes in their own bodies.** You know when something is wrong, even when tests are "normal." You also probably, for the most part, know the difference between normal and "oh no this is no good now." Trust that instinct.
 
 **Correlation is worth investigating, even when causation isn't proven.** If UV exposure consistently precedes your symptoms, that pattern matters - regardless of whether a doctor believes you yet. Or hell, you don't believe you yet.
 
@@ -46,7 +46,7 @@ This tool isn't a lupus tracker necessarily, though it is designed around an evo
 
 ## Acknowledgments
 
-Built by C. Alaric Moore, a USPS technician, mechanic, and patient who got tired of being told that there weren't any answers or that every symptom was independent of the others.
+Built by C. Alaric Moore, a USPS technician, mechanic, and patient who got tired of being told that there weren't any answers or that every symptom was independent of the other.
 
 Assisted by Claude (Anthropic) across multiple model generations and roles. Sonnet handled the original build. Opus (nicknamed Clode) led the forecasting-model work, data analysis pipeline, and the `/interventions` rebuild. A second Claude instance (Wolf) handles statistical validation and clinical-literature cross-checking for features that could otherwise drift into confirmation bias. A third instance (Claude-Work) covers brainstorming. H/t to GitHub Copilot for closing parentheses and other surprisingly convenient features.
 
