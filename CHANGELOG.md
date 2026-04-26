@@ -20,6 +20,78 @@ Full data export and deletion
 Apple Health import
 Raspberry Pi remote access support via Tailscale
 
+> **Note:** I forgot this file existed for over a month. Entries from 2.2.0 onward were reconstructed from git history on 2026-04-26, so dates reflect when work landed but groupings are post-hoc.
+
+[2.6.0] — 2026-04-26
+Public Release Prep
+- Split narrative content out of README into WHY.md (README had gotten unwieldy)
+- Renamed user-facing surfaces: biotracking → sardinetrack
+- Renamed sardines-track → sardine-track throughout docs
+- Moved iOS sources out to separate sardinessync repo
+- Replaced public URL with `<YOUR_SERVER>` placeholder for safe sharing
+- Tightened .gitignore, dropped orphan root files (old DBs, favicons, memory dir)
+- Updated help.md, REMOTE_ACCESS.md, MODEL.md (fixed stale RMSSD drop claim, removed leftover merge conflict markers)
+
+[2.5.0] — 2026-04-19
+Autonomic View → Interventions & Side Effects
+- Completely re-did the autonomic view as an interventions and side effects view
+- Added intervention card colors
+- Rerouted url names
+- Added RMSSD instability metric (continues exploring vagal tone oscillation prior to flare hypothesis)
+- Consolidated model forecast accuracy and history under /timeline (added >> easter egg link)
+- Model charts: added respiratory, increased size
+- Fixed UV scoring and cleaned up stale metrics
+- Added extended UV-association with future symptom increase
+- Changed pain and fatigue scoring and contributing factors to account for cumulative load
+- Added RMSSD and other symptom multipliers in forecast/lab
+- Updated forecasting model to better account for UV-trigger prodrome and rebalanced flare severity scale
+
+[2.4.0] — 2026-04-05
+Mobile + Backfill
+- Added mobile bottom nav + responsive forecast and clinical views
+- Added mobile quick log and status pages (Phase 4)
+- Replaced RMSSD-only backfill with full metric backfill
+- Favicons, Flask endpoint setup
+- Fixed RMSSD calculation that was mixing timestamps across heartbeat series (2026-04-15)
+
+[2.3.0] — 2026-04-03
+Model Dashboard + MODEL.md
+- Replaced timeline with model dashboard — score attribution over time
+- Added MODEL.md as the canonical model explainer
+- Added 3-day symptom burden + RMSSD baseline deviation to flare score
+- Refactored symptom burden to baseline-relative delta
+- Added respiratory rate baseline deviation to flare score (section 12)
+- Disabled cycle_phase weight in flare score — no predictive signal in current data
+- Added sparklines to forecast breakdown + CSV score export
+- Fixed data export to include all columns; updated forecast lab manual
+- Updated help page with current model info + link to model explainer
+
+[2.2.0] — 2026-03-29
+iOS Health Sync + RMSSD
+- Added iOS health sync app + SpO2/respiratory rate support
+- Added RMSSD (parasympathetic HRV) alongside SDNN
+- Added RMSSD aggregate trajectory + flare overlays on HRV charts
+- Added health-sync API endpoint for iOS Shortcut auto-ingest (exempt from login redirect, date format validation, values rounded to 2 decimals)
+- Added iOS Shortcut instructions to remote access guide, README, and help guide
+- Added pre-flare pattern analysis page (with UV index and UV dose)
+- Added ER-visit severity, backfill with edit/delete, future date guard
+- Fixed period detection: new cycles were being absorbed into previous one
+- Extended cumulative UV to 3-day rolling sum; added supplement intervention color
+
+[2.1.1] — 2026-03-10
+Polish + Bug Fixes
+- Replaced passcode lock with full Flask-Login auth + registration + admin route
+- Added settings UI for setup options
+- Help guide with markdown-to-HTML rendering, hidden README nav, search
+- Forecast lab explainer
+- ntfy notice when no observation logged in 16 hours
+- Expanded cycle view with VAS and HRV charts; BC tracking and med analytics
+- Setup additions: DOB and ntfy fields, bad UV API connection warning
+- UV upgrades, lag/forecast updates, flare threshold bug fix
+- Weights now affect full model; apply route fixed
+- config.json.example, custom_weights.json, .gitignore cleanup, removed .venv from tracking
+- Download/delete bug fixes
+
 [2.1.0] - 2026-03-07
 Added
 
